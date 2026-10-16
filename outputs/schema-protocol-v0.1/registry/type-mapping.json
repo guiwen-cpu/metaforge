@@ -1,0 +1,592 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lcp.dev/schema/0.1/type-mapping.json",
+  "protocolVersion": "0.1",
+  "title": "FieldType 四向映射表（PostgreSQL / TypeScript / Java / 渲染组件）",
+  "description": "L3 校验器与两个生成器（gen-ts / gen-java）共用本表，是「新增一个 FieldType 必须四处齐改」里那四处中的三处（PG、TS、Java）加组件契约的标准答案。新增类型必须在 DataSchema.FieldType 枚举、本表、gen-ts、gen-java 同时更新，L3 校验会强制比对。",
+  "conventions": {
+    "storage": {
+      "column": "在实体表上建真实列。需要索引、唯一约束、外键、聚合（SUM/AVG/MAX）或范围查询时，字段必须显式声明 storage=column。",
+      "jsonb": "默认值。落在 EntityStorage.jsonbColumn（默认 ext）这一列的 JSONB 文档内，键为字段 key。零 DDL 演进，代价是不可索引（GIN 除外）与弱类型。"
+    },
+    "nullable": "所有列默认 NULL，required=true 由应用层校验，不生成 NOT NULL —— 便于灰度期新旧 Schema 共存。发布时若要求 NOT NULL 需在 PublishConfig 中显式说明。",
+    "timestamps": "created_at / updated_at / created_by / updated_by / deleted_at 由平台统一注入，业务 Schema 不得重复声明。",
+    "tenant": "tenant_id 由平台统一注入（EntityStorage.tenantColumn），并配合 PostgreSQL RLS 做兜底隔离。",
+    "softDelete": "softDelete 为 true 时 delete 语义变为置 deleted_at；唯一约束需改为「部分唯一索引 WHERE deleted_at IS NULL」。",
+    "columnType": "Field.columnType 可覆盖本表的 pg.base（如 string 改成 citext、decimal 改成 money）。覆盖时 L3 校验只检查类型族兼容性，不要求完全一致。"
+  },
+  "types": {
+    "string": {
+      "pg": {
+        "base": "varchar",
+        "length": 255,
+        "jsonb": "text",
+        "indexable": true,
+        "aggregatable": true,
+        "fullText": true
+      },
+      "ts": {
+        "type": "string"
+      },
+      "java": {
+        "type": "String",
+        "imports": []
+      },
+      "widget": {
+        "name": "x-input",
+        "listRenderer": true
+      },
+      "semantic": {
+        "intent": "短文本：姓名、编号、标题"
+      }
+    },
+    "text": {
+      "pg": {
+        "base": "text",
+        "jsonb": "text",
+        "indexable": false,
+        "aggregatable": false,
+        "fullText": true
+      },
+      "ts": {
+        "type": "string"
+      },
+      "java": {
+        "type": "String",
+        "imports": []
+      },
+      "widget": {
+        "name": "x-textarea",
+        "listRenderer": false
+      },
+      "semantic": {
+        "intent": "长文本：说明、理由、备注"
+      }
+    },
+    "richText": {
+      "pg": {
+        "base": "text",
+        "jsonb": "text",
+        "indexable": false,
+        "aggregatable": false,
+        "fullText": true
+      },
+      "ts": {
+        "type": "string",
+        "doc": "HTML 片段，渲染前必须经白名单净化"
+      },
+      "java": {
+        "type": "String",
+        "imports": []
+      },
+      "widget": {
+        "name": "x-rich-text",
+        "listRenderer": false
+      },
+      "semantic": {
+        "intent": "富文本：公告正文、制度说明"
+      }
+    },
+    "integer": {
+      "pg": {
+        "base": "integer",
+        "jsonb": "integer",
+        "indexable": true,
+        "aggregatable": true
+      },
+      "ts": {
+        "type": "number"
+      },
+      "java": {
+        "type": "Integer",
+        "imports": []
+      },
+      "widget": {
+        "name": "x-number",
+        "listRenderer": true
+      },
+      "semantic": {
+        "intent": "整数：数量、天数、排序号"
+      }
+    },
+    "decimal": {
+      "pg": {
+        "base": "numeric",
+        "precision": 18,
+        "scale": 4,
+        "jsonb": "numeric",
+        "indexable": true,
+        "aggregatable": true
+      },
+      "ts": {
+        "type": "number",
+        "doc": "金额/精度敏感场景由出码引擎替换为字符串十进制以规避浮点误差"
+      },
+      "java": {
+        "type": "BigDecimal",
+        "imports": [
+          "java.math.BigDecimal"
+        ]
+      },
+      "widget": {
+        "name": "x-number",
+        "listRenderer": true
+      },
+      "semantic": {
+        "intent": "小数：金额、工时、分数"
+      }
+    },
+    "boolean": {
+      "pg": {
+        "base": "boolean",
+        "jsonb": "boolean",
+        "indexable": true,
+        "aggregatable": false
+      },
+      "ts": {
+        "type": "boolean"
+      },
+      "java": {
+        "type": "Boolean",
+        "imports": []
+      },
+      "widget": {
+        "name": "x-switch",
+        "listRenderer": true
+      },
+      "semantic": {
+        "intent": "是/否：是否紧急、是否启用"
+      }
+    },
+    "date": {
+      "pg": {
+        "base": "date",
+        "jsonb": "text",
+        "jsonbFormat": "yyyy-MM-dd",
+        "indexable": true,
+        "aggregatable": true
+      },
+      "ts": {
+        "type": "string",
+        "format": "yyyy-MM-dd"
+      },
+      "java": {
+        "type": "LocalDate",
+        "imports": [
+          "java.time.LocalDate"
+        ],
+        "jacksonFormat": "yyyy-MM-dd"
+      },
+      "widget": {
+        "name": "x-date-picker",
+        "listRenderer": true,
+        "props": {
+          "type": "date",
+          "valueFormat": "YYYY-MM-DD"
+        }
+      },
+      "semantic": {
+        "intent": "日期：生日、入职日"
+      }
+    },
+    "datetime": {
+      "pg": {
+        "base": "timestamptz",
+        "jsonb": "text",
+        "jsonbFormat": "ISO8601",
+        "indexable": true,
+        "aggregatable": true
+      },
+      "ts": {
+        "type": "string",
+        "format": "ISO8601"
+      },
+      "java": {
+        "type": "OffsetDateTime",
+        "imports": [
+          "java.time.OffsetDateTime"
+        ],
+        "jacksonFormat": "ISO8601"
+      },
+      "widget": {
+        "name": "x-date-picker",
+        "listRenderer": true,
+        "props": {
+          "type": "datetime",
+          "valueFormat": "YYYY-MM-DDTHH:mm:ssZ"
+        }
+      },
+      "semantic": {
+        "intent": "时间点：开始时间、提交时间；一律带时区存储，展示按用户时区"
+      }
+    },
+    "time": {
+      "pg": {
+        "base": "time",
+        "jsonb": "text",
+        "jsonbFormat": "HH:mm:ss",
+        "indexable": true,
+        "aggregatable": false
+      },
+      "ts": {
+        "type": "string",
+        "format": "HH:mm:ss"
+      },
+      "java": {
+        "type": "LocalTime",
+        "imports": [
+          "java.time.LocalTime"
+        ]
+      },
+      "widget": {
+        "name": "x-date-picker",
+        "listRenderer": false,
+        "props": {
+          "type": "time",
+          "valueFormat": "HH:mm:ss"
+        }
+      },
+      "semantic": {
+        "intent": "时刻：上课时间、值班时段"
+      }
+    },
+    "json": {
+      "pg": {
+        "base": "jsonb",
+        "jsonb": "jsonb",
+        "indexable": true,
+        "indexableVia": "GIN",
+        "aggregatable": false
+      },
+      "ts": {
+        "type": "unknown"
+      },
+      "java": {
+        "type": "JsonNode",
+        "imports": [
+          "com.fasterxml.jackson.databind.JsonNode"
+        ]
+      },
+      "widget": {
+        "name": "x-json-editor",
+        "listRenderer": false
+      },
+      "semantic": {
+        "intent": "结构化扩展数据：动态问卷答案、外部系统原始报文"
+      }
+    },
+    "enum": {
+      "pg": {
+        "base": "varchar",
+        "length": 64,
+        "jsonb": "text",
+        "indexable": true,
+        "aggregatable": true
+      },
+      "ts": {
+        "type": "string",
+        "unionFromEnumRef": true
+      },
+      "java": {
+        "type": "String",
+        "imports": [],
+        "doc": "出码引擎可生成 Java enum 并在 Jackson 层做值校验；默认生成 String + @LcpEnumRef 注解"
+      },
+      "widget": {
+        "name": "x-select",
+        "listRenderer": true
+      },
+      "semantic": {
+        "intent": "枚举：状态、类型。存字符串而非 PG enum 类型，避免加值要 DDL"
+      }
+    },
+    "ref": {
+      "pg": {
+        "base": "varchar",
+        "length": 32,
+        "jsonb": "text",
+        "indexable": true,
+        "aggregatable": true
+      },
+      "ts": {
+        "type": "string",
+        "doc": "被引用实体的主键"
+      },
+      "java": {
+        "type": "String",
+        "imports": []
+      },
+      "widget": {
+        "name": "x-select",
+        "listRenderer": true,
+        "props": {
+          "remote": true
+        }
+      },
+      "semantic": {
+        "intent": "外键引用：部门 ID、员工 ID。是否生成真实 FK 约束由 Field.refConstraint 决定，默认不生成以允许软关联"
+      }
+    },
+    "file": {
+      "pg": {
+        "base": "varchar",
+        "length": 512,
+        "jsonb": "text",
+        "indexable": false,
+        "aggregatable": false
+      },
+      "ts": {
+        "type": "string",
+        "doc": "OSS objectKey；也可为 AssetRef 对象"
+      },
+      "java": {
+        "type": "String",
+        "imports": []
+      },
+      "widget": {
+        "name": "x-upload",
+        "listRenderer": false,
+        "props": {
+          "kind": "document",
+          "multiple": true
+        }
+      },
+      "semantic": {
+        "intent": "办公文档：pdf/docx/xlsx/pptx"
+      }
+    },
+    "image": {
+      "pg": {
+        "base": "varchar",
+        "length": 512,
+        "jsonb": "text",
+        "indexable": false,
+        "aggregatable": false
+      },
+      "ts": {
+        "type": "string"
+      },
+      "java": {
+        "type": "String",
+        "imports": []
+      },
+      "widget": {
+        "name": "x-upload",
+        "listRenderer": false,
+        "props": {
+          "kind": "image",
+          "multiple": true,
+          "listType": "picture-card"
+        }
+      },
+      "semantic": {
+        "intent": "图片：证件照、诊断证明。缩略图走 OSS 图片处理参数，不落本地"
+      }
+    },
+    "video": {
+      "pg": {
+        "base": "varchar",
+        "length": 512,
+        "jsonb": "text",
+        "indexable": false,
+        "aggregatable": false
+      },
+      "ts": {
+        "type": "string"
+      },
+      "java": {
+        "type": "String",
+        "imports": []
+      },
+      "widget": {
+        "name": "x-upload",
+        "listRenderer": false,
+        "props": {
+          "kind": "video",
+          "multiple": false,
+          "listType": "text"
+        }
+      },
+      "semantic": {
+        "intent": "视频：赛事证明。必须校验时长与大小，播放走 OSS 签名 URL"
+      }
+    },
+    "array": {
+      "pg": {
+        "base": "jsonb",
+        "jsonb": "jsonb",
+        "indexable": true,
+        "indexableVia": "GIN",
+        "aggregatable": false
+      },
+      "ts": {
+        "type": "T[]",
+        "doc": "元素类型由 Field.itemType 决定"
+      },
+      "java": {
+        "type": "List<T>",
+        "imports": [
+          "java.util.List"
+        ],
+        "doc": "元素类型由 Field.itemType 决定"
+      },
+      "widget": {
+        "name": "x-checkbox-group",
+        "listRenderer": false,
+        "resolveVia": "itemType"
+      },
+      "semantic": {
+        "intent": "数组：多附件、多标签、多选项。元素为 image/file 时控件解析会下钻到 itemType"
+      }
+    },
+    "signature": {
+      "pg": {
+        "base": "varchar",
+        "length": 512,
+        "jsonb": "text",
+        "indexable": false,
+        "aggregatable": false
+      },
+      "ts": {
+        "type": "string"
+      },
+      "java": {
+        "type": "String",
+        "imports": []
+      },
+      "widget": {
+        "name": "x-signature",
+        "listRenderer": false
+      },
+      "semantic": {
+        "intent": "手写签名：存 OSS 上的 PNG objectKey，不存 base64"
+      }
+    },
+    "location": {
+      "pg": {
+        "base": "jsonb",
+        "jsonb": "jsonb",
+        "indexable": true,
+        "indexableVia": "GIN",
+        "aggregatable": false
+      },
+      "ts": {
+        "type": "{ lng: number; lat: number; address?: string; name?: string }"
+      },
+      "java": {
+        "type": "JsonNode",
+        "imports": [
+          "com.fasterxml.jackson.databind.JsonNode"
+        ]
+      },
+      "widget": {
+        "name": "x-location",
+        "listRenderer": false
+      },
+      "semantic": {
+        "intent": "地理位置：定位打卡、场地。需要地理检索时由出码引擎改为 PostGIS geometry"
+      }
+    },
+    "formula": {
+      "pg": {
+        "base": null,
+        "stored": false,
+        "jsonb": null,
+        "indexable": false,
+        "aggregatable": false,
+        "note": "派生字段：默认不落库，由运行时按 Field.formula 计算；若声明 storage=column 且 EntityStorage.generatedColumns=true，出码引擎生成 GENERATED ALWAYS AS ... STORED 列"
+      },
+      "ts": {
+        "type": "unknown",
+        "readonly": true,
+        "doc": "类型由 formula 表达式推断"
+      },
+      "java": {
+        "type": "Object",
+        "imports": [],
+        "transient": true
+      },
+      "widget": {
+        "name": "x-text",
+        "listRenderer": true,
+        "props": {
+          "readonly": true
+        }
+      },
+      "semantic": {
+        "intent": "计算字段：金额小计、工作日天数（简单场景；复杂算法仍应用 CodeStep）"
+      }
+    }
+  },
+  "arrayItemWidgets": {
+    "description": "Field.type=array 时按 itemType.type 下钻解析控件（fieldBindingRule 第 ③ 步）。此处只列出与「整体数组」控件不同的特例。",
+    "image": {
+      "widget": "x-upload",
+      "props": {
+        "kind": "image",
+        "multiple": true,
+        "listType": "picture-card"
+      }
+    },
+    "video": {
+      "widget": "x-upload",
+      "props": {
+        "kind": "video",
+        "multiple": true,
+        "listType": "text"
+      }
+    },
+    "file": {
+      "widget": "x-upload",
+      "props": {
+        "kind": "document",
+        "multiple": true,
+        "listType": "text"
+      }
+    },
+    "enum": {
+      "widget": "x-checkbox-group"
+    },
+    "ref": {
+      "widget": "x-select",
+      "props": {
+        "multiple": true
+      }
+    },
+    "string": {
+      "widget": "x-checkbox-group",
+      "planned": "x-tag-input"
+    },
+    "integer": {
+      "widget": "x-number",
+      "props": {
+        "multiple": true
+      }
+    }
+  },
+  "sqlTypeRules": {
+    "description": "L3 校验用：把 Field 上的 length / precision / scale 展开成完整 PG 类型串",
+    "varchar": "varchar(${length})",
+    "numeric": "numeric(${precision},${scale})",
+    "timestamptz": "timestamptz",
+    "date": "date",
+    "time": "time",
+    "boolean": "boolean",
+    "integer": "integer",
+    "text": "text",
+    "jsonb": "jsonb"
+  },
+  "generatorHints": {
+    "ts": {
+      "enumUnion": "enum 字段在有 enumRef 时生成字符串字面量联合类型，否则生成 string",
+      "nullable": "required 为 true 且无 defaultValue 的字段生成非可选属性，其余生成 `?: T | null`",
+      "output": "ts/types.ts（仅类型）+ ts/guards.ts（运行时类型守卫，供沙箱与 BFF 校验复用）"
+    },
+    "java": {
+      "output": "java/dto/*.java（Jackson DTO）+ java/enums/*.java",
+      "style": "Lombok 不可用时生成显式 getter/setter；字段名 camelCase，列名 snake_case 由 @JsonProperty 桥接",
+      "validation": "required -> @NotNull，length -> @Size，pattern -> @Pattern，enumRef -> 自定义 @LcpEnumRef",
+      "jsonbFields": "storage=jsonb 的字段在 Java DTO 上仍是一等属性，由 BffJsonbMapper 在 DAO 层读写 ext 列，业务代码无感"
+    }
+  }
+}

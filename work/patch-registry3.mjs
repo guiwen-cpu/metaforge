@@ -1,0 +1,10 @@
+import fs from "node:fs";
+const P = "outputs/schema-protocol-v0.1/schema/expression-registry.json";
+const r = JSON.parse(fs.readFileSync(P, "utf8"));
+const page = r.valueRoots.find(v => v.name === "$page");
+page.desc = "当前页面上下文。state 暴露 UISchema.state 声明的状态变量（读用 $page.state.x；写用 AssignStep.target 的相对路径 state.x）";
+page.fields = { id: "string", key: "string", params: "object", query: "object", state: "object" };
+r.statePathConvention = "状态读写路径约定：表达式读取统一带 $ 前缀根（$page.state.x / $form.x / $row.x）；AssignStep.target 写相对路径（state.x / form.x / row.x / vars.x）。两侧由同一份路径解析器实现，前端与 BFF 行为一致。";
+r.pageHandlerConvention = "页面级 handlers 的键是页面生命周期事件（onLoad / onParamsChange / onError / onUnmount / onBeforeLeave），不是业务动作；节点级 handlers 的键是该组件 EventDef 声明的事件名；可复用的业务逻辑一律沉淀为 LogicSchema.actions 并用 HandlerRef.actionRef 引用。";
+fs.writeFileSync(P, JSON.stringify(r, null, 2) + "\n", "utf8");
+console.log("registry conventions added");

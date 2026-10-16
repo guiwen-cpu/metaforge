@@ -1,0 +1,3115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lcp.dev/schema/0.1/logic.schema.json",
+  "title": "LCP Protocol v0.1 / LogicSchema",
+  "description": "逻辑与流程契约：动作编排、API 编排、Flowable 流程绑定、业务规则。所有步骤共享同一套错误处理与作用域语义，保证「一个解释器」。",
+  "type": "object",
+  "properties": {
+    "logicSchema": {
+      "$ref": "#/$defs/LogicSchema"
+    }
+  },
+  "required": [
+    "logicSchema"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Id": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Id"
+    },
+    "Key": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+    },
+    "Name": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Name"
+    },
+    "Text": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+    },
+    "Description": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Description"
+    },
+    "Scope": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Scope"
+    },
+    "Version": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Version"
+    },
+    "Expr": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr"
+    },
+    "Value": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+    },
+    "Access": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Access"
+    },
+    "Semantic": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+    },
+    "ArtifactRef": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef"
+    },
+    "AssetRef": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/AssetRef"
+    },
+    "LogicSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "key": {
+          "$ref": "#/$defs/Key"
+        },
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "version": {
+          "$ref": "#/$defs/Version"
+        },
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Action"
+          }
+        },
+        "apis": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Api"
+          }
+        },
+        "flows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Flow"
+          }
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Rule"
+          }
+        },
+        "access": {
+          "$ref": "#/$defs/Access"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "name",
+        "version"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "Action": {
+      "type": "object",
+      "description": "具名动作，可被页面、组件事件、流程监听器、其他动作复用。步骤串行执行，任一步失败即中断冒泡（除非该步声明 continueOnError 或 onError）。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "key": {
+          "$ref": "#/$defs/Key"
+        },
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "trigger": {
+          "enum": [
+            "manual",
+            "onLoad",
+            "onSubmit",
+            "onApprove",
+            "onReject",
+            "onSchedule",
+            "onWebhook",
+            "onEntityChange"
+          ],
+          "default": "manual"
+        },
+        "params": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ActionParam"
+          }
+        },
+        "when": {
+          "$ref": "#/$defs/Expr",
+          "description": "前置条件，为假则整体跳过（不视为错误）"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "transaction": {
+          "type": "boolean",
+          "default": false,
+          "description": "整个动作包裹在数据库事务内。含外部 HTTP 调用时开启会长时间持锁，L4 校验告警"
+        },
+        "idempotent": {
+          "type": "boolean",
+          "default": true,
+          "description": "为真时运行时按幂等键（动作 key + 关键入参哈希）去重，防重复点击提交"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "default": 30000
+        },
+        "access": {
+          "$ref": "#/$defs/Access"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "name",
+        "steps"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "ActionParam": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/Ident"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "datetime",
+            "json",
+            "array",
+            "file"
+          ]
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "defaultValue": {
+          "$ref": "#/$defs/Value"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "key",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "Step": {
+      "description": "步骤联合类型。每个分支内联公共字段（见各变体首行的「序言」），刻意不用 allOf 组合 —— allOf 与 additionalProperties:false 同用会误拒另一分支的属性，这是 JSON Schema 最常见的坑。",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ValidateStep"
+        },
+        {
+          "$ref": "#/$defs/AssignStep"
+        },
+        {
+          "$ref": "#/$defs/ApiCallStep"
+        },
+        {
+          "$ref": "#/$defs/OpenDialogStep"
+        },
+        {
+          "$ref": "#/$defs/CloseDialogStep"
+        },
+        {
+          "$ref": "#/$defs/ConfirmStep"
+        },
+        {
+          "$ref": "#/$defs/BranchStep"
+        },
+        {
+          "$ref": "#/$defs/LoopStep"
+        },
+        {
+          "$ref": "#/$defs/ParallelStep"
+        },
+        {
+          "$ref": "#/$defs/CallActionStep"
+        },
+        {
+          "$ref": "#/$defs/CodeStep"
+        },
+        {
+          "$ref": "#/$defs/UploadStep"
+        },
+        {
+          "$ref": "#/$defs/DownloadStep"
+        },
+        {
+          "$ref": "#/$defs/StartFlowStep"
+        },
+        {
+          "$ref": "#/$defs/CompleteTaskStep"
+        },
+        {
+          "$ref": "#/$defs/PrintStep"
+        },
+        {
+          "$ref": "#/$defs/TransactionStep"
+        },
+        {
+          "$ref": "#/$defs/DelayStep"
+        },
+        {
+          "$ref": "#/$defs/EmitStep"
+        },
+        {
+          "$ref": "#/$defs/LogStep"
+        },
+        {
+          "$ref": "#/$defs/CustomStep"
+        },
+        {
+          "$ref": "#/$defs/FailStep"
+        },
+        {
+          "$ref": "#/$defs/NavigateStep"
+        }
+      ]
+    },
+    "ValidateStep": {
+      "type": "object",
+      "description": "触发表单/实体校验。校验规则来自实体字段的 validators 与组件契约，动作层不重复定义规则。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "validate"
+        },
+        "scope": {
+          "enum": [
+            "form",
+            "entity",
+            "allForms"
+          ],
+          "default": "form"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ident"
+          },
+          "description": "关联字段列表。既可能是实体字段（snake_case），也可能是动作/页面参数（camelCase），前端按同名表单项标红，故用 Ident 而不是 Key。"
+        },
+        "server": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否同时提交服务端校验（唯一性等只能服务端判定）"
+        },
+        "message": {
+          "$ref": "#/$defs/Expr",
+          "description": "校验失败提示。运行时文案统一走表达式（$lit 纯文案 / $tpl 拼接 / $if 分支），静态标签才用 Text。与 FailStep.message 同一套规则。"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "AssignStep": {
+      "type": "object",
+      "description": "赋值。target 仅允许 $form / $page / $data / $ctx 四类可写作用域，其他作用域由 L2 校验拒绝。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "assign"
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^(state|form|row|rows|vars)(\\.[A-Za-z0-9_\\[\\]-]+)+$",
+          "description": "写入目标，相对路径。state/form/row/rows/vars 五类前缀，与表达式读取侧的 $page.state / $form / $row / $ctx.vars 一一对应。"
+        },
+        "value": {
+          "$ref": "#/$defs/Expr"
+        },
+        "merge": {
+          "type": "boolean",
+          "default": false,
+          "description": "对象浅合并而非整体替换"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "target",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "ApiCallStep": {
+      "type": "object",
+      "description": "调用已编排的 API（含第三方集成）。不在动作内内联 URL，强行走 Api 工件 —— 便于鉴权集中、限流、留痕、Mock。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "apiCall"
+        },
+        "apiRef": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Value"
+          }
+        },
+        "assignTo": {
+          "type": "string",
+          "description": "响应写入目标，如 $data.dsX 或 $form"
+        },
+        "resultPath": {
+          "type": "string",
+          "description": "只取响应中某条路径写入 assignTo"
+        },
+        "confirmToast": {
+          "$ref": "#/$defs/Text"
+        },
+        "retry": {
+          "type": "object",
+          "properties": {
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "backoff": {
+              "enum": [
+                "none",
+                "linear",
+                "exponential"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "apiRef"
+      ],
+      "additionalProperties": false
+    },
+    "OpenDialogStep": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "openDialog"
+        },
+        "dialogKey": {
+          "type": "string",
+          "description": "对应 UISchema.dialogs 的键"
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "width": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "dialog",
+            "drawer",
+            "modal"
+          ],
+          "default": "dialog"
+        },
+        "data": {
+          "$ref": "#/$defs/Expr",
+          "description": "传入弹窗的初始数据，弹窗内以 $ctx.dialogData 引用"
+        },
+        "await": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否等待弹窗关闭后再继续后续步骤"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "dialogKey"
+      ],
+      "additionalProperties": false
+    },
+    "CloseDialogStep": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "closeDialog"
+        },
+        "dialogKey": {
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/Value",
+          "description": "回传给 await 方的结果"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "ConfirmStep": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "confirm"
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "message": {
+          "$ref": "#/$defs/Expr"
+        },
+        "danger": {
+          "type": "boolean",
+          "default": false
+        },
+        "confirmText": {
+          "$ref": "#/$defs/Text"
+        },
+        "cancelText": {
+          "$ref": "#/$defs/Text"
+        },
+        "onConfirm": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "onCancel": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "reasonRequired": {
+          "type": "boolean",
+          "default": false,
+          "description": "要求填写原因并写入 $ctx.reason。审批驳回场景必备"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "BranchStep": {
+      "type": "object",
+      "description": "条件分支。cases 按序求值，首个为真者执行；全为假则执行 else。等价 if/else-if/else 链，且分支名会进入运行时诊断与埋点。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "branch"
+        },
+        "cases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "when": {
+                "$ref": "#/$defs/Expr"
+              },
+              "then": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/Step"
+                }
+              }
+            },
+            "required": [
+              "when",
+              "then"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "else": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "cases"
+      ],
+      "additionalProperties": false
+    },
+    "LoopStep": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "loop"
+        },
+        "over": {
+          "$ref": "#/$defs/Expr"
+        },
+        "itemName": {
+          "type": "string",
+          "default": "item"
+        },
+        "indexName": {
+          "type": "string",
+          "default": "index"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 1
+        },
+        "maxIterations": {
+          "type": "integer",
+          "default": 1000,
+          "description": "硬性上限，防止死循环打爆运行时"
+        },
+        "breakWhen": {
+          "$ref": "#/$defs/Expr"
+        },
+        "collect": {
+          "type": "string",
+          "description": "把每轮结果收集到该路径，如 $page.state.results"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "over",
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "ParallelStep": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "parallel"
+        },
+        "branches": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "steps": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/Step"
+                }
+              }
+            },
+            "required": [
+              "name",
+              "steps"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "failFast": {
+          "type": "boolean",
+          "default": true
+        },
+        "timeoutMs": {
+          "type": "integer"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "branches"
+      ],
+      "additionalProperties": false
+    },
+    "CallActionStep": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "callAction"
+        },
+        "actionRef": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Value"
+          }
+        },
+        "assignTo": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "actionRef"
+      ],
+      "additionalProperties": false
+    },
+    "CodeStep": {
+      "type": "object",
+      "description": "代码扩展点。强制声明 inputs/outputs —— 既是沙箱契约，也是 AI 生成与人工审查的边界。ts 在沙箱 iframe/Worker 内执行，java 在服务端受限类加载器内执行。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "code"
+        },
+        "lang": {
+          "enum": [
+            "ts",
+            "java"
+          ],
+          "default": "ts"
+        },
+        "runtime": {
+          "enum": [
+            "browser",
+            "server"
+          ],
+          "default": "browser"
+        },
+        "source": {
+          "type": "string",
+          "description": "源码，必须导出默认函数 (input) => output"
+        },
+        "entry": {
+          "type": "string",
+          "default": "default"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "$ref": "#/$defs/Ident"
+              },
+              "type": {
+                "type": "string"
+              },
+              "value": {
+                "$ref": "#/$defs/Expr"
+              }
+            },
+            "required": [
+              "key",
+              "type"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "$ref": "#/$defs/Ident"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "type"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "assignTo": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "default": 3000,
+          "maximum": 60000
+        },
+        "sandbox": {
+          "$ref": "#/$defs/SandboxPolicy"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "source",
+        "inputs",
+        "outputs"
+      ],
+      "additionalProperties": false
+    },
+    "SandboxPolicy": {
+      "type": "object",
+      "description": "沙箱能力白名单，默认全拒 —— 需要什么显式开什么。自定义组件与自定义代码共用同一套策略模型（C/D 项落地）。",
+      "properties": {
+        "network": {
+          "type": "boolean",
+          "default": false,
+          "description": "允许 fetch/XHR；为真时必须同时声明 allowedHosts"
+        },
+        "allowedHosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "域名白名单，支持 *.example.com"
+        },
+        "storage": {
+          "type": "boolean",
+          "default": false,
+          "description": "允许 localStorage/sessionStorage"
+        },
+        "dom": {
+          "type": "boolean",
+          "default": false,
+          "description": "允许访问宿主 DOM；沙箱组件默认 false"
+        },
+        "cookies": {
+          "type": "boolean",
+          "default": false
+        },
+        "clipboard": {
+          "type": "boolean",
+          "default": false
+        },
+        "navigation": {
+          "type": "boolean",
+          "default": false
+        },
+        "allowedModules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "允许 import 的模块白名单，如 ['lodash-es','dayjs']"
+        },
+        "allowEval": {
+          "type": "boolean",
+          "default": false
+        },
+        "memoryLimitMb": {
+          "type": "integer",
+          "default": 64
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false
+    },
+    "UploadStep": {
+      "type": "object",
+      "description": "文件上传。provider=oss 时服务端只签发 STS 临时凭证，文件由客户端直传 OSS，服务端收回调登记元数据 —— 不让文件流经 BFF。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "upload"
+        },
+        "provider": {
+          "enum": [
+            "oss",
+            "local"
+          ],
+          "default": "oss"
+        },
+        "accept": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "maxSize": {
+          "type": "integer"
+        },
+        "maxCount": {
+          "type": "integer",
+          "default": 1
+        },
+        "multiple": {
+          "type": "boolean",
+          "default": false
+        },
+        "pathTemplate": {
+          "type": "string",
+          "default": "{tenant}/{app}/{entity}/{yyyy}/{MM}/{ulid}.{ext}"
+        },
+        "assignTo": {
+          "type": "string"
+        },
+        "autoUpload": {
+          "type": "boolean",
+          "default": true
+        },
+        "registerEntity": {
+          "$ref": "#/$defs/ArtifactRef",
+          "description": "上传完成后写入的附件实体，用于统一附件管理"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "assignTo"
+      ],
+      "additionalProperties": false
+    },
+    "DownloadStep": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "download"
+        },
+        "url": {
+          "$ref": "#/$defs/Expr"
+        },
+        "fileName": {
+          "$ref": "#/$defs/Expr"
+        },
+        "assetRef": {
+          "$ref": "#/$defs/AssetRef"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "url"
+          ]
+        },
+        {
+          "required": [
+            "assetRef"
+          ]
+        }
+      ],
+      "additionalProperties": false
+    },
+    "StartFlowStep": {
+      "type": "object",
+      "description": "发起审批流。variables 是业务字段到流程变量的显式映射 —— 流程变量集合属于流程版本，改流程不影响业务表结构。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "startFlow"
+        },
+        "flowRef": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "businessKey": {
+          "$ref": "#/$defs/Expr",
+          "description": "业务主键，使 Flowable 实例与业务单据可双向定位"
+        },
+        "variables": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Value"
+          }
+        },
+        "assignTo": {
+          "type": "string",
+          "description": "把 processInstanceId 写入该路径"
+        },
+        "notify": {
+          "$ref": "#/$defs/Text"
+        },
+        "checkDuplicate": {
+          "type": "boolean",
+          "default": true,
+          "description": "同一 businessKey 存在运行中实例时拒绝重复发起"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "flowRef",
+        "businessKey"
+      ],
+      "additionalProperties": false
+    },
+    "CompleteTaskStep": {
+      "type": "object",
+      "description": "完成当前审批任务。outcome 映射到 BPMN 出线条件（网关的 condition 表达式），因此流程分支与页面按钮天然一致。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "completeTask"
+        },
+        "taskId": {
+          "$ref": "#/$defs/Expr"
+        },
+        "outcome": {
+          "enum": [
+            "approve",
+            "reject",
+            "return",
+            "transfer",
+            "addSign",
+            "custom"
+          ]
+        },
+        "outcomeKey": {
+          "type": "string",
+          "description": "outcome=custom 时的自定义变量值"
+        },
+        "comment": {
+          "$ref": "#/$defs/Expr"
+        },
+        "commentRequired": {
+          "type": "boolean",
+          "default": false
+        },
+        "variables": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Value"
+          }
+        },
+        "nextAssignee": {
+          "$ref": "#/$defs/AssigneeSpec"
+        },
+        "afterComplete": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "outcome"
+      ],
+      "additionalProperties": false
+    },
+    "AssigneeSpec": {
+      "type": "object",
+      "description": "人员选择。设计器据此渲染人员选择器，运行时解析为 Flowable 的用户/组 ID。",
+      "properties": {
+        "type": {
+          "enum": [
+            "user",
+            "role",
+            "dept",
+            "deptLeader",
+            "roleInDept",
+            "initiator",
+            "initiatorLeader",
+            "expression",
+            "formField"
+          ]
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expr": {
+          "$ref": "#/$defs/Expr"
+        },
+        "formField": {
+          "$ref": "#/$defs/Key"
+        },
+        "level": {
+          "type": "integer",
+          "description": "向上取 N 级主管：1=直属主管，2=隔级主管"
+        },
+        "strategy": {
+          "enum": [
+            "any",
+            "all",
+            "sequential",
+            "voteMajority",
+            "voteRatio"
+          ],
+          "default": "any",
+          "description": "多候选人时的会签策略"
+        },
+        "voteRatio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "PrintStep": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "print"
+        },
+        "templateRef": {
+          "$ref": "#/$defs/ArtifactRef",
+          "description": "打印模板（Word/Excel 套红模板）"
+        },
+        "data": {
+          "description": "模板变量绑定。可整体用一个表达式算出对象，也可写「变量名 -> 表达式」映射。两个分支靠键名不重叠而互斥：表达式头键是 $ 开头，映射键必须匹配标识符。",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Expr"
+            },
+            {
+              "type": "object",
+              "patternProperties": {
+                "^[A-Za-z_][A-Za-z0-9_]*$": {
+                  "$ref": "#/$defs/Expr"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "mode": {
+          "enum": [
+            "preview",
+            "print",
+            "exportPdf"
+          ],
+          "default": "preview"
+        },
+        "assignTo": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "TransactionStep": {
+      "type": "object",
+      "description": "显式事务块。嵌套在已开启事务的动作内时会被 L4 校验拒绝。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "transaction"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "isolation": {
+          "enum": [
+            "readCommitted",
+            "repeatableRead",
+            "serializable"
+          ],
+          "default": "readCommitted"
+        },
+        "readOnly": {
+          "type": "boolean",
+          "default": false
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "DelayStep": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "delay"
+        },
+        "ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "until": {
+          "$ref": "#/$defs/Expr"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "EmitStep": {
+      "type": "object",
+      "description": "发出领域事件，供集成层与异步消费者订阅。这是「业务逻辑」与「集成能力」的解耦点。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "emit"
+        },
+        "event": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(?:[.:][A-Za-z0-9_]+)+$",
+          "description": "事件名。业务事件用点分层（leave.approved），平台事件用冒号分层（ds:<dataSourceId>:refresh、page:<pageKey>:<action>）。"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Value"
+          }
+        },
+        "sync": {
+          "type": "boolean",
+          "default": false,
+          "description": "为真则等待订阅者完成；慎用，会把外部故障引入主链路"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "event"
+      ],
+      "additionalProperties": false
+    },
+    "LogStep": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "log"
+        },
+        "level": {
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "default": "info"
+        },
+        "message": {
+          "$ref": "#/$defs/Expr"
+        },
+        "data": {
+          "$ref": "#/$defs/Value"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "FailStep": {
+      "type": "object",
+      "description": "主动中断并抛出业务错误。校验不通过、守卫失败、批量操作需短路时使用。前端表现为表单/页面报错（fields 决定标红位置），后端表现为 BusinessException 并回滚当前事务（rollback=false 为仅告警）。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "fail"
+        },
+        "level": {
+          "enum": [
+            "info",
+            "warning",
+            "error",
+            "fatal"
+          ],
+          "default": "error"
+        },
+        "message": {
+          "$ref": "#/$defs/Expr"
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+          "description": "机器可读错误码，如 LEAVE_PROOF_REQUIRED；前端据此做 i18n 与埋点，不解析 message 文本"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ident"
+          },
+          "description": "关联字段列表。既可能是实体字段（snake_case），也可能是动作/页面参数（camelCase），前端按同名表单项标红，故用 Ident 而不是 Key。"
+        },
+        "rollback": {
+          "type": "boolean",
+          "default": true,
+          "description": "后端是否回滚当前事务；前端忽略此字段"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "NavigateStep": {
+      "type": "object",
+      "description": "页面跳转。优先用 pageRef 而不是硬编码路径 —— 路径属于页面版本，改路由时不应全库搜字符串。表单提交成功回列表、审批完成后跳待办、登录失效回登录页都走这一步。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "navigate"
+        },
+        "to": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/Expr"
+            }
+          ],
+          "description": "目标路径，支持 :param 占位（如 /leave/requests/:id）与外部 URL"
+        },
+        "pageRef": {
+          "$ref": "#/$defs/ArtifactRef",
+          "description": "按页面引用跳转，实际路径由 UISchema.route.path 推导"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Value"
+          }
+        },
+        "query": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Value"
+          }
+        },
+        "replace": {
+          "type": "boolean",
+          "default": false
+        },
+        "target": {
+          "enum": [
+            "self",
+            "blank"
+          ],
+          "default": "self"
+        },
+        "back": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "回退层数。与 to / pageRef 三者互斥"
+        },
+        "closeCurrent": {
+          "type": "boolean",
+          "default": false,
+          "description": "跳转后关闭当前页签（多页签布局下使用）"
+        },
+        "confirmLeave": {
+          "$ref": "#/$defs/Expr",
+          "description": "返回非空文案时弹出离开确认，用于未保存表单拦截"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "to"
+          ]
+        },
+        {
+          "required": [
+            "pageRef"
+          ]
+        },
+        {
+          "required": [
+            "back"
+          ]
+        }
+      ],
+      "additionalProperties": false
+    },
+    "CustomStep": {
+      "type": "object",
+      "description": "平台注册的扩展点。与 code 步骤的区别：custom 引用平台已审核通过的处理器，可在沙箱外运行、可用平台内部服务。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "type": {
+          "const": "custom"
+        },
+        "handler": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9._-]{2,63}$",
+          "description": "处理器标识，如 edu.generateStudentNo"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Value"
+          }
+        },
+        "assignTo": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "handler"
+      ],
+      "additionalProperties": false
+    },
+    "Api": {
+      "type": "object",
+      "description": "API 编排工件。所有对外/对内调用都声明在这里，动作只引用 —— 使鉴权、限流、重试、留痕、Mock 有单一收口点。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "key": {
+          "$ref": "#/$defs/Key"
+        },
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "kind": {
+          "enum": [
+            "rest",
+            "graphql",
+            "soap",
+            "database",
+            "internal"
+          ],
+          "default": "rest"
+        },
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "QUERY",
+            "MUTATION"
+          ],
+          "default": "GET"
+        },
+        "path": {
+          "type": "string",
+          "description": "相对路径，支持 :id 占位，如 /students/:id"
+        },
+        "baseUrl": {
+          "type": "string",
+          "description": "绝对地址；内部 API 缺省走 BFF 网关"
+        },
+        "connectionRef": {
+          "$ref": "#/$defs/ArtifactRef",
+          "description": "引用集成连接（第三方服务的凭证与超时配置），避免把密钥写进 Schema"
+        },
+        "auth": {
+          "$ref": "#/$defs/ApiAuth"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "default": 10000
+        },
+        "retry": {
+          "type": "object",
+          "properties": {
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "backoff": {
+              "enum": [
+                "none",
+                "linear",
+                "exponential"
+              ]
+            },
+            "retryOn": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "cache": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "ttl": {
+              "type": "integer"
+            },
+            "keyExpr": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "additionalProperties": false
+        },
+        "rateLimit": {
+          "type": "object",
+          "properties": {
+            "qps": {
+              "type": "number"
+            },
+            "burst": {
+              "type": "integer"
+            },
+            "scope": {
+              "enum": [
+                "tenant",
+                "app",
+                "global"
+              ],
+              "default": "tenant"
+            }
+          },
+          "additionalProperties": false
+        },
+        "request": {
+          "$ref": "#/$defs/ApiRequest"
+        },
+        "response": {
+          "$ref": "#/$defs/ApiResponse"
+        },
+        "before": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "description": "请求前编排：取 token、算签名、拼参"
+        },
+        "after": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "description": "响应后编排：落库、转换、发事件"
+        },
+        "mock": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "data": {
+              "$ref": "#/$defs/Value"
+            },
+            "delayMs": {
+              "type": "integer",
+              "default": 0
+            },
+            "errorRate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "idempotent": {
+          "type": "boolean",
+          "default": false
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "access": {
+          "$ref": "#/$defs/Access"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "name",
+        "method",
+        "path"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "ApiAuth": {
+      "description": "鉴权方式。凭证一律以引用形式声明（secretRef），实际值存于平台密钥库并按租户隔离，绝不落进 Schema。",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "none"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "tenant"
+            },
+            "headerName": {
+              "type": "string",
+              "default": "X-Tenant-Id"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "bearer"
+            },
+            "tokenRef": {
+              "type": "string"
+            },
+            "tokenUrl": {
+              "type": "string"
+            },
+            "refreshBeforeSec": {
+              "type": "integer",
+              "default": 60
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "apiKey"
+            },
+            "name": {
+              "type": "string"
+            },
+            "in": {
+              "enum": [
+                "header",
+                "query"
+              ]
+            },
+            "valueRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name",
+            "in",
+            "valueRef"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "basic"
+            },
+            "usernameRef": {
+              "type": "string"
+            },
+            "passwordRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "usernameRef",
+            "passwordRef"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "oauth2"
+            },
+            "grant": {
+              "enum": [
+                "clientCredentials",
+                "authorizationCode",
+                "password"
+              ]
+            },
+            "provider": {
+              "type": "string"
+            },
+            "scopes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "tokenRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "grant"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "signature"
+            },
+            "algorithm": {
+              "enum": [
+                "hmacSha256",
+                "md5"
+              ]
+            },
+            "secretRef": {
+              "type": "string"
+            },
+            "template": {
+              "type": "string",
+              "description": "待签名串模板，如 {method}\\n{path}\\n{timestamp}"
+            },
+            "headerName": {
+              "type": "string",
+              "default": "X-Signature"
+            }
+          },
+          "required": [
+            "type",
+            "algorithm",
+            "secretRef"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ApiRequest": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ApiParam"
+          }
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ApiParam"
+          }
+        },
+        "headers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HttpHeader"
+          }
+        },
+        "body": {
+          "type": "object",
+          "properties": {
+            "contentType": {
+              "enum": [
+                "application/json",
+                "application/x-www-form-urlencoded",
+                "multipart/form-data",
+                "text/plain",
+                "application/xml"
+              ],
+              "default": "application/json"
+            },
+            "schema": {
+              "description": "请求体结构（JSON Schema 片段或类型描述），用于设计器渲染与 AI 提示"
+            },
+            "mapping": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/Expr"
+              },
+              "description": "出参映射：目标字段 -> 表达式"
+            },
+            "raw": {
+              "$ref": "#/$defs/Expr",
+              "description": "整体表达式构造请求体，与 mapping 二选一"
+            }
+          },
+          "additionalProperties": false
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ApiParam": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/Ident"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "datetime",
+            "json",
+            "array",
+            "file",
+            "binary"
+          ]
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "defaultValue": {
+          "$ref": "#/$defs/Value"
+        },
+        "source": {
+          "$ref": "#/$defs/Expr",
+          "description": "取值来源；缺省取同名入参"
+        },
+        "test": {
+          "$ref": "#/$defs/Value",
+          "description": "联调示例值"
+        },
+        "description": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "key",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "ApiResponse": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "description": "响应结构描述，供设计器做字段联想与出码生成 TS 类型"
+        },
+        "mapping": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/JsonPath"
+              },
+              {
+                "$ref": "#/$defs/Expr"
+              }
+            ]
+          },
+          "description": "出参映射：目标字段 -> 响应体内的 JSONPath（如 $.data.id）或表达式。JSONPath 用于直取，表达式用于改名/拼接/兜底。"
+        },
+        "successWhen": {
+          "$ref": "#/$defs/Expr",
+          "description": "判定成功的表达式；缺省按 HTTP 2xx 与平台统一响应码"
+        },
+        "rowsPath": {
+          "$ref": "#/$defs/JsonPath",
+          "description": "列表数据的路径，如 $.data.rows"
+        },
+        "totalPath": {
+          "$ref": "#/$defs/JsonPath",
+          "description": "总数所在的路径，如 $.data.total"
+        },
+        "errorPath": {
+          "$ref": "#/$defs/JsonPath",
+          "description": "错误码/错误标记所在的路径"
+        },
+        "errorMessagePath": {
+          "$ref": "#/$defs/JsonPath",
+          "description": "错误文案所在的路径，用于直接提示用户"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Flow": {
+      "type": "object",
+      "description": "审批流绑定。BPMN XML 作为独立资产版本化（bpmnRef），LogicSchema 只声明 processKey 与业务字段到流程变量的映射 —— 流程可单独回滚、可 diff，且不污染业务表结构。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "key": {
+          "$ref": "#/$defs/Key"
+        },
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "engine": {
+          "const": "flowable"
+        },
+        "processKey": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_]{2,63}$",
+          "description": "Flowable process definition key，租户内唯一"
+        },
+        "bpmnRef": {
+          "$ref": "#/$defs/AssetRef"
+        },
+        "category": {
+          "type": "string"
+        },
+        "entityRef": {
+          "$ref": "#/$defs/ArtifactRef",
+          "description": "该流程服务的业务实体，用于列表页展示流程状态列"
+        },
+        "statusField": {
+          "$ref": "#/$defs/Key",
+          "description": "业务表中回写流程状态的字段"
+        },
+        "startableBy": {
+          "$ref": "#/$defs/AssigneeSpec"
+        },
+        "variables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/VariableMapping"
+          }
+        },
+        "taskForms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TaskForm"
+          }
+        },
+        "listeners": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FlowListener"
+          }
+        },
+        "deployment": {
+          "type": "object",
+          "properties": {
+            "tenantStrategy": {
+              "enum": [
+                "flowableTenantId",
+                "none"
+              ],
+              "default": "flowableTenantId",
+              "description": "把平台 tenantId 映射为 Flowable 的 tenantId，实现引擎级租户隔离"
+            },
+            "historyLevel": {
+              "enum": [
+                "none",
+                "activity",
+                "audit",
+                "full"
+              ],
+              "default": "audit"
+            },
+            "async": {
+              "type": "boolean",
+              "default": false
+            },
+            "exclusive": {
+              "type": "boolean",
+              "default": true
+            },
+            "autoDeploy": {
+              "type": "boolean",
+              "default": true,
+              "description": "发布应用时自动部署到 Flowable"
+            }
+          },
+          "additionalProperties": false
+        },
+        "sla": {
+          "type": "object",
+          "description": "流程时限与超时策略。到时只产生事件/通知，不改业务数据。",
+          "properties": {
+            "dueDateHours": {
+              "type": "number",
+              "description": "承诺办结时长（小时），从流程开始计"
+            },
+            "warningHours": {
+              "type": "number",
+              "description": "剩余多少小时开始预警"
+            },
+            "escalateAfterHours": {
+              "type": "number",
+              "description": "超期多少小时后升级"
+            },
+            "escalateTo": {
+              "$ref": "#/$defs/AssigneeSpec"
+            },
+            "onTimeout": {
+              "enum": [
+                "notify",
+                "autoApprove",
+                "autoReject",
+                "escalate"
+              ],
+              "default": "notify"
+            },
+            "semantic": {
+              "$ref": "#/$defs/Semantic"
+            }
+          },
+          "additionalProperties": false
+        },
+        "allowRecall": {
+          "type": "boolean",
+          "default": true,
+          "description": "发起人可撤回"
+        },
+        "allowReturn": {
+          "type": "boolean",
+          "default": true,
+          "description": "审批人可退回上一节点"
+        },
+        "allowTransfer": {
+          "type": "boolean",
+          "default": true
+        },
+        "allowAddSign": {
+          "type": "boolean",
+          "default": false,
+          "description": "加签。默认关闭 —— 会签语义复杂，需业务明确需要才开"
+        },
+        "access": {
+          "$ref": "#/$defs/Access"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "name",
+        "engine",
+        "processKey",
+        "bpmnRef"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "VariableMapping": {
+      "type": "object",
+      "description": "业务字段 ↔ 流程变量映射。name 必须是合法 Java 标识符（Flowable 变量限制），故用 camelCase，与实体字段的 snake_case 解耦。",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9]{1,62}$"
+        },
+        "direction": {
+          "enum": [
+            "in",
+            "out",
+            "inout"
+          ],
+          "default": "in"
+        },
+        "source": {
+          "$ref": "#/$defs/Expr"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "long",
+            "double",
+            "decimal",
+            "boolean",
+            "date",
+            "datetime",
+            "json",
+            "array"
+          ]
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "description": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        },
+        "defaultValue": {
+          "$ref": "#/$defs/Value"
+        }
+      },
+      "required": [
+        "name",
+        "direction",
+        "source",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "TaskForm": {
+      "type": "object",
+      "description": "审批节点的人员与表单配置。taskKey 必须与 BPMN 中 userTask 的 id 一致（L3 校验会解析 BPMN 比对）。",
+      "properties": {
+        "taskKey": {
+          "type": "string"
+        },
+        "name": {
+          "$ref": "#/$defs/Text"
+        },
+        "pageRef": {
+          "$ref": "#/$defs/ArtifactRef",
+          "description": "办理该节点使用的页面（审批页 kind=approval）"
+        },
+        "assignee": {
+          "$ref": "#/$defs/AssigneeSpec"
+        },
+        "candidateRoles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Key"
+          }
+        },
+        "editableFields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Key"
+          },
+          "description": "本节点可编辑的业务字段（相对发起时的表单）"
+        },
+        "requiredFields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Key"
+          }
+        },
+        "readonlyFields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Key"
+          }
+        },
+        "buttons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "$ref": "#/$defs/Ident"
+              },
+              "label": {
+                "$ref": "#/$defs/Text"
+              },
+              "outcome": {
+                "enum": [
+                  "approve",
+                  "reject",
+                  "return",
+                  "transfer",
+                  "addSign",
+                  "custom"
+                ]
+              },
+              "outcomeKey": {
+                "type": "string"
+              },
+              "style": {
+                "enum": [
+                  "primary",
+                  "default",
+                  "danger",
+                  "warning"
+                ],
+                "default": "default"
+              },
+              "confirm": {
+                "$ref": "#/$defs/Text"
+              },
+              "commentRequired": {
+                "type": "boolean",
+                "default": false
+              },
+              "visible": {
+                "$ref": "#/$defs/Expr"
+              },
+              "order": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "key",
+              "label",
+              "outcome"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "dueDateHours": {
+          "type": "number"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        },
+        "commentField": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9]{1,62}$",
+          "description": "办理意见（同意/驳回理由）写入的流程变量名，必须出现在 Flow.variables[].name 中。办理意见不是实体字段，所以不放进 editableFields/requiredFields。"
+        }
+      },
+      "required": [
+        "taskKey"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "FlowListener": {
+      "type": "object",
+      "description": "流程事件监听，把流程推进与业务副作用解耦（如审批通过后同步学籍状态）。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "event": {
+          "enum": [
+            "processStarted",
+            "processEnded",
+            "taskCreated",
+            "taskCompleted",
+            "taskAssigned",
+            "taskTimeout",
+            "variableUpdated"
+          ]
+        },
+        "on": {
+          "enum": [
+            "process",
+            "task",
+            "execution"
+          ],
+          "default": "task"
+        },
+        "taskKey": {
+          "type": "string"
+        },
+        "actionRef": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "async": {
+          "type": "boolean",
+          "default": true,
+          "description": "默认异步 —— 监听器失败不应阻塞流程推进"
+        },
+        "order": {
+          "type": "integer",
+          "default": 0
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "event",
+        "actionRef"
+      ],
+      "additionalProperties": false
+    },
+    "Rule": {
+      "type": "object",
+      "description": "业务规则。与动作的区别：规则是「有多个触发点、需要统一执行」的横切逻辑（如学籍校验），由运行时按 kind 与 entity 自动挂载。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "key": {
+          "$ref": "#/$defs/Key"
+        },
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "kind": {
+          "enum": [
+            "validation",
+            "derivation",
+            "guard",
+            "permission",
+            "notification"
+          ],
+          "default": "validation"
+        },
+        "entityRef": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "on": {
+          "enum": [
+            "create",
+            "update",
+            "delete",
+            "read",
+            "any"
+          ],
+          "default": "any"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr"
+        },
+        "then": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "priority": {
+          "type": "integer",
+          "default": 100,
+          "description": "数值越小越先执行"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "stopOnFail": {
+          "type": "boolean",
+          "default": true
+        },
+        "access": {
+          "$ref": "#/$defs/Access"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "name",
+        "kind",
+        "then"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "HttpHeader": {
+      "type": "object",
+      "description": "外部请求头。名字是 HTTP token（可含连字符），值支持表达式以便注入 token。",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/HttpToken"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "boolean",
+            "json"
+          ]
+        },
+        "value": {
+          "$ref": "#/$defs/Expr"
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "defaultValue": {
+          "$ref": "#/$defs/Value"
+        },
+        "description": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "Ident": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Ident"
+    },
+    "HttpToken": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/HttpToken"
+    },
+    "JsonPath": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/JsonPath"
+    }
+  }
+}

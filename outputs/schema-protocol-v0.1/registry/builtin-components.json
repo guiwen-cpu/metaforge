@@ -1,0 +1,4341 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "protocolVersion": "0.1",
+  "registryVersion": 1,
+  "title": "LCP 内置组件注册表 v0.1",
+  "description": "平台内置组件的唯一权威契约。设计器（可用组件清单/属性面板）、运行时（渲染器解析 component 名）、出码引擎（生成 import 与标签）、AI 生成校验器（可用组件与属性合法性）全部读这一份。app 级自定义组件通过 AppBundle.artifacts.components 追加，沙箱组件用 runtime=sandbox 标记。",
+  "fieldBindingRule": "控件解析优先级：① UINode.props.fieldList[].widget ② DataSchema Field.uiHints.widget ③ Field.itemType 命中组件的 fieldBindings ④ Field.type 命中 fieldBindings（priority 值小者优先）。第③步让 array<image> 自动落到 x-upload 而无需逐字段手写 widget。",
+  "components": [
+    {
+      "id": "01J8ZQ4K2M0000000000000001",
+      "name": "x-page",
+      "version": 1,
+      "title": "页面容器",
+      "kind": "layout",
+      "props": [
+        {
+          "key": "title",
+          "label": "页面标题",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "subtitle",
+          "label": "副标题",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "showBreadcrumb",
+          "label": "显示面包屑",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "loading",
+          "label": "加载中",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "padding",
+          "label": "内边距",
+          "type": "cssLength",
+          "defaultValue": "16px",
+          "bindable": true
+        },
+        {
+          "key": "background",
+          "label": "背景色",
+          "type": "color",
+          "bindable": true
+        },
+        {
+          "key": "maxWidth",
+          "label": "最大宽度",
+          "type": "cssLength",
+          "advanced": true,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "布局",
+      "description": "每个 UISchema.layout 的根节点必须是 x-page。负责标题、面包屑、页面级 loading 与留白。",
+      "container": true,
+      "acceptChildren": [
+        "layout",
+        "container",
+        "data",
+        "display",
+        "field",
+        "action",
+        "chart",
+        "advanced"
+      ],
+      "slots": [
+        {
+          "name": "header",
+          "label": "页头",
+          "multiple": false
+        },
+        {
+          "name": "default",
+          "label": "主体"
+        },
+        {
+          "name": "footer",
+          "label": "页脚",
+          "multiple": false
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000002",
+      "name": "x-card",
+      "version": 1,
+      "title": "卡片",
+      "kind": "container",
+      "props": [
+        {
+          "key": "title",
+          "label": "标题",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "extra",
+          "label": "右上角文案",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "bordered",
+          "label": "带边框",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "shadow",
+          "label": "阴影",
+          "type": "enum",
+          "enum": [
+            "always",
+            "hover",
+            "never"
+          ],
+          "defaultValue": "never",
+          "bindable": true
+        },
+        {
+          "key": "collapsible",
+          "label": "可折叠",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "padding",
+          "label": "内边距",
+          "type": "cssLength",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "布局",
+      "container": true,
+      "acceptChildren": [
+        "data",
+        "display",
+        "field",
+        "action",
+        "layout",
+        "advanced"
+      ],
+      "slots": [
+        {
+          "name": "default",
+          "label": "内容"
+        },
+        {
+          "name": "header",
+          "label": "自定义页头",
+          "multiple": false
+        },
+        {
+          "name": "extra",
+          "label": "右上角",
+          "multiple": false
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000003",
+      "name": "x-row",
+      "version": 1,
+      "title": "栅格行",
+      "kind": "layout",
+      "props": [
+        {
+          "key": "gutter",
+          "label": "列间距",
+          "type": "integer",
+          "defaultValue": 16,
+          "bindable": true
+        },
+        {
+          "key": "align",
+          "label": "垂直对齐",
+          "type": "enum",
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "stretch"
+          ],
+          "bindable": true
+        },
+        {
+          "key": "justify",
+          "label": "水平分布",
+          "type": "enum",
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "between",
+            "around",
+            "evenly"
+          ],
+          "bindable": true
+        },
+        {
+          "key": "wrap",
+          "label": "自动换行",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "tag",
+          "label": "渲染标签",
+          "type": "string",
+          "advanced": true,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "布局",
+      "container": true,
+      "acceptChildren": [
+        "layout",
+        "container",
+        "data",
+        "display",
+        "field",
+        "action",
+        "advanced"
+      ],
+      "slots": [
+        {
+          "name": "default",
+          "label": "列"
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000004",
+      "name": "x-col",
+      "version": 1,
+      "title": "栅格列",
+      "kind": "layout",
+      "props": [
+        {
+          "key": "span",
+          "label": "栅格宽度(24)",
+          "type": "integer",
+          "min": 0,
+          "max": 24,
+          "defaultValue": 24,
+          "bindable": true
+        },
+        {
+          "key": "offset",
+          "label": "左侧偏移",
+          "type": "integer",
+          "min": 0,
+          "max": 24,
+          "bindable": true
+        },
+        {
+          "key": "xs",
+          "label": "xs 断点",
+          "type": "integer",
+          "bindable": true
+        },
+        {
+          "key": "sm",
+          "label": "sm 断点",
+          "type": "integer",
+          "bindable": true
+        },
+        {
+          "key": "md",
+          "label": "md 断点",
+          "type": "integer",
+          "bindable": true
+        },
+        {
+          "key": "lg",
+          "label": "lg 断点",
+          "type": "integer",
+          "bindable": true
+        },
+        {
+          "key": "xl",
+          "label": "xl 断点",
+          "type": "integer",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "布局",
+      "container": true,
+      "acceptChildren": [
+        "layout",
+        "container",
+        "data",
+        "display",
+        "field",
+        "action",
+        "advanced"
+      ],
+      "slots": [
+        {
+          "name": "default",
+          "label": "内容"
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000005",
+      "name": "x-toolbar",
+      "version": 1,
+      "title": "工具栏",
+      "kind": "layout",
+      "props": [
+        {
+          "key": "align",
+          "label": "对齐",
+          "type": "enum",
+          "enum": [
+            "start",
+            "end",
+            "between"
+          ],
+          "defaultValue": "between",
+          "bindable": true
+        },
+        {
+          "key": "gap",
+          "label": "间距",
+          "type": "cssLength",
+          "defaultValue": "8px",
+          "bindable": true
+        },
+        {
+          "key": "sticky",
+          "label": "吸顶",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "size",
+          "label": "尺寸",
+          "type": "enum",
+          "enum": [
+            "small",
+            "default",
+            "large"
+          ],
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "布局",
+      "container": true,
+      "acceptChildren": [
+        "action",
+        "display",
+        "data",
+        "field"
+      ],
+      "slots": [
+        {
+          "name": "left",
+          "label": "左侧",
+          "multiple": false
+        },
+        {
+          "name": "default",
+          "label": "中间"
+        },
+        {
+          "name": "right",
+          "label": "右侧",
+          "multiple": false
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000006",
+      "name": "x-dialog",
+      "version": 1,
+      "title": "对话框/抽屉",
+      "kind": "container",
+      "props": [
+        {
+          "key": "model",
+          "label": "显示状态",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "title",
+          "label": "标题",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "mode",
+          "label": "形态",
+          "type": "enum",
+          "enum": [
+            "dialog",
+            "drawer",
+            "modal"
+          ],
+          "defaultValue": "dialog",
+          "bindable": true
+        },
+        {
+          "key": "width",
+          "label": "宽度",
+          "type": "cssLength",
+          "defaultValue": "720px",
+          "bindable": true
+        },
+        {
+          "key": "fullscreen",
+          "label": "全屏",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "destroyOnClose",
+          "label": "关闭即销毁",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "closeOnClickModal",
+          "label": "点遮罩关闭",
+          "type": "boolean",
+          "defaultValue": false,
+          "bindable": true
+        },
+        {
+          "key": "showFooter",
+          "label": "显示底部",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "confirmText",
+          "label": "确认文案",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "cancelText",
+          "label": "取消文案",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "beforeClose",
+          "label": "关闭前校验",
+          "type": "expr",
+          "bindable": true,
+          "advanced": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "容器",
+      "description": "弹窗承载容器。visible 绑定到页面 state；mode 决定 dialog / drawer / modal 三种形态，出码时映射为不同组件但不改变 Schema。",
+      "container": true,
+      "acceptChildren": [
+        "data",
+        "display",
+        "field",
+        "action",
+        "layout",
+        "container",
+        "advanced"
+      ],
+      "slots": [
+        {
+          "name": "default",
+          "label": "内容"
+        },
+        {
+          "name": "header",
+          "label": "自定义头部",
+          "multiple": false
+        },
+        {
+          "name": "footer",
+          "label": "自定义底部",
+          "multiple": false
+        }
+      ],
+      "events": [
+        {
+          "name": "open",
+          "label": "打开"
+        },
+        {
+          "name": "close",
+          "label": "关闭"
+        },
+        {
+          "name": "confirm",
+          "label": "确认"
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000007",
+      "name": "x-tabs",
+      "version": 1,
+      "title": "标签页",
+      "kind": "container",
+      "props": [
+        {
+          "key": "model",
+          "label": "当前页签",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "items",
+          "label": "页签定义",
+          "type": "json",
+          "required": true,
+          "itemType": "json",
+          "itemProps": [
+            {
+              "key": "key",
+              "label": "标识",
+              "type": "string",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "label",
+              "label": "标题",
+              "type": "text",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "icon",
+              "label": "图标",
+              "type": "icon",
+              "bindable": true
+            },
+            {
+              "key": "disabled",
+              "label": "禁用",
+              "type": "boolean",
+              "bindable": true
+            },
+            {
+              "key": "lazy",
+              "label": "懒渲染",
+              "type": "boolean",
+              "bindable": true
+            },
+            {
+              "key": "badge",
+              "label": "角标",
+              "type": "expr",
+              "bindable": true
+            }
+          ],
+          "bindable": true
+        },
+        {
+          "key": "mode",
+          "label": "样式",
+          "type": "enum",
+          "enum": [
+            "line",
+            "card",
+            "border-card"
+          ],
+          "defaultValue": "line",
+          "bindable": true
+        },
+        {
+          "key": "position",
+          "label": "位置",
+          "type": "enum",
+          "enum": [
+            "top",
+            "left",
+            "right",
+            "bottom"
+          ],
+          "bindable": true
+        },
+        {
+          "key": "lazy",
+          "label": "懒渲染",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "容器",
+      "container": true,
+      "acceptChildren": [
+        "data",
+        "display",
+        "field",
+        "layout",
+        "action",
+        "advanced"
+      ],
+      "slots": [
+        {
+          "name": "default",
+          "label": "页签内容"
+        }
+      ],
+      "events": [
+        {
+          "name": "change",
+          "label": "切换",
+          "params": [
+            {
+              "key": "name",
+              "type": "string"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000008",
+      "name": "x-form-item",
+      "version": 1,
+      "title": "表单项容器",
+      "kind": "container",
+      "props": [
+        {
+          "key": "label",
+          "label": "标签",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "field",
+          "label": "绑定字段",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "required",
+          "label": "必填",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "span",
+          "label": "栅格宽度(24)",
+          "type": "integer",
+          "min": 1,
+          "max": 24,
+          "defaultValue": 24,
+          "bindable": true
+        },
+        {
+          "key": "help",
+          "label": "帮助文案",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "labelWidth",
+          "label": "标签宽度",
+          "type": "cssLength",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "容器",
+      "description": "把任意组件包成带标签/校验提示的表单项，用于 fieldList 之外的自由布局。",
+      "container": true,
+      "acceptChildren": [
+        "field",
+        "display",
+        "action"
+      ],
+      "slots": [
+        {
+          "name": "default",
+          "label": "控件"
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000009",
+      "name": "x-table",
+      "version": 1,
+      "title": "数据表格",
+      "kind": "data",
+      "props": [
+        {
+          "key": "entityRef",
+          "label": "实体",
+          "type": "entityRef",
+          "required": true,
+          "bindable": false
+        },
+        {
+          "key": "dataSourceId",
+          "label": "数据源",
+          "type": "dataSourceRef",
+          "bindable": true
+        },
+        {
+          "key": "columnList",
+          "label": "列定义",
+          "type": "columnList",
+          "itemType": "json",
+          "itemProps": [
+            {
+              "key": "field",
+              "label": "字段",
+              "type": "fieldRef",
+              "required": true,
+              "description": "指向 Data Schema 的 Field.key；标签/类型/枚举/格式化默认由此推导，本项只写差异",
+              "bindable": false
+            },
+            {
+              "key": "label",
+              "label": "列标题",
+              "type": "text",
+              "description": "缺省取 Field.label",
+              "bindable": true
+            },
+            {
+              "key": "widget",
+              "label": "渲染控件",
+              "type": "string",
+              "description": "覆盖控件解析结果，如 x-status-tag / x-enum-text / x-row-actions",
+              "bindable": true
+            },
+            {
+              "key": "enumRef",
+              "label": "枚举",
+              "type": "json",
+              "bindable": true
+            },
+            {
+              "key": "format",
+              "label": "格式化",
+              "type": "string",
+              "bindable": true
+            },
+            {
+              "key": "width",
+              "label": "宽度",
+              "type": "cssLength",
+              "bindable": true
+            },
+            {
+              "key": "minWidth",
+              "label": "最小宽度",
+              "type": "cssLength",
+              "bindable": true
+            },
+            {
+              "key": "align",
+              "label": "对齐",
+              "type": "enum",
+              "enum": [
+                "left",
+                "center",
+                "right"
+              ],
+              "bindable": true
+            },
+            {
+              "key": "sortable",
+              "label": "可排序",
+              "type": "boolean",
+              "bindable": true
+            },
+            {
+              "key": "fixed",
+              "label": "固定",
+              "type": "enum",
+              "enum": [
+                "left",
+                "right"
+              ],
+              "bindable": true
+            },
+            {
+              "key": "hidden",
+              "label": "隐藏",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "sum",
+              "label": "参与合计",
+              "type": "boolean",
+              "bindable": true
+            },
+            {
+              "key": "slot",
+              "label": "自定义插槽",
+              "type": "string",
+              "advanced": true,
+              "bindable": true
+            },
+            {
+              "key": "buttons",
+              "label": "操作按钮",
+              "type": "buttonList",
+              "advanced": true,
+              "description": "widget=x-row-actions 时的按钮清单",
+              "bindable": false
+            }
+          ],
+          "bindable": false
+        },
+        {
+          "key": "rowKey",
+          "label": "行主键",
+          "type": "string",
+          "defaultValue": "id",
+          "bindable": true
+        },
+        {
+          "key": "selection",
+          "label": "选择模式",
+          "type": "enum",
+          "enum": [
+            "none",
+            "single",
+            "multiple"
+          ],
+          "defaultValue": "none",
+          "bindable": true
+        },
+        {
+          "key": "stripe",
+          "label": "斑马纹",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "border",
+          "label": "带边框",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "height",
+          "label": "高度",
+          "type": "cssLength",
+          "bindable": true
+        },
+        {
+          "key": "size",
+          "label": "密度",
+          "type": "enum",
+          "enum": [
+            "small",
+            "default",
+            "large"
+          ],
+          "bindable": true
+        },
+        {
+          "key": "emptyText",
+          "label": "空数据文案",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "showIndex",
+          "label": "显示序号",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "autoHeight",
+          "label": "自适应高度",
+          "type": "boolean",
+          "advanced": true,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": true,
+        "supportsDataSource": true,
+        "supportsLoop": false,
+        "virtualScroll": true
+      },
+      "group": "数据",
+      "description": "列表页核心组件。列定义 columnList 只写「相对 Data Schema 的差异」，字段标签/类型/枚举/格式化默认从 Data Schema 推导，避免平行结构漂移。",
+      "container": true,
+      "acceptChildren": [
+        "display",
+        "action"
+      ],
+      "slots": [
+        {
+          "name": "toolbar",
+          "label": "表格上方",
+          "multiple": false
+        },
+        {
+          "name": "empty",
+          "label": "空状态",
+          "multiple": false
+        },
+        {
+          "name": "expand",
+          "label": "展开行",
+          "multiple": false
+        }
+      ],
+      "events": [
+        {
+          "name": "rowClick",
+          "label": "行点击",
+          "params": [
+            {
+              "key": "row",
+              "type": "object"
+            },
+            {
+              "key": "index",
+              "type": "integer"
+            }
+          ]
+        },
+        {
+          "name": "selectionChange",
+          "label": "选择变化",
+          "params": [
+            {
+              "key": "rows",
+              "type": "array"
+            }
+          ]
+        },
+        {
+          "name": "sortChange",
+          "label": "排序变化",
+          "params": [
+            {
+              "key": "field",
+              "type": "string"
+            },
+            {
+              "key": "direction",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "name": "refresh",
+          "label": "刷新完成"
+        }
+      ],
+      "actions": [
+        {
+          "name": "refresh",
+          "label": "刷新",
+          "kind": "list",
+          "params": {
+            "resetPage": false
+          },
+          "returns": "void"
+        },
+        {
+          "name": "clearSelection",
+          "label": "清空选择",
+          "kind": "list"
+        }
+      ],
+      "data": {
+        "role": "table",
+        "modelShape": "array",
+        "emits": [
+          "rowClick",
+          "selectionChange",
+          "sortChange"
+        ],
+        "accepts": [
+          "ds:<dataSourceId>:refresh"
+        ],
+        "refreshable": true,
+        "pagination": false
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000A",
+      "name": "x-search-form",
+      "version": 1,
+      "title": "搜索表单",
+      "kind": "data",
+      "props": [
+        {
+          "key": "entityRef",
+          "label": "实体",
+          "type": "entityRef",
+          "required": true,
+          "bindable": false
+        },
+        {
+          "key": "searchFieldList",
+          "label": "搜索项",
+          "type": "searchFieldList",
+          "required": true,
+          "itemType": "json",
+          "itemProps": [
+            {
+              "key": "field",
+              "label": "字段",
+              "type": "fieldRef",
+              "required": true,
+              "bindable": false
+            },
+            {
+              "key": "label",
+              "label": "标签",
+              "type": "text",
+              "description": "缺省取 Field.label",
+              "bindable": true
+            },
+            {
+              "key": "op",
+              "label": "查询算子",
+              "type": "enum",
+              "enum": [
+                "eq",
+                "ne",
+                "like",
+                "in",
+                "between",
+                "gt",
+                "gte",
+                "lt",
+                "lte",
+                "isNull",
+                "notNull"
+              ],
+              "defaultValue": "eq",
+              "description": "与 expression-registry.queryOperators 同源；前端控件与后端下推编译共用",
+              "bindable": true
+            },
+            {
+              "key": "span",
+              "label": "栅格宽度(24)",
+              "type": "integer",
+              "defaultValue": 6,
+              "bindable": true
+            },
+            {
+              "key": "placeholder",
+              "label": "占位提示",
+              "type": "text",
+              "bindable": true
+            },
+            {
+              "key": "defaultValue",
+              "label": "默认值",
+              "type": "json",
+              "bindable": true
+            },
+            {
+              "key": "widget",
+              "label": "渲染控件",
+              "type": "string",
+              "bindable": true
+            }
+          ],
+          "bindable": false
+        },
+        {
+          "key": "model",
+          "label": "查询对象",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "targetDataSourceId",
+          "label": "联动数据源",
+          "type": "dataSourceRef",
+          "bindable": false
+        },
+        {
+          "key": "fieldsPerRow",
+          "label": "每行项数",
+          "type": "integer",
+          "defaultValue": 4,
+          "bindable": true
+        },
+        {
+          "key": "collapsible",
+          "label": "可折叠",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "defaultCollapsed",
+          "label": "默认折叠",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "showReset",
+          "label": "显示重置",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "labelWidth",
+          "label": "标签宽度",
+          "type": "cssLength",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "数据",
+      "description": "搜索条件区。searchFieldList 的 op 由查询下推编译器翻译为 SQL WHERE 片段，前端与 BFF 使用同一份 op 定义。",
+      "container": true,
+      "acceptChildren": [
+        "field"
+      ],
+      "slots": [
+        {
+          "name": "default",
+          "label": "额外搜索项"
+        },
+        {
+          "name": "right",
+          "label": {
+            "default": "操作按钮区"
+          },
+          "multiple": false,
+          "accepts": [
+            "x-btn"
+          ],
+          "semantic": {
+            "intent": "放置查询/重置等操作按钮。字段本体走默认插槽，按钮走这里，避免 acceptChildren 既要管字段又要管按钮。"
+          }
+        }
+      ],
+      "events": [
+        {
+          "name": "search",
+          "label": "搜索",
+          "params": [
+            {
+              "key": "query",
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "name": "reset",
+          "label": "重置"
+        },
+        {
+          "name": "change",
+          "label": "条件变化",
+          "params": [
+            {
+              "key": "query",
+              "type": "object"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "name": "submit",
+          "label": "触发搜索",
+          "kind": "data"
+        },
+        {
+          "name": "reset",
+          "label": "重置",
+          "kind": "data"
+        }
+      ],
+      "data": {
+        "role": "form",
+        "modelShape": "object",
+        "emits": [
+          "search",
+          "reset"
+        ],
+        "accepts": [],
+        "submitable": true
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000B",
+      "name": "x-pagination",
+      "version": 1,
+      "title": "分页器",
+      "kind": "data",
+      "props": [
+        {
+          "key": "dataSourceId",
+          "label": "数据源",
+          "type": "dataSourceRef",
+          "bindable": true
+        },
+        {
+          "key": "pageParam",
+          "label": "页码参数名",
+          "type": "string",
+          "defaultValue": "page",
+          "bindable": true
+        },
+        {
+          "key": "sizeParam",
+          "label": "每页条数参数名",
+          "type": "string",
+          "defaultValue": "size",
+          "bindable": true
+        },
+        {
+          "key": "pageSizes",
+          "label": "可选页长",
+          "type": "optionList",
+          "defaultValue": [
+            10,
+            20,
+            50,
+            100
+          ],
+          "itemType": "json",
+          "itemProps": [
+            {
+              "key": "value",
+              "label": "值",
+              "type": "json",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "label",
+              "label": "标签",
+              "type": "text",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "color",
+              "label": "颜色",
+              "type": "color",
+              "bindable": true
+            },
+            {
+              "key": "disabled",
+              "label": "禁用",
+              "type": "boolean",
+              "bindable": true
+            },
+            {
+              "key": "icon",
+              "label": "图标",
+              "type": "icon",
+              "bindable": true
+            },
+            {
+              "key": "order",
+              "label": "顺序",
+              "type": "integer",
+              "bindable": true
+            }
+          ],
+          "bindable": false
+        },
+        {
+          "key": "layout",
+          "label": "布局",
+          "type": "string",
+          "defaultValue": "total, sizes, prev, pager, next, jumper",
+          "bindable": true
+        },
+        {
+          "key": "background",
+          "label": "带背景",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "total",
+          "label": "总条数",
+          "type": "expr",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": true,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "数据",
+      "events": [
+        {
+          "name": "change",
+          "label": "翻页",
+          "params": [
+            {
+              "key": "page",
+              "type": "integer"
+            },
+            {
+              "key": "size",
+              "type": "integer"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000C",
+      "name": "x-form",
+      "version": 1,
+      "title": "表单",
+      "kind": "data",
+      "props": [
+        {
+          "key": "entityRef",
+          "label": "实体",
+          "type": "entityRef",
+          "required": true,
+          "bindable": false
+        },
+        {
+          "key": "fieldList",
+          "label": "字段清单",
+          "type": "fieldList",
+          "required": true,
+          "itemType": "json",
+          "itemProps": [
+            {
+              "key": "field",
+              "label": "字段",
+              "type": "fieldRef",
+              "required": true,
+              "bindable": false
+            },
+            {
+              "key": "label",
+              "label": "标签",
+              "type": "text",
+              "bindable": true
+            },
+            {
+              "key": "widget",
+              "label": "渲染控件",
+              "type": "string",
+              "bindable": true
+            },
+            {
+              "key": "span",
+              "label": "栅格宽度(24)",
+              "type": "integer",
+              "bindable": true
+            },
+            {
+              "key": "required",
+              "label": "必填",
+              "type": "boolean",
+              "description": "只能收紧不能放宽：默认取 Field.required，此处仅可覆盖为 true",
+              "bindable": true
+            },
+            {
+              "key": "readonly",
+              "label": "只读",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "hidden",
+              "label": "隐藏",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "when",
+              "label": "条件显示",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "help",
+              "label": "帮助文案",
+              "type": "text",
+              "bindable": true
+            },
+            {
+              "key": "placeholder",
+              "label": "占位提示",
+              "type": "text",
+              "bindable": true
+            },
+            {
+              "key": "defaultValue",
+              "label": "默认值",
+              "type": "json",
+              "bindable": true
+            },
+            {
+              "key": "props",
+              "label": "控件属性透传",
+              "type": "json",
+              "advanced": true,
+              "description": "直接透传给底层控件，用于 Schema 尚未标准化的冷门属性；能标准化的一律升格为正式 PropDef",
+              "bindable": true
+            }
+          ],
+          "bindable": false
+        },
+        {
+          "key": "model",
+          "label": "数据模型",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "labelPosition",
+          "label": "标签位置",
+          "type": "enum",
+          "enum": [
+            "top",
+            "left",
+            "right"
+          ],
+          "defaultValue": "right",
+          "bindable": true
+        },
+        {
+          "key": "labelWidth",
+          "label": "标签宽度",
+          "type": "cssLength",
+          "defaultValue": "110px",
+          "bindable": true
+        },
+        {
+          "key": "columnsPerRow",
+          "label": "每行字段数",
+          "type": "integer",
+          "defaultValue": 2,
+          "bindable": true
+        },
+        {
+          "key": "disabled",
+          "label": "整体禁用",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "readonly",
+          "label": "只读",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "showActions",
+          "label": "显示默认按钮",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "submitText",
+          "label": "提交文案",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "resetText",
+          "label": "重置文案",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "validateOnRule",
+          "label": "失焦即校验",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false,
+        "supportsBinding": true
+      },
+      "group": "数据",
+      "description": "创建型/编辑型表单。fieldList 只声明「要哪些字段 + 顺序 + 覆盖项」，控件、校验、必填、枚举选项全部从 Data Schema 推导。",
+      "container": true,
+      "acceptChildren": [
+        "field",
+        "display",
+        "action",
+        "container"
+      ],
+      "slots": [
+        {
+          "name": "default",
+          "label": "自定义表单项"
+        },
+        {
+          "name": "actions",
+          "label": "按钮区",
+          "multiple": false
+        }
+      ],
+      "events": [
+        {
+          "name": "submit",
+          "label": "提交",
+          "params": [
+            {
+              "key": "model",
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "name": "reset",
+          "label": "重置"
+        },
+        {
+          "name": "validateFail",
+          "label": "校验失败",
+          "params": [
+            {
+              "key": "errors",
+              "type": "array"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "name": "validate",
+          "label": "校验",
+          "kind": "form",
+          "returns": "boolean"
+        },
+        {
+          "name": "submit",
+          "label": "提交",
+          "kind": "form"
+        },
+        {
+          "name": "reset",
+          "label": "重置",
+          "kind": "form"
+        },
+        {
+          "name": "setFields",
+          "label": "赋值",
+          "kind": "form",
+          "params": {
+            "values": {}
+          }
+        }
+      ],
+      "data": {
+        "role": "form",
+        "modelShape": "object",
+        "emits": [
+          "submit",
+          "reset",
+          "validateFail"
+        ],
+        "submitable": true
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000D",
+      "name": "x-descriptions",
+      "version": 1,
+      "title": "详情描述列表",
+      "kind": "data",
+      "props": [
+        {
+          "key": "entityRef",
+          "label": "实体",
+          "type": "entityRef",
+          "required": true,
+          "bindable": false
+        },
+        {
+          "key": "dataSourceId",
+          "label": "数据源",
+          "type": "dataSourceRef",
+          "bindable": true
+        },
+        {
+          "key": "fieldList",
+          "label": "字段清单",
+          "type": "fieldList",
+          "required": true,
+          "itemType": "json",
+          "itemProps": [
+            {
+              "key": "field",
+              "label": "字段",
+              "type": "fieldRef",
+              "required": true,
+              "bindable": false
+            },
+            {
+              "key": "label",
+              "label": "标签",
+              "type": "text",
+              "bindable": true
+            },
+            {
+              "key": "widget",
+              "label": "渲染控件",
+              "type": "string",
+              "bindable": true
+            },
+            {
+              "key": "span",
+              "label": "栅格宽度(24)",
+              "type": "integer",
+              "bindable": true
+            },
+            {
+              "key": "required",
+              "label": "必填",
+              "type": "boolean",
+              "description": "只能收紧不能放宽：默认取 Field.required，此处仅可覆盖为 true",
+              "bindable": true
+            },
+            {
+              "key": "readonly",
+              "label": "只读",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "hidden",
+              "label": "隐藏",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "when",
+              "label": "条件显示",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "help",
+              "label": "帮助文案",
+              "type": "text",
+              "bindable": true
+            },
+            {
+              "key": "placeholder",
+              "label": "占位提示",
+              "type": "text",
+              "bindable": true
+            },
+            {
+              "key": "defaultValue",
+              "label": "默认值",
+              "type": "json",
+              "bindable": true
+            },
+            {
+              "key": "props",
+              "label": "控件属性透传",
+              "type": "json",
+              "advanced": true,
+              "description": "直接透传给底层控件，用于 Schema 尚未标准化的冷门属性；能标准化的一律升格为正式 PropDef",
+              "bindable": true
+            }
+          ],
+          "bindable": false
+        },
+        {
+          "key": "column",
+          "label": "每行列数",
+          "type": "integer",
+          "defaultValue": 2,
+          "bindable": true
+        },
+        {
+          "key": "border",
+          "label": "带边框",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "direction",
+          "label": "排布方向",
+          "type": "enum",
+          "enum": [
+            "horizontal",
+            "vertical"
+          ],
+          "defaultValue": "horizontal",
+          "bindable": true
+        },
+        {
+          "key": "labelWidth",
+          "label": "标签宽度",
+          "type": "cssLength",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": true,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "数据",
+      "data": {
+        "role": "detail",
+        "modelShape": "object"
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000E",
+      "name": "x-input",
+      "version": 1,
+      "title": "单行文本",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "placeholder",
+          "label": "占位提示",
+          "type": "text",
+          "defaultValue": "请输入",
+          "bindable": true
+        },
+        {
+          "key": "maxlength",
+          "label": "最大长度",
+          "type": "integer",
+          "bindable": true
+        },
+        {
+          "key": "showWordLimit",
+          "label": "显示字数",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "clearable",
+          "label": "可清空",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "prefixIcon",
+          "label": "前缀图标",
+          "type": "icon",
+          "bindable": true
+        },
+        {
+          "key": "suffixIcon",
+          "label": "后缀图标",
+          "type": "icon",
+          "bindable": true
+        },
+        {
+          "key": "type",
+          "label": "输入类型",
+          "type": "enum",
+          "enum": [
+            "text",
+            "password",
+            "number"
+          ],
+          "defaultValue": "text",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "description": "string 的默认渲染器。",
+      "events": [
+        {
+          "name": "input",
+          "label": "输入",
+          "params": [
+            {
+              "key": "value",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "name": "change",
+          "label": "变化"
+        },
+        {
+          "name": "blur",
+          "label": "失焦"
+        }
+      ],
+      "fieldBindings": {
+        "forFieldTypes": [
+          "string"
+        ],
+        "priority": 100,
+        "listRenderer": false
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000F",
+      "name": "x-textarea",
+      "version": 1,
+      "title": "多行文本",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "rows",
+          "label": "行数",
+          "type": "integer",
+          "defaultValue": 3,
+          "bindable": true
+        },
+        {
+          "key": "maxlength",
+          "label": "最大长度",
+          "type": "integer",
+          "bindable": true
+        },
+        {
+          "key": "showWordLimit",
+          "label": "显示字数",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "autosize",
+          "label": "自适应高度",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "placeholder",
+          "label": "占位提示",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "countGraphemes",
+          "label": "按字素计数",
+          "type": "boolean",
+          "advanced": true,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "events": [
+        {
+          "name": "input",
+          "label": "输入"
+        },
+        {
+          "name": "blur",
+          "label": "失焦"
+        }
+      ],
+      "fieldBindings": {
+        "forFieldTypes": [
+          "text"
+        ],
+        "priority": 100
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000G",
+      "name": "x-rich-text",
+      "version": 1,
+      "title": "富文本",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "height",
+          "label": "编辑区高度",
+          "type": "cssLength",
+          "defaultValue": "280px",
+          "bindable": true
+        },
+        {
+          "key": "toolbar",
+          "label": "工具栏",
+          "type": "enum",
+          "enum": [
+            "full",
+            "simple",
+            "minimal"
+          ],
+          "defaultValue": "simple",
+          "bindable": true
+        },
+        {
+          "key": "readonly",
+          "label": "只读",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "placeholder",
+          "label": "占位提示",
+          "type": "text",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "description": "richText。出码后端渲染时需注意 XSS：统一走平台 sanitize 白名单。",
+      "events": [
+        {
+          "name": "change",
+          "label": "变化"
+        }
+      ],
+      "fieldBindings": {
+        "forFieldTypes": [
+          "richText"
+        ],
+        "priority": 100
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000H",
+      "name": "x-number",
+      "version": 1,
+      "title": "数字输入",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "min",
+          "label": "最小值",
+          "type": "number",
+          "bindable": true
+        },
+        {
+          "key": "max",
+          "label": "最大值",
+          "type": "number",
+          "bindable": true
+        },
+        {
+          "key": "precision",
+          "label": "小数位",
+          "type": "integer",
+          "bindable": true
+        },
+        {
+          "key": "step",
+          "label": "步长",
+          "type": "number",
+          "bindable": true
+        },
+        {
+          "key": "unit",
+          "label": "单位",
+          "type": "string",
+          "bindable": true
+        },
+        {
+          "key": "controls",
+          "label": "显示步进按钮",
+          "type": "boolean",
+          "defaultValue": false,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "events": [
+        {
+          "name": "change",
+          "label": "变化"
+        }
+      ],
+      "fieldBindings": {
+        "forFieldTypes": [
+          "integer",
+          "decimal"
+        ],
+        "priority": 100
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000J",
+      "name": "x-switch",
+      "version": 1,
+      "title": "开关",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "activeText",
+          "label": "开启文案",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "inactiveText",
+          "label": "关闭文案",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "activeValue",
+          "label": "开启值",
+          "type": "json",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "inactiveValue",
+          "label": "关闭值",
+          "type": "json",
+          "defaultValue": false,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": true,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "events": [
+        {
+          "name": "change",
+          "label": "变化"
+        }
+      ],
+      "fieldBindings": {
+        "forFieldTypes": [
+          "boolean"
+        ],
+        "priority": 100,
+        "listRenderer": true
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000K",
+      "name": "x-select",
+      "version": 1,
+      "title": "下拉选择",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "enumRef",
+          "label": "枚举",
+          "type": "json",
+          "bindable": true
+        },
+        {
+          "key": "optionList",
+          "label": "静态选项",
+          "type": "optionList",
+          "itemType": "json",
+          "itemProps": [
+            {
+              "key": "value",
+              "label": "值",
+              "type": "json",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "label",
+              "label": "标签",
+              "type": "text",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "color",
+              "label": "颜色",
+              "type": "color",
+              "bindable": true
+            },
+            {
+              "key": "disabled",
+              "label": "禁用",
+              "type": "boolean",
+              "bindable": true
+            },
+            {
+              "key": "icon",
+              "label": "图标",
+              "type": "icon",
+              "bindable": true
+            },
+            {
+              "key": "order",
+              "label": "顺序",
+              "type": "integer",
+              "bindable": true
+            }
+          ],
+          "bindable": false
+        },
+        {
+          "key": "entityRef",
+          "label": "选项实体",
+          "type": "entityRef",
+          "advanced": true,
+          "bindable": false
+        },
+        {
+          "key": "multiple",
+          "label": "多选",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "filterable",
+          "label": "可搜索",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "clearable",
+          "label": "可清空",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "collapseTags",
+          "label": "折叠标签",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "placeholder",
+          "label": "占位提示",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "remoteActionRef",
+          "label": "远程搜索动作",
+          "type": "actionRef",
+          "advanced": true,
+          "bindable": false
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "description": "enum / ref 的默认渲染器；array 无 itemType 时退化为多选。选项优先取 enumRef，其次取 refEntity 的 titleField。",
+      "events": [
+        {
+          "name": "change",
+          "label": "变化",
+          "params": [
+            {
+              "key": "value",
+              "type": "any"
+            }
+          ]
+        },
+        {
+          "name": "remoteSearch",
+          "label": "远程搜索",
+          "params": [
+            {
+              "key": "keyword",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldBindings": {
+        "forFieldTypes": [
+          "enum",
+          "ref",
+          "array"
+        ],
+        "priority": 100,
+        "listRenderer": false
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000M",
+      "name": "x-radio-group",
+      "version": 1,
+      "title": "单选组",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "enumRef",
+          "label": "枚举",
+          "type": "json",
+          "bindable": true
+        },
+        {
+          "key": "optionList",
+          "label": "静态选项",
+          "type": "optionList",
+          "itemType": "json",
+          "itemProps": [
+            {
+              "key": "value",
+              "label": "值",
+              "type": "json",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "label",
+              "label": "标签",
+              "type": "text",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "color",
+              "label": "颜色",
+              "type": "color",
+              "bindable": true
+            },
+            {
+              "key": "disabled",
+              "label": "禁用",
+              "type": "boolean",
+              "bindable": true
+            },
+            {
+              "key": "icon",
+              "label": "图标",
+              "type": "icon",
+              "bindable": true
+            },
+            {
+              "key": "order",
+              "label": "顺序",
+              "type": "integer",
+              "bindable": true
+            }
+          ],
+          "bindable": false
+        },
+        {
+          "key": "button",
+          "label": "按钮样式",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "direction",
+          "label": "排列",
+          "type": "enum",
+          "enum": [
+            "horizontal",
+            "vertical"
+          ],
+          "defaultValue": "horizontal",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "events": [
+        {
+          "name": "change",
+          "label": "变化"
+        }
+      ],
+      "fieldBindings": {
+        "forFieldTypes": [
+          "enum"
+        ],
+        "priority": 300
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000N",
+      "name": "x-checkbox-group",
+      "version": 1,
+      "title": "多选组",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "enumRef",
+          "label": "枚举",
+          "type": "json",
+          "bindable": true
+        },
+        {
+          "key": "optionList",
+          "label": "静态选项",
+          "type": "optionList",
+          "itemType": "json",
+          "itemProps": [
+            {
+              "key": "value",
+              "label": "值",
+              "type": "json",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "label",
+              "label": "标签",
+              "type": "text",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "color",
+              "label": "颜色",
+              "type": "color",
+              "bindable": true
+            },
+            {
+              "key": "disabled",
+              "label": "禁用",
+              "type": "boolean",
+              "bindable": true
+            },
+            {
+              "key": "icon",
+              "label": "图标",
+              "type": "icon",
+              "bindable": true
+            },
+            {
+              "key": "order",
+              "label": "顺序",
+              "type": "integer",
+              "bindable": true
+            }
+          ],
+          "bindable": false
+        },
+        {
+          "key": "min",
+          "label": "最少选",
+          "type": "integer",
+          "bindable": true
+        },
+        {
+          "key": "max",
+          "label": "最多选",
+          "type": "integer",
+          "bindable": true
+        },
+        {
+          "key": "button",
+          "label": "按钮样式",
+          "type": "boolean",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "events": [
+        {
+          "name": "change",
+          "label": "变化"
+        }
+      ],
+      "fieldBindings": {
+        "forFieldTypes": [
+          "array"
+        ],
+        "priority": 400
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000P",
+      "name": "x-date-picker",
+      "version": 1,
+      "title": "日期时间",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "type",
+          "label": "选择类型",
+          "type": "enum",
+          "enum": [
+            "date",
+            "datetime",
+            "datetimerange",
+            "daterange",
+            "month",
+            "year"
+          ],
+          "defaultValue": "date",
+          "bindable": true
+        },
+        {
+          "key": "format",
+          "label": "显示格式",
+          "type": "dateFormat",
+          "defaultValue": "YYYY-MM-DD",
+          "bindable": true
+        },
+        {
+          "key": "valueFormat",
+          "label": "值格式",
+          "type": "string",
+          "defaultValue": "YYYY-MM-DDTHH:mm:ssZ",
+          "bindable": true
+        },
+        {
+          "key": "disabledDate",
+          "label": "禁用日期",
+          "type": "expr",
+          "bindable": true,
+          "advanced": true
+        },
+        {
+          "key": "shortcuts",
+          "label": "快捷选项",
+          "type": "json",
+          "advanced": true,
+          "bindable": true
+        },
+        {
+          "key": "placeholder",
+          "label": "占位提示",
+          "type": "text",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": true,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "description": "date / datetime / time 的默认渲染器。valueFormat 决定写回 Schema 的序列化格式，默认 ISO8601。",
+      "events": [
+        {
+          "name": "change",
+          "label": "变化"
+        }
+      ],
+      "fieldBindings": {
+        "forFieldTypes": [
+          "date",
+          "datetime",
+          "time"
+        ],
+        "priority": 100,
+        "listRenderer": true
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000Q",
+      "name": "x-upload",
+      "version": 1,
+      "title": "文件上传",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "provider",
+          "label": "存储",
+          "type": "enum",
+          "enum": [
+            "oss",
+            "local"
+          ],
+          "defaultValue": "oss",
+          "bindable": true
+        },
+        {
+          "key": "accept",
+          "label": "接受类型",
+          "type": "fileAccept",
+          "bindable": false
+        },
+        {
+          "key": "maxSize",
+          "label": "单文件上限(字节)",
+          "type": "integer",
+          "defaultValue": 10485760,
+          "bindable": true
+        },
+        {
+          "key": "maxCount",
+          "label": "数量上限",
+          "type": "integer",
+          "defaultValue": 1,
+          "bindable": true
+        },
+        {
+          "key": "multiple",
+          "label": "多选",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "preview",
+          "label": "可预览",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "compressImage",
+          "label": "图片压缩",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "listType",
+          "label": "列表样式",
+          "type": "enum",
+          "enum": [
+            "text",
+            "picture",
+            "picture-card"
+          ],
+          "defaultValue": "text",
+          "bindable": true
+        },
+        {
+          "key": "pathTemplate",
+          "label": "OSS 路径模板",
+          "type": "string",
+          "advanced": true,
+          "bindable": true
+        },
+        {
+          "key": "autoUpload",
+          "label": "选中即上传",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "bizType",
+          "label": "业务类型",
+          "type": "string",
+          "advanced": true,
+          "bindable": true
+        },
+        {
+          "key": "registerEntity",
+          "label": "登记实体",
+          "type": "entityRef",
+          "advanced": true,
+          "bindable": false
+        },
+        {
+          "key": "maxVideoDuration",
+          "label": "视频时长上限(秒)",
+          "type": "integer",
+          "advanced": true,
+          "bindable": true
+        },
+        {
+          "key": "drag",
+          "label": "支持拖拽",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "description": "OSS 客户端直传。流程：向 BFF 取 STS 临时凭证 → 浏览器直接 PUT 到 OSS（不经过后端）→ 成功后回调 BFF 登记 attachment 行。model 写入结构化文件对象数组，而非裸 URL。",
+      "events": [
+        {
+          "name": "change",
+          "label": "文件变化",
+          "params": [
+            {
+              "key": "files",
+              "type": "array"
+            }
+          ]
+        },
+        {
+          "name": "success",
+          "label": "上传成功",
+          "params": [
+            {
+              "key": "file",
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "name": "error",
+          "label": "上传失败",
+          "params": [
+            {
+              "key": "error",
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "name": "remove",
+          "label": "移除",
+          "params": [
+            {
+              "key": "file",
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "name": "exceed",
+          "label": "超出限制"
+        }
+      ],
+      "actions": [
+        {
+          "name": "upload",
+          "label": "上传",
+          "kind": "upload",
+          "params": {
+            "files": []
+          },
+          "returns": "AssetRef[]"
+        },
+        {
+          "name": "clear",
+          "label": "清空",
+          "kind": "upload"
+        },
+        {
+          "name": "openPicker",
+          "label": "打开选择器",
+          "kind": "upload"
+        }
+      ],
+      "data": {
+        "role": "form",
+        "modelShape": "array",
+        "emits": [
+          "change",
+          "success",
+          "error",
+          "remove"
+        ]
+      },
+      "fieldBindings": {
+        "forFieldTypes": [
+          "file",
+          "image",
+          "video"
+        ],
+        "priority": 100
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000R",
+      "name": "x-json-editor",
+      "version": 1,
+      "title": "JSON 编辑器",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "height",
+          "label": "高度",
+          "type": "cssLength",
+          "defaultValue": "240px",
+          "bindable": true
+        },
+        {
+          "key": "schema",
+          "label": "结构约束",
+          "type": "json",
+          "advanced": true,
+          "bindable": true
+        },
+        {
+          "key": "readonly",
+          "label": "只读",
+          "type": "expr",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "events": [
+        {
+          "name": "change",
+          "label": "变化"
+        }
+      ],
+      "fieldBindings": {
+        "forFieldTypes": [
+          "json"
+        ],
+        "priority": 100
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000S",
+      "name": "x-signature",
+      "version": 1,
+      "title": "手写签名",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "height",
+          "label": "画布高度",
+          "type": "cssLength",
+          "defaultValue": "200px",
+          "bindable": true
+        },
+        {
+          "key": "penColor",
+          "label": "笔色",
+          "type": "color",
+          "defaultValue": "#1f2937",
+          "bindable": true
+        },
+        {
+          "key": "backgroundColor",
+          "label": "背景色",
+          "type": "color",
+          "defaultValue": "#ffffff",
+          "bindable": true
+        },
+        {
+          "key": "required",
+          "label": "必签",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "clearable",
+          "label": "可重签",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "description": "输出 PNG 资产并复用上传链路，落库为 AssetRef。",
+      "events": [
+        {
+          "name": "change",
+          "label": "变化"
+        },
+        {
+          "name": "clear",
+          "label": "清空"
+        }
+      ],
+      "fieldBindings": {
+        "forFieldTypes": [
+          "signature"
+        ],
+        "priority": 100
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000T",
+      "name": "x-location",
+      "version": 1,
+      "title": "位置选择",
+      "kind": "field",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "mode",
+          "label": "模式",
+          "type": "enum",
+          "enum": [
+            "map",
+            "input",
+            "auto"
+          ],
+          "defaultValue": "map",
+          "bindable": true
+        },
+        {
+          "key": "provider",
+          "label": "地图服务",
+          "type": "enum",
+          "enum": [
+            "amap",
+            "tencent",
+            "baidu"
+          ],
+          "defaultValue": "amap",
+          "bindable": true
+        },
+        {
+          "key": "detail",
+          "label": "显示详细地址",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "readonly",
+          "label": "只读坐标",
+          "type": "expr",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "表单",
+      "events": [
+        {
+          "name": "change",
+          "label": "变化",
+          "params": [
+            {
+              "key": "lng",
+              "type": "number"
+            },
+            {
+              "key": "lat",
+              "type": "number"
+            },
+            {
+              "key": "address",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldBindings": {
+        "forFieldTypes": [
+          "location"
+        ],
+        "priority": 100
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000V",
+      "name": "x-text",
+      "version": 1,
+      "title": "文本",
+      "kind": "display",
+      "props": [
+        {
+          "key": "content",
+          "label": "内容",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "tag",
+          "label": "标签",
+          "type": "string",
+          "defaultValue": "span",
+          "bindable": true
+        },
+        {
+          "key": "size",
+          "label": "字号",
+          "type": "cssLength",
+          "bindable": true
+        },
+        {
+          "key": "color",
+          "label": "颜色",
+          "type": "color",
+          "bindable": true
+        },
+        {
+          "key": "ellipsis",
+          "label": "超长省略",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "copyable",
+          "label": "可复制",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "type",
+          "label": "语义类型",
+          "type": "enum",
+          "enum": [
+            "default",
+            "primary",
+            "success",
+            "warning",
+            "danger",
+            "info"
+          ],
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": true,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "展示",
+      "fieldBindings": {
+        "forFieldTypes": [
+          "formula"
+        ],
+        "priority": 300,
+        "listRenderer": true
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000W",
+      "name": "x-enum-text",
+      "version": 1,
+      "title": "枚举文本",
+      "kind": "display",
+      "props": [
+        {
+          "key": "value",
+          "label": "值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "enumRef",
+          "label": "枚举",
+          "type": "json",
+          "required": true,
+          "bindable": true
+        },
+        {
+          "key": "fallback",
+          "label": "未匹配文案",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "showColor",
+          "label": "显示颜色",
+          "type": "boolean",
+          "defaultValue": true,
+          "description": "取 EnumValue.color 渲染为标签底色",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": true,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "展示",
+      "description": "按 EnumDef 把值翻译成中文标签；列表与详情共用，避免各页重复维护映射。"
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000X",
+      "name": "x-status-tag",
+      "version": 1,
+      "title": "状态标签",
+      "kind": "display",
+      "props": [
+        {
+          "key": "value",
+          "label": "状态值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "enumRef",
+          "label": "枚举",
+          "type": "json",
+          "required": true,
+          "bindable": true
+        },
+        {
+          "key": "size",
+          "label": "尺寸",
+          "type": "enum",
+          "enum": [
+            "small",
+            "default",
+            "large"
+          ],
+          "bindable": true
+        },
+        {
+          "key": "effect",
+          "label": "主题",
+          "type": "enum",
+          "enum": [
+            "light",
+            "dark",
+            "plain"
+          ],
+          "defaultValue": "light",
+          "bindable": true
+        },
+        {
+          "key": "showDot",
+          "label": "显示圆点",
+          "type": "boolean",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": true,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "展示",
+      "actions": [
+        {
+          "name": "mapNext",
+          "label": "列出可用流转",
+          "kind": "ui",
+          "returns": "EnumValue[]",
+          "description": "供审批按钮动态渲染，避免页面硬编码状态机"
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000Y",
+      "name": "x-btn",
+      "version": 1,
+      "title": "按钮",
+      "kind": "action",
+      "props": [
+        {
+          "key": "text",
+          "label": "文案",
+          "type": "text",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "type",
+          "label": "类型",
+          "type": "enum",
+          "enum": [
+            "primary",
+            "success",
+            "warning",
+            "danger",
+            "info",
+            "default",
+            "text"
+          ],
+          "defaultValue": "default",
+          "bindable": true
+        },
+        {
+          "key": "plain",
+          "label": "朴素",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "round",
+          "label": "圆角",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "size",
+          "label": "尺寸",
+          "type": "enum",
+          "enum": [
+            "small",
+            "default",
+            "large"
+          ],
+          "bindable": true
+        },
+        {
+          "key": "icon",
+          "label": "图标",
+          "type": "icon",
+          "bindable": true
+        },
+        {
+          "key": "disabled",
+          "label": "禁用",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "loading",
+          "label": "加载中",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "visible",
+          "label": "可见",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "confirm",
+          "label": "二次确认文案",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "permission",
+          "label": "权限表达式",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "badge",
+          "label": "角标",
+          "type": "expr",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "操作",
+      "events": [
+        {
+          "name": "click",
+          "label": "点击"
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000000Z",
+      "name": "x-row-actions",
+      "version": 1,
+      "title": "行内操作",
+      "kind": "action",
+      "props": [
+        {
+          "key": "actions",
+          "label": "按钮清单",
+          "type": "buttonList",
+          "required": true,
+          "itemType": "json",
+          "itemProps": [
+            {
+              "key": "key",
+              "label": "标识",
+              "type": "string",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "label",
+              "label": "文案",
+              "type": "text",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "actionRef",
+              "label": "动作",
+              "type": "actionRef",
+              "advanced": true,
+              "bindable": false
+            },
+            {
+              "key": "steps",
+              "label": "内联步骤",
+              "type": "stepList",
+              "advanced": true,
+              "description": "与 actionRef 二选一，用于一次性逻辑，不值得沉淀为 Action 时",
+              "bindable": false
+            },
+            {
+              "key": "params",
+              "label": "参数",
+              "type": "json",
+              "bindable": true
+            },
+            {
+              "key": "visible",
+              "label": "可见",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "disabled",
+              "label": "禁用",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "danger",
+              "label": "危险操作",
+              "type": "boolean",
+              "bindable": true
+            },
+            {
+              "key": "icon",
+              "label": "图标",
+              "type": "icon",
+              "bindable": true
+            },
+            {
+              "key": "confirm",
+              "label": "二次确认",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "permission",
+              "label": "权限",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "badge",
+              "label": "角标",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "order",
+              "label": "顺序",
+              "type": "integer",
+              "bindable": true
+            }
+          ],
+          "bindable": false
+        },
+        {
+          "key": "maxVisible",
+          "label": "最多显示个数",
+          "type": "integer",
+          "defaultValue": 3,
+          "bindable": true
+        },
+        {
+          "key": "size",
+          "label": "尺寸",
+          "type": "enum",
+          "enum": [
+            "small",
+            "default"
+          ],
+          "defaultValue": "small",
+          "bindable": true
+        },
+        {
+          "key": "layout",
+          "label": "排布",
+          "type": "enum",
+          "enum": [
+            "inline",
+            "dropdown"
+          ],
+          "defaultValue": "inline",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": true,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "操作",
+      "description": "表格操作列。每个按钮的 visible 用表达式表达（如 $row.status == 'draft'），状态机只写一遍。",
+      "events": [
+        {
+          "name": "command",
+          "label": "命令",
+          "params": [
+            {
+              "key": "key",
+              "type": "string"
+            },
+            {
+              "key": "row",
+              "type": "object"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000010",
+      "name": "x-dept-picker",
+      "version": 1,
+      "title": "组织选择器",
+      "kind": "advanced",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "multiple",
+          "label": "多选",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "mode",
+          "label": "选择对象",
+          "type": "enum",
+          "enum": [
+            "dept",
+            "user",
+            "deptAndUser"
+          ],
+          "defaultValue": "dept",
+          "bindable": true
+        },
+        {
+          "key": "scope",
+          "label": "数据范围",
+          "type": "enum",
+          "enum": [
+            "all",
+            "dept",
+            "deptAndChildren",
+            "self"
+          ],
+          "defaultValue": "deptAndChildren",
+          "bindable": true
+        },
+        {
+          "key": "rootId",
+          "label": "根节点",
+          "type": "string",
+          "bindable": true
+        },
+        {
+          "key": "checkStrictly",
+          "label": "父子不联动",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "placeholder",
+          "label": "占位提示",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "returnFields",
+          "label": "返回字段",
+          "type": "json",
+          "advanced": true,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "业务组件",
+      "description": "选择组织架构节点。组织树是平台级能力（模块 A），业务侧只声明选择范围。",
+      "events": [
+        {
+          "name": "change",
+          "label": "变化",
+          "params": [
+            {
+              "key": "value",
+              "type": "any"
+            },
+            {
+              "key": "nodes",
+              "type": "array"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000011",
+      "name": "x-employee-picker",
+      "version": 1,
+      "title": "人员选择器",
+      "kind": "advanced",
+      "props": [
+        {
+          "key": "model",
+          "label": "绑定值",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "multiple",
+          "label": "多选",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "deptId",
+          "label": "限定部门",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "valueKey",
+          "label": "值字段",
+          "type": "string",
+          "defaultValue": "id",
+          "bindable": true
+        },
+        {
+          "key": "labelKey",
+          "label": "显示字段",
+          "type": "string",
+          "defaultValue": "name",
+          "bindable": true
+        },
+        {
+          "key": "avatarKey",
+          "label": "头像字段",
+          "type": "string",
+          "bindable": true
+        },
+        {
+          "key": "searchable",
+          "label": "可搜索",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "remoteActionRef",
+          "label": "远程搜索动作",
+          "type": "actionRef",
+          "advanced": true,
+          "bindable": false
+        }
+      ],
+      "capabilities": {
+        "formField": true,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "业务组件",
+      "events": [
+        {
+          "name": "change",
+          "label": "变化"
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000012",
+      "name": "x-attachment-list",
+      "version": 1,
+      "title": "附件列表",
+      "kind": "advanced",
+      "props": [
+        {
+          "key": "bizType",
+          "label": "业务类型",
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        {
+          "key": "bizId",
+          "label": "业务主键",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "dataSourceId",
+          "label": "数据源",
+          "type": "dataSourceRef",
+          "bindable": true
+        },
+        {
+          "key": "readonly",
+          "label": "只读",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "allowDownload",
+          "label": "允许下载",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "previewInline",
+          "label": "内联预览",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "groupByKind",
+          "label": "按类型分组",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "showUploader",
+          "label": "显示上传人",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": true,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "业务组件",
+      "description": "只读展示 attachment 实体中的数据，与 x-upload 共用一份登记契约。",
+      "data": {
+        "role": "detail",
+        "modelShape": "array"
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000013",
+      "name": "x-approval-timeline",
+      "version": 1,
+      "title": "审批流转记录",
+      "kind": "advanced",
+      "props": [
+        {
+          "key": "processInstanceId",
+          "label": "流程实例",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "flowRef",
+          "label": "流程",
+          "type": "json",
+          "required": true,
+          "bindable": true
+        },
+        {
+          "key": "showComment",
+          "label": "显示审批意见",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "showAssignee",
+          "label": "显示办理人",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "order",
+          "label": "排序",
+          "type": "enum",
+          "enum": [
+            "asc",
+            "desc"
+          ],
+          "defaultValue": "asc",
+          "bindable": true
+        },
+        {
+          "key": "height",
+          "label": "高度",
+          "type": "cssLength",
+          "bindable": true
+        },
+        {
+          "key": "showBusinessKey",
+          "label": "显示业务单号",
+          "type": "boolean",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "业务组件",
+      "description": "数据来自 Flowable 历史（HistoricActivityInstance + 意见表），只读。",
+      "actions": [
+        {
+          "name": "refresh",
+          "label": "刷新",
+          "kind": "flow"
+        }
+      ],
+      "data": {
+        "role": "detail",
+        "modelShape": "array",
+        "refreshable": true
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000014",
+      "name": "x-approval-actions",
+      "version": 1,
+      "title": "审批操作区",
+      "kind": "advanced",
+      "props": [
+        {
+          "key": "taskId",
+          "label": "任务 ID",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "flowRef",
+          "label": "流程",
+          "type": "json",
+          "required": true,
+          "bindable": true
+        },
+        {
+          "key": "outcomes",
+          "label": "可用结论",
+          "type": "buttonList",
+          "required": true,
+          "defaultValue": [
+            "approve",
+            "reject"
+          ],
+          "itemType": "json",
+          "itemProps": [
+            {
+              "key": "key",
+              "label": "标识",
+              "type": "string",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "label",
+              "label": "文案",
+              "type": "text",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "actionRef",
+              "label": "动作",
+              "type": "actionRef",
+              "advanced": true,
+              "bindable": false
+            },
+            {
+              "key": "steps",
+              "label": "内联步骤",
+              "type": "stepList",
+              "advanced": true,
+              "description": "与 actionRef 二选一，用于一次性逻辑，不值得沉淀为 Action 时",
+              "bindable": false
+            },
+            {
+              "key": "params",
+              "label": "参数",
+              "type": "json",
+              "bindable": true
+            },
+            {
+              "key": "visible",
+              "label": "可见",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "disabled",
+              "label": "禁用",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "danger",
+              "label": "危险操作",
+              "type": "boolean",
+              "bindable": true
+            },
+            {
+              "key": "icon",
+              "label": "图标",
+              "type": "icon",
+              "bindable": true
+            },
+            {
+              "key": "confirm",
+              "label": "二次确认",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "permission",
+              "label": "权限",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "badge",
+              "label": "角标",
+              "type": "expr",
+              "bindable": true
+            },
+            {
+              "key": "order",
+              "label": "顺序",
+              "type": "integer",
+              "bindable": true
+            }
+          ],
+          "bindable": false
+        },
+        {
+          "key": "commentRequired",
+          "label": "意见必填",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "commentPlaceholder",
+          "label": "意见占位",
+          "type": "text",
+          "bindable": true
+        },
+        {
+          "key": "allowTransfer",
+          "label": "允许转办",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "allowAddSign",
+          "label": "允许加签",
+          "type": "boolean",
+          "bindable": true
+        },
+        {
+          "key": "allowReturn",
+          "label": "允许退回",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "reasonTemplates",
+          "label": "常用意见",
+          "type": "optionList",
+          "itemType": "json",
+          "itemProps": [
+            {
+              "key": "value",
+              "label": "值",
+              "type": "json",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "label",
+              "label": "标签",
+              "type": "text",
+              "required": true,
+              "bindable": true
+            },
+            {
+              "key": "color",
+              "label": "颜色",
+              "type": "color",
+              "bindable": true
+            },
+            {
+              "key": "disabled",
+              "label": "禁用",
+              "type": "boolean",
+              "bindable": true
+            },
+            {
+              "key": "icon",
+              "label": "图标",
+              "type": "icon",
+              "bindable": true
+            },
+            {
+              "key": "order",
+              "label": "顺序",
+              "type": "integer",
+              "bindable": true
+            }
+          ],
+          "bindable": false
+        },
+        {
+          "key": "showAssignee",
+          "label": "显示当前办理人",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "业务组件",
+      "description": "审批办理的核心交互。outcomes 映射为 CompleteTaskStep 的 outcome，前端不自行拼接流程 API。二次确认、意见必填、驳回原因模板都由这里声明。",
+      "events": [
+        {
+          "name": "submit",
+          "label": "提交结论",
+          "params": [
+            {
+              "key": "outcome",
+              "type": "string"
+            },
+            {
+              "key": "comment",
+              "type": "string"
+            },
+            {
+              "key": "nextAssignee",
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "name": "transfer",
+          "label": "转办"
+        },
+        {
+          "name": "return",
+          "label": "退回"
+        }
+      ],
+      "actions": [
+        {
+          "name": "complete",
+          "label": "提交结论",
+          "kind": "flow",
+          "params": {
+            "outcome": "approve",
+            "comment": "",
+            "variables": {}
+          }
+        },
+        {
+          "name": "claim",
+          "label": "认领",
+          "kind": "flow"
+        },
+        {
+          "name": "transfer",
+          "label": "转办",
+          "kind": "flow",
+          "params": {
+            "toUserId": ""
+          }
+        }
+      ],
+      "data": {
+        "role": "form",
+        "modelShape": "object",
+        "emits": [
+          "submit"
+        ]
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000015",
+      "name": "x-process-form",
+      "version": 1,
+      "title": "流程表单（按任务渲染）",
+      "kind": "advanced",
+      "props": [
+        {
+          "key": "flowRef",
+          "label": "流程",
+          "type": "json",
+          "required": true,
+          "bindable": true
+        },
+        {
+          "key": "taskKey",
+          "label": "任务节点",
+          "type": "string",
+          "advanced": true,
+          "description": "缺省时按当前任务的 taskDefinitionKey 自动匹配 Flow.taskForms",
+          "bindable": true
+        },
+        {
+          "key": "entityRef",
+          "label": "实体",
+          "type": "entityRef",
+          "required": true,
+          "bindable": false
+        },
+        {
+          "key": "model",
+          "label": "数据模型",
+          "type": "expr",
+          "bindable": true,
+          "required": true
+        },
+        {
+          "key": "readonly",
+          "label": "只读",
+          "type": "expr",
+          "bindable": true
+        },
+        {
+          "key": "labelWidth",
+          "label": "标签宽度",
+          "type": "cssLength",
+          "bindable": true
+        },
+        {
+          "key": "columnsPerRow",
+          "label": "每行字段数",
+          "type": "integer",
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": false,
+        "supportsDataSource": false,
+        "supportsLoop": false,
+        "virtualScroll": false,
+        "supportsBinding": true
+      },
+      "group": "业务组件",
+      "description": "按当前任务的 taskDefinitionKey 匹配 Flow.taskForms，用 editable/required/readonly 字段集渲染业务表单，保证「同一张单据在不同节点看到不同可编辑范围」。",
+      "slots": [
+        {
+          "name": "default",
+          "label": "补充表单项"
+        }
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000016",
+      "name": "x-task-list",
+      "version": 1,
+      "title": "待办/已办列表",
+      "kind": "advanced",
+      "props": [
+        {
+          "key": "flowRef",
+          "label": "流程",
+          "type": "json",
+          "bindable": true
+        },
+        {
+          "key": "kind",
+          "label": "列表类型",
+          "type": "enum",
+          "required": true,
+          "enum": [
+            "todo",
+            "done",
+            "initiated",
+            "history"
+          ],
+          "defaultValue": "todo",
+          "bindable": true
+        },
+        {
+          "key": "processKey",
+          "label": "流程标识",
+          "type": "string",
+          "bindable": true
+        },
+        {
+          "key": "columnList",
+          "label": "列定义",
+          "type": "columnList",
+          "bindable": false
+        },
+        {
+          "key": "showProcessName",
+          "label": "显示流程名",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "showTaskNode",
+          "label": "显示当前节点",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "showArrivalTime",
+          "label": "显示到达时间",
+          "type": "boolean",
+          "defaultValue": true,
+          "bindable": true
+        },
+        {
+          "key": "pageSize",
+          "label": "每页条数",
+          "type": "integer",
+          "defaultValue": 10,
+          "bindable": true
+        }
+      ],
+      "capabilities": {
+        "formField": false,
+        "listColumn": true,
+        "supportsDataSource": true,
+        "supportsLoop": false,
+        "virtualScroll": false
+      },
+      "group": "业务组件",
+      "events": [
+        {
+          "name": "open",
+          "label": "打开",
+          "params": [
+            {
+              "key": "task",
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "name": "selectionChange",
+          "label": "选择变化",
+          "params": [
+            {
+              "key": "tasks",
+              "type": "array"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "name": "refresh",
+          "label": "刷新",
+          "kind": "list"
+        },
+        {
+          "name": "batchComplete",
+          "label": "批量办理",
+          "kind": "flow",
+          "params": {
+            "taskIds": [],
+            "outcome": "approve"
+          }
+        }
+      ],
+      "data": {
+        "role": "table",
+        "modelShape": "array",
+        "refreshable": true,
+        "pagination": true
+      }
+    }
+  ],
+  "itemContractNote": "结构化 prop（columnList / fieldList / searchFieldList / buttonList / optionList / items）的元素契约由各 PropDef.itemProps 声明。设计器据此渲染列编辑器/字段选择器，校验器据此拒绝未知键，出码引擎据此生成模板 —— 三处读同一份。"
+}

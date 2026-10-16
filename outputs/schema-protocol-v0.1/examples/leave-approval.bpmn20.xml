@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  请假审批流程定义。
+  平台约定（三条硬约束，L3 校验会逐条检查）：
+  1. userTask 的 id 必须与 Flow.taskForms[].taskKey 完全一致；
+  2. 平台不把办理人解析逻辑写进 BPMN —— 部署时由 LcpTaskListener 依据 Flow.taskForms[].assignee
+     (AssigneeSpec) 结合组织模型解析，因此 BPMN 内不出现 assignee / candidateGroups 表达式；
+     这样同一份流程定义在校（部门-院系）与公司（部门-事业部）两套组织模型下都可复用。
+  3. 网关条件以平台的 JSON 表达式树为源真相，存放在 flowable:field name="lcpExprSource" 中；
+     conditionExpression 内的 JUEL 是 BpmnConditionCompiler 生成的编译产物，回读时以 lcpExprSource 为准。
+-->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:flowable="http://flowable.org/bpmn"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             targetNamespace="http://lcp.dev/bpmn/leave"
+             typeLanguage="http://www.w3.org/2001/XMLSchema">
+
+  <process id="leave_approval" name="请假审批" isExecutable="true">
+    <documentation>提交 → 部门负责人 → （大于等于 3 工作日 或 需佐证）院级审批 → 结束；超 15 个工作日年假直接院级。</documentation>
+
+    <extensionElements>
+      <flowable:executionListener event="start" delegateExpression="${lcpProcessStartListener}"/>
+      <flowable:executionListener event="end" expression="${lcpProcessEndListener}"/>
+    </extensionElements>
+
+    <startEvent id="startLeave" name="发起请假" flowable:formKey="page_leave_form"/>
+
+    <sequenceFlow id="flow_start_to_apply" sourceRef="startLeave" targetRef="applySubmit"/>
+
+    <userTask id="applySubmit" name="申请人提交" flowable:formKey="page_leave_form">
+      <documentation>由 leave_submit 动作启动流程后自动完成；仅在「退回修改」后重新出现，供申请人补充材料。</documentation>
+      <extensionElements>
+        <flowable:taskListener event="create" delegateExpression="${lcpTaskListener}"/>
+        <flowable:taskListener event="complete" delegateExpression="${lcpTaskListener}"/>
+      </extensionElements>
+    </userTask>
+
+    <sequenceFlow id="flow_apply_to_leader" sourceRef="applySubmit" targetRef="deptLeaderApprove"/>
+
+    <userTask id="deptLeaderApprove" name="部门负责人审批" flowable:formKey="page_leave_approval">
+      <documentation>部门负责人可核减 days（inout 变量），核减后继续流转。</documentation>
+      <extensionElements>
+        <flowable:taskListener event="create" delegateExpression="${lcpTaskListener}"/>
+        <flowable:taskListener event="complete" delegateExpression="${lcpTaskListener}"/>
+        <flowable:taskListener event="timeout" delegateExpression="${lcpSlaListener}"/>
+      </extensionElements>
+    </userTask>
+
+    <sequenceFlow id="flow_leader_to_gw" sourceRef="deptLeaderApprove" targetRef="gwNeedSchool"/>
+
+    <exclusiveGateway id="gwNeedSchool" name="是否需要院级审批" default="flow_gw_to_end"/>
+
+    <sequenceFlow id="flow_need_school" name="需院级" sourceRef="gwNeedSchool" targetRef="schoolApprove">
+      <extensionElements>
+        <flowable:field name="lcpExprSource">
+          <flowable:string>{"$fn":"or","$args":[{"$fn":"eq","$args":[{"$ref":"$process.variables.needProof"},{"$lit":true}]},{"$fn":"gte","$args":[{"$ref":"$process.variables.days"},{"$lit":3}]},{"$fn":"and","$args":[{"$fn":"eq","$args":[{"$ref":"$process.variables.leaveType"},{"$lit":"annual"}]},{"$fn":"gt","$args":[{"$ref":"$process.variables.days"},{"$lit":15}]}]}]}</flowable:string></flowable:field>
+      </extensionElements>
+      <conditionExpression xsi:type="tFormalExpression"><![CDATA[${needProof == true || days >= 3 || (leaveType == 'annual' && days > 15)}]]></conditionExpression>
+    </sequenceFlow>
+
+    <sequenceFlow id="flow_gw_to_end" name="直接结束" sourceRef="gwNeedSchool" targetRef="endLeave"/>
+
+    <userTask id="schoolApprove" name="院级审批" flowable:formKey="page_leave_approval">
+      <extensionElements>
+        <flowable:taskListener event="create" delegateExpression="${lcpTaskListener}"/>
+        <flowable:taskListener event="complete" delegateExpression="${lcpTaskListener}"/>
+        <flowable:taskListener event="timeout" delegateExpression="${lcpSlaListener}"/>
+      </extensionElements>
+    </userTask>
+
+    <sequenceFlow id="flow_school_to_end" sourceRef="schoolApprove" targetRef="endLeave"/>
+
+    <endEvent id="endLeave" name="结束">
+      <extensionElements>
+        <flowable:executionListener event="end" delegateExpression="${lcpProcessEndListener}"/>
+      </extensionElements>
+    </endEvent>
+  </process>
+</definitions>

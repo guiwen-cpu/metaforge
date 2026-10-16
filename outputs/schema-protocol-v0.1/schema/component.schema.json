@@ -1,0 +1,661 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lcp.dev/schema/0.1/component.schema.json",
+  "title": "LCP Protocol v0.1 / ComponentContract",
+  "description": "统一组件契约。设计器的物料面板、属性面板、画布约束，运行时的渲染分派，出码引擎的 import 生成，AI 的组件选择，全部读同一份契约 —— 这就是「统一组件契约」作为核心地基的含义。",
+  "type": "object",
+  "properties": {
+    "component": {
+      "$ref": "#/$defs/ComponentContract"
+    }
+  },
+  "required": [
+    "component"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Id": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Id"
+    },
+    "Key": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+    },
+    "Text": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+    },
+    "Description": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Description"
+    },
+    "Version": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Version"
+    },
+    "Expr": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr"
+    },
+    "Value": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+    },
+    "Semantic": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+    },
+    "ArtifactRef": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef"
+    },
+    "SandboxPolicy": {
+      "$ref": "https://lcp.dev/schema/0.1/logic.schema.json#/$defs/SandboxPolicy"
+    },
+    "NodeStyle": {
+      "$ref": "https://lcp.dev/schema/0.1/ui.schema.json#/$defs/NodeStyle"
+    },
+    "ComponentContract": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,47}$",
+          "description": "组件名（kebab-case）。UINode.component 必须能解析到此名或平台内建组件名"
+        },
+        "version": {
+          "$ref": "#/$defs/Version"
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "group": {
+          "type": "string",
+          "description": "物料面板分组，如 基础 / 布局 / 表单 / 数据展示 / 业务组件"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ComponentKind"
+        },
+        "runtime": {
+          "enum": [
+            "builtin",
+            "remote",
+            "sandbox"
+          ],
+          "default": "builtin",
+          "description": "builtin=平台内建；remote=动态加载的租户 JS 包；sandbox=iframe 隔离执行"
+        },
+        "container": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否可容纳子节点。为假时 UINode.children 被 L2 校验拒绝"
+        },
+        "acceptChildren": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "允许的子组件名白名单；空数组表示不限。设计器据此高亮可放置区域"
+        },
+        "canBeChildOf": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "允许的父组件名白名单；空数组表示不限。双向约束比单向更可靠"
+        },
+        "minChildren": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxChildren": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "props": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PropDef"
+          }
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SlotDef"
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventDef"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ActionCapability"
+          }
+        },
+        "capabilities": {
+          "$ref": "#/$defs/ComponentCapabilities"
+        },
+        "data": {
+          "$ref": "#/$defs/DataContract"
+        },
+        "fieldBindings": {
+          "$ref": "#/$defs/FieldBindings"
+        },
+        "defaultProps": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Value"
+          },
+          "description": "拖入画布时的初始 props"
+        },
+        "defaultStyle": {
+          "$ref": "#/$defs/NodeStyle"
+        },
+        "responsive": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否支持响应式配置。为假时设计器隐藏断点面板"
+        },
+        "deprecated": {
+          "type": "boolean",
+          "default": false
+        },
+        "since": {
+          "type": "string",
+          "description": "引入版本，如 0.1.0"
+        },
+        "source": {
+          "type": "string",
+          "description": "runtime=remote|sandbox 时的加载地址（须同时提供 integrity 校验）"
+        },
+        "integrity": {
+          "type": "string",
+          "description": "子资源完整性哈希，如 sha384-...。确保远程组件未被篡改"
+        },
+        "sandbox": {
+          "$ref": "#/$defs/SandboxPolicy"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "version",
+        "title",
+        "kind",
+        "props",
+        "capabilities"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "ComponentKind": {
+      "enum": [
+        "layout",
+        "container",
+        "field",
+        "display",
+        "action",
+        "data",
+        "chart",
+        "advanced"
+      ],
+      "description": "field=可作为表单字段（参与表单模型与校验）；layout/container=可容纳子节点；data=消费数据源的主组件（表格/列表/树）"
+    },
+    "PropDef": {
+      "type": "object",
+      "description": "属性定义。bindable 是设计器属性面板的关键开关：为真时出现「绑定数据 / 表达式」切换按钮。",
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9]{0,47}$",
+          "description": "props 的键。camelCase 以匹配 Vue prop 命名"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "type": {
+          "$ref": "#/$defs/PropType"
+        },
+        "defaultValue": {
+          "$ref": "#/$defs/Value"
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "bindable": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否允许赋值表达式而非仅字面量。为假时 L2 校验拒绝 Expr"
+        },
+        "enum": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Value"
+          },
+          "description": "type=enum 时的候选值"
+        },
+        "enumLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Text"
+          }
+        },
+        "enumRef": {
+          "$ref": "#/$defs/ArtifactRef",
+          "description": "枚举来自共享枚举定义，避免每个组件重复维护选项"
+        },
+        "group": {
+          "type": "string",
+          "description": "属性面板分组"
+        },
+        "order": {
+          "type": "integer"
+        },
+        "advanced": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否折叠进「高级」区"
+        },
+        "unit": {
+          "type": "string",
+          "description": "单位提示，如 px / s / %"
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "when": {
+          "$ref": "#/$defs/Expr",
+          "description": "联动显示条件。属性面板据此显隐，避免无关配置干扰"
+        },
+        "itemType": {
+          "$ref": "#/$defs/PropType",
+          "description": "type=fieldList/columnList/optionList 时的元素类型"
+        },
+        "itemProps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PropDef"
+          },
+          "description": "复合属性的元素字段定义"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "type"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "PropType": {
+      "enum": [
+        "string",
+        "number",
+        "integer",
+        "boolean",
+        "text",
+        "json",
+        "enum",
+        "color",
+        "icon",
+        "cssLength",
+        "url",
+        "dateFormat",
+        "fileAccept",
+        "expr",
+        "slot",
+        "node",
+        "nodeList",
+        "style",
+        "actionRef",
+        "pageRef",
+        "entityRef",
+        "dataSourceRef",
+        "fieldRef",
+        "eventRef",
+        "fieldList",
+        "columnList",
+        "searchFieldList",
+        "optionList",
+        "buttonList",
+        "ruleList",
+        "assignee",
+        "validatorList",
+        "stepList"
+      ],
+      "description": "面向设计器的属性类型系统。决定属性面板渲染什么编辑控件，以及出码时如何序列化。新增类型须同步更新属性面板控件表与出码序列化器。"
+    },
+    "SlotDef": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": "default"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "multiple": {
+          "type": "boolean",
+          "default": true
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "accepts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "允许的子组件名白名单；空数组表示不限"
+        },
+        "scope": {
+          "enum": [
+            "node",
+            "value"
+          ],
+          "default": "node",
+          "description": "value 表示插槽接收的是作用域数据而非节点树（如表单字段插槽）"
+        },
+        "maxItems": {
+          "type": "integer"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "EventDef": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9]{0,47}$",
+          "description": "事件名，对应 UINode.handlers 的键，也用于生成 emit('name')"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "params": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "$ref": "#/$defs/Key"
+              },
+              "type": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          "description": "事件负载结构。动作内的表达式以 $ctx.event.<key> 访问"
+        },
+        "async": {
+          "type": "boolean",
+          "default": false
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "ActionCapability": {
+      "type": "object",
+      "description": "组件暴露的可调用能力。动作编排里通过 targetComponent 调用，设计器据此提供组件方法联想 —— 让「逻辑编排」能真正驱动界面，而不只是发请求。",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9]{0,47}$"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "kind": {
+          "enum": [
+            "data",
+            "form",
+            "list",
+            "ui",
+            "upload",
+            "flow",
+            "chart"
+          ],
+          "default": "ui"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Value"
+          }
+        },
+        "returns": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "ComponentCapabilities": {
+      "type": "object",
+      "properties": {
+        "formField": {
+          "type": "boolean",
+          "default": false,
+          "description": "可作为表单字段：参与 $form 模型、必填校验、提交数据收集"
+        },
+        "listColumn": {
+          "type": "boolean",
+          "default": false,
+          "description": "可作为表格列渲染器（配 columnList 使用）"
+        },
+        "supportsBinding": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否允许 bind 数据源"
+        },
+        "supportsDataSource": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否自身消费数据源（表格/列表/树）"
+        },
+        "supportsLoop": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否允许 loop 配置"
+        },
+        "supportsVisibility": {
+          "type": "boolean",
+          "default": true
+        },
+        "supportsResponsive": {
+          "type": "boolean",
+          "default": true
+        },
+        "supportsStyle": {
+          "type": "boolean",
+          "default": true
+        },
+        "movable": {
+          "type": "boolean",
+          "default": true
+        },
+        "resizable": {
+          "type": "boolean",
+          "default": true
+        },
+        "copyable": {
+          "type": "boolean",
+          "default": true
+        },
+        "deletable": {
+          "type": "boolean",
+          "default": true
+        },
+        "virtualScroll": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否内置虚拟滚动，大数据量列表的判定依据"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "DataContract": {
+      "type": "object",
+      "description": "组件与数据源的约定。运行时据此把数据注入组件、暴露刷新/提交能力；出码时据此生成数据源订阅代码。",
+      "properties": {
+        "role": {
+          "enum": [
+            "form",
+            "table",
+            "tree",
+            "detail",
+            "chart",
+            "none"
+          ],
+          "default": "none"
+        },
+        "modelShape": {
+          "enum": [
+            "none",
+            "object",
+            "array",
+            "scalar"
+          ],
+          "default": "none",
+          "description": "组件期望的数据形状，用于校验数据源绑定是否合理（L2）"
+        },
+        "emits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "向数据源回写的字段，如表单字段 key 列表"
+        },
+        "accepts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "消费的数据源类型：entity / api / flow / static / computed"
+        },
+        "refreshable": {
+          "type": "boolean",
+          "default": false
+        },
+        "submitable": {
+          "type": "boolean",
+          "default": false
+        },
+        "pagination": {
+          "type": "boolean",
+          "default": false
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false
+    },
+    "FieldBindings": {
+      "type": "object",
+      "description": "字段类型到组件的默认映射。设计器从实体自动生成表单/列表时按此表选组件，出码引擎也读它 —— 这是「内置 CRUD 模板」能自动工作的原因。",
+      "properties": {
+        "forFieldTypes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "适用的 DataSchema FieldType 列表，如 ['string']"
+        },
+        "forFormats": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "适用的 format 细分，如 ['email','phone']"
+        },
+        "forPageKinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "适用的页面类型，如 ['form','list']"
+        },
+        "priority": {
+          "type": "integer",
+          "default": 100,
+          "description": "同类型多组件时的优先级，数值小者优先"
+        },
+        "listRenderer": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否同时可作为列表列渲染器"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

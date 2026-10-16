@@ -1,0 +1,1034 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lcp.dev/schema/0.1/data.schema.json",
+  "title": "LCP Protocol v0.1 / DataSchema",
+  "description": "数据模型契约。设计器产出、BFF 消费（生成 DDL / 动态 SQL / 校验）、出码引擎消费（生成 Entity/Mapper/DDL）。核心决策：字段级 storage 决定该字段上提为真实列还是留在 JSONB。",
+  "type": "object",
+  "properties": {
+    "dataSchema": {
+      "$ref": "#/$defs/DataSchema"
+    }
+  },
+  "required": [
+    "dataSchema"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "DataSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Id"
+        },
+        "key": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+        },
+        "name": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Name"
+        },
+        "scope": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Scope"
+        },
+        "version": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Version"
+        },
+        "description": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Description"
+        },
+        "entities": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Entity"
+          }
+        },
+        "enums": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnumDef"
+          }
+        },
+        "access": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Access"
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "name",
+        "version",
+        "entities"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "Entity": {
+      "type": "object",
+      "description": "实体 = 一张业务表 + 一份运行时模型定义。所有实体强制带租户列。",
+      "properties": {
+        "id": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Id"
+        },
+        "key": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+        },
+        "name": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Name"
+        },
+        "tableName": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,62}$",
+          "description": "物理表名。缺省由 key 推导"
+        },
+        "titleField": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key",
+          "description": "代表该行人类可读标题的字段，用于引用选择器与流程标题"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "storage": {
+          "$ref": "#/$defs/EntityStorage"
+        },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Field"
+          }
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Relation"
+          }
+        },
+        "indexes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Index"
+          }
+        },
+        "access": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Access"
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "name",
+        "storage",
+        "fields"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "EntityStorage": {
+      "type": "object",
+      "description": "物理落库策略。多租户与软删除由平台统一注入，业务 Schema 不得覆盖 tenantColumn 的取值方式。",
+      "properties": {
+        "primaryKey": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key",
+          "default": "id"
+        },
+        "idType": {
+          "enum": [
+            "ulid",
+            "uuid",
+            "bigint",
+            "snowflake"
+          ],
+          "default": "ulid",
+          "description": "ulid 天然有序，作为聚簇主键对 PG 最友好"
+        },
+        "tenantColumn": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "tenant_id",
+          "description": "null 表示该实体为全局共享表（仅 system scope 允许）"
+        },
+        "jsonbColumn": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key",
+          "default": "ext",
+          "description": "承载 storage=jsonb 字段的列"
+        },
+        "softDelete": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "column": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key",
+              "default": "deleted_at"
+            },
+            "type": {
+              "enum": [
+                "timestamp",
+                "boolean"
+              ],
+              "default": "timestamp"
+            }
+          },
+          "additionalProperties": false
+        },
+        "timestamps": {
+          "type": "object",
+          "properties": {
+            "createdAt": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": "created_at"
+            },
+            "updatedAt": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": "updated_at"
+            },
+            "createdBy": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": "created_by"
+            },
+            "updatedBy": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": "updated_by"
+            }
+          },
+          "additionalProperties": false
+        },
+        "optimisticLock": {
+          "type": "boolean",
+          "default": false,
+          "description": "开启后追加 version 列，BFF 更新时自动带版本条件"
+        },
+        "auditLog": {
+          "type": "boolean",
+          "default": false,
+          "description": "开启后所有写入落审计表，审批流场景建议开启"
+        },
+        "partitionBy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "分区列，如按学年 semester 分区"
+        },
+        "comment": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "Field": {
+      "type": "object",
+      "description": "字段。storage 是本协议最关键的取舍面：column 字段参与索引/外键/SQL 过滤，jsonb 字段零 DDL 成本但不建索引（除非显式建 GIN 索引）。",
+      "properties": {
+        "id": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Id"
+        },
+        "key": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+        },
+        "label": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "type": {
+          "$ref": "#/$defs/FieldType"
+        },
+        "storage": {
+          "enum": [
+            "column",
+            "jsonb"
+          ],
+          "default": "jsonb",
+          "description": "jsonb=默认零成本演进；column=需要索引/唯一/外键/聚合时必须显式声明"
+        },
+        "columnType": {
+          "type": "string",
+          "description": "仅 storage=column：覆盖默认 DDL 类型，如 varchar(32) / numeric(12,2) / text[]"
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "precision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "required": {
+          "type": "boolean",
+          "default": false,
+          "description": "服务端强校验。表单必填另由 UI 层 required 控制，二者独立"
+        },
+        "unique": {
+          "type": "boolean",
+          "default": false,
+          "description": "唯一约束作用域为 (tenantColumn, 本字段)"
+        },
+        "defaultValue": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+        },
+        "immutable": {
+          "type": "boolean",
+          "default": false,
+          "description": "创建后不可修改，如学号"
+        },
+        "sensitive": {
+          "type": "boolean",
+          "default": false,
+          "description": "标记后默认进入 fieldPolicy=masked，且参与审计与导出脱敏"
+        },
+        "enumRef": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef",
+          "description": "type=enum 时指向枚举定义"
+        },
+        "enumValues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnumValue"
+          },
+          "description": "type=enum 且不引用共享枚举时内联定义"
+        },
+        "refEntity": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef",
+          "description": "type=ref 时指向目标实体"
+        },
+        "refField": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key",
+          "description": "type=ref 时目标实体的显示字段，缺省取目标 titleField"
+        },
+        "itemType": {
+          "$ref": "#/$defs/ValueType",
+          "description": "type=array 时的元素类型，递归深度上限 3 层（L2 校验）"
+        },
+        "formula": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr",
+          "description": "type=formula 时的计算表达式。编译为生成列或运行时派生，由 storage 决定"
+        },
+        "validators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Validator"
+          }
+        },
+        "uiHints": {
+          "$ref": "#/$defs/UiHints"
+        },
+        "access": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Access"
+        },
+        "searchable": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否参与默认全局搜索。为真时 L3 校验要求 storage=column 或存在对应 GIN 索引"
+        },
+        "sortable": {
+          "type": "boolean",
+          "default": false
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "label",
+        "type"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "FieldType": {
+      "enum": [
+        "string",
+        "text",
+        "richText",
+        "integer",
+        "decimal",
+        "boolean",
+        "date",
+        "datetime",
+        "time",
+        "json",
+        "enum",
+        "ref",
+        "file",
+        "image",
+        "video",
+        "array",
+        "signature",
+        "location",
+        "formula"
+      ],
+      "description": "封闭集合。新增类型须同步更新：PG 类型映射表、TS 类型生成器、Java 类型生成器、默认渲染组件表（四处齐改，L3 校验会检查映射表完整性）"
+    },
+    "ValueType": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/FieldType"
+        },
+        "format": {
+          "type": "string",
+          "description": "细分格式，如 date 的 yyyy-MM-dd、string 的 email/url/phone"
+        },
+        "enumRef": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef"
+        },
+        "enumValues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnumValue"
+          }
+        },
+        "refEntity": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef"
+        },
+        "itemType": {
+          "$ref": "#/$defs/ValueType"
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "EnumDef": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Id"
+        },
+        "key": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+        },
+        "name": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Name"
+        },
+        "scope": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Scope"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/EnumValue"
+          }
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "name",
+        "values"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "EnumValue": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "boolean"
+          ]
+        },
+        "label": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "color": {
+          "type": "string",
+          "description": "展示色，如 #52c41a 或 success｜warning｜danger"
+        },
+        "order": {
+          "type": "integer"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "additionalProperties": false
+    },
+    "Validator": {
+      "description": "校验器。expr 形态用于跨字段联动校验（如结束日期不早于开始日期）。",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "min"
+            },
+            "value": {
+              "type": "number"
+            },
+            "message": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "max"
+            },
+            "value": {
+              "type": "number"
+            },
+            "message": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "minLength"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "message": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "maxLength"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "message": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "pattern"
+            },
+            "value": {
+              "type": "string"
+            },
+            "message": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "range"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "message": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "fileMaxSize"
+            },
+            "value": {
+              "type": "integer",
+              "description": "字节"
+            },
+            "message": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "fileAccept"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "如 ['pdf','docx','xlsx']"
+            },
+            "message": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "expr"
+            },
+            "value": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr"
+            },
+            "message": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "uniqueIn"
+            },
+            "fields": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+              }
+            },
+            "ignoreSoftDeleted": {
+              "type": "boolean",
+              "default": true
+            },
+            "message": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+            }
+          },
+          "required": [
+            "type",
+            "fields"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "UiHints": {
+      "type": "object",
+      "description": "设计器默认值来源。仅影响默认生成，不限制设计器中改选其他组件。",
+      "properties": {
+        "widget": {
+          "type": "string",
+          "description": "优先渲染的组件名，如 el-select / x-upload"
+        },
+        "placeholder": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "help": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "group": {
+          "type": "string",
+          "description": "表单分组标题"
+        },
+        "order": {
+          "type": "integer"
+        },
+        "colSpan": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24,
+          "description": "24 栅格"
+        },
+        "rows": {
+          "type": "integer",
+          "description": "多行文本行数"
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "suffix": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnumValue"
+          }
+        },
+        "hideInList": {
+          "type": "boolean",
+          "default": false
+        },
+        "hideInForm": {
+          "type": "boolean",
+          "default": false
+        },
+        "width": {
+          "type": "integer",
+          "description": "列表列宽"
+        },
+        "fixed": {
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
+        "copyable": {
+          "type": "boolean",
+          "default": false
+        },
+        "sortable": {
+          "type": "boolean",
+          "default": false
+        },
+        "upload": {
+          "type": "object",
+          "description": "上传配置。provider=oss 时走 STS 临时凭证客户端直传，服务端只收回调与元数据",
+          "properties": {
+            "provider": {
+              "enum": [
+                "oss",
+                "local"
+              ],
+              "default": "oss"
+            },
+            "accept": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "扩展名白名单，如 ['jpg','png','mp4','pdf','docx','xlsx']"
+            },
+            "maxSize": {
+              "type": "integer",
+              "description": "单文件字节上限"
+            },
+            "maxCount": {
+              "type": "integer",
+              "default": 1
+            },
+            "multiple": {
+              "type": "boolean",
+              "default": false
+            },
+            "preview": {
+              "type": "boolean",
+              "default": true
+            },
+            "compressImage": {
+              "type": "boolean",
+              "default": false
+            },
+            "pathTemplate": {
+              "type": "string",
+              "description": "OSS 路径模板，支持 {tenant}/{app}/{entity}/{yyyy}/{MM}/{ulid}.{ext}"
+            }
+          },
+          "additionalProperties": false
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "Relation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Id"
+        },
+        "key": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+        },
+        "name": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Name"
+        },
+        "type": {
+          "enum": [
+            "oneToOne",
+            "oneToMany",
+            "manyToOne",
+            "manyToMany"
+          ]
+        },
+        "from": {
+          "$ref": "#/$defs/Endpoint"
+        },
+        "to": {
+          "$ref": "#/$defs/Endpoint"
+        },
+        "join": {
+          "$ref": "#/$defs/JoinTable",
+          "description": "仅 manyToMany 需要"
+        },
+        "onDelete": {
+          "enum": [
+            "cascade",
+            "restrict",
+            "setNull",
+            "none"
+          ],
+          "default": "restrict",
+          "description": "默认 restrict —— 低代码场景下误删成本远高于维护成本"
+        },
+        "onUpdate": {
+          "enum": [
+            "cascade",
+            "restrict",
+            "setNull",
+            "none"
+          ],
+          "default": "restrict"
+        },
+        "remoteName": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key",
+          "description": "目标端反向导航属性名，用于生成 target.relations[]"
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "lazy": {
+          "type": "boolean",
+          "default": true,
+          "description": "默认懒加载，列表接口不自动 join，避免 N+1 与响应体膨胀"
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "type",
+        "from",
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    "Endpoint": {
+      "type": "object",
+      "properties": {
+        "entityRef": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef"
+        },
+        "fieldKey": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key",
+          "description": "参与关联的字段 key，必须是 storage=column"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "entityRef",
+        "fieldKey"
+      ],
+      "additionalProperties": false
+    },
+    "JoinTable": {
+      "type": "object",
+      "properties": {
+        "tableName": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,62}$"
+        },
+        "fromColumn": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+        },
+        "toColumn": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+        },
+        "extraColumns": {
+          "type": "array",
+          "items": {
+            "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+          }
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "tableName",
+        "fromColumn",
+        "toColumn"
+      ],
+      "additionalProperties": false
+    },
+    "Index": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+          }
+        },
+        "unique": {
+          "type": "boolean",
+          "default": false
+        },
+        "method": {
+          "enum": [
+            "btree",
+            "gin",
+            "gist",
+            "hash"
+          ],
+          "default": "btree",
+          "description": "gin 用于 jsonb 字段的包含查询：fields 中可写 ext->>'status' 形式的表达式"
+        },
+        "orders": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          }
+        },
+        "where": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr",
+          "description": "部分索引条件。仅允许 pure=true 的函数（L4 校验）"
+        },
+        "concurrently": {
+          "type": "boolean",
+          "default": true,
+          "description": "出码时生成 CREATE INDEX CONCURRENTLY，避免锁表"
+        },
+        "note": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "fields"
+      ],
+      "additionalProperties": false
+    },
+    "Semantic": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+    }
+  }
+}

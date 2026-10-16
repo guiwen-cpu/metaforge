@@ -1,0 +1,509 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lcp.dev/schema/0.1/common.schema.json",
+  "title": "LCP Protocol v0.1 / Common",
+  "description": "通用契约基元。所有子 Schema（data/ui/logic/component/bundle）共享。修改此文件视为破坏性变更，需升 protocolVersion。",
+  "type": "object",
+  "$defs": {
+    "Id": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "ULID。全局唯一、单调递增、永不重用。用于 diff/版本/回滚/AI 定点修改。绝不用 key 代替 id。"
+    },
+    "Key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,62}$",
+      "description": "snake_case 元数据键。用于实体/字段/动作/页面/角色/枚举等「元数据标识」，同父作用域内唯一，可直接用作 SQL 列名。注意：参数名、局部变量名、HTTP 头名等「编程标识」不要用 Key，见 Ident / HttpToken。"
+    },
+    "Name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "Description": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "Version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "单调递增版本号。回滚 = 以历史快照内容重新发布，version 继续递增（不覆盖）。"
+    },
+    "Scope": {
+      "enum": [
+        "system",
+        "tenant",
+        "app"
+      ],
+      "description": "system=平台内置模板；tenant=租户级复用；app=应用私有。"
+    },
+    "Checksum": {
+      "type": "object",
+      "properties": {
+        "algo": {
+          "enum": [
+            "sha256"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "algo",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "Text": {
+      "description": "可本地化文本。允许裸字符串（等价于 {default}）以简化手写 Schema。",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "default": {
+              "type": "string"
+            },
+            "i18n": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "default"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Semantic": {
+      "type": "object",
+      "description": "语义描述层。面向 AI 生成与自然语言检索，运行时忽略。所有可寻址节点都必须预留此字段。",
+      "properties": {
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "intent": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "该节点「想干什么」的业务意图，供 AI 理解与生成时对齐"
+        },
+        "examples": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {},
+          "description": "few-shot 样例：值本身，或 {input, output} 结构"
+        },
+        "synonyms": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "type": "string"
+          },
+          "description": "同义词，用于模糊检索与 NL 匹配"
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "type": "string"
+          }
+        },
+        "businessDomain": {
+          "type": "string",
+          "description": "业务域，如 学籍 / 排课 / 考勤 / 报销 / 招聘"
+        },
+        "aiHint": {
+          "type": "object",
+          "properties": {
+            "generate": {
+              "enum": [
+                "field",
+                "entity",
+                "form",
+                "list",
+                "page",
+                "flow",
+                "rule",
+                "api",
+                "component",
+                "detail",
+                "detail",
+                "detail",
+                "detail",
+                "detail"
+              ]
+            },
+            "constraints": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "avoid": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "description": "跨工件引用。version 缺省时解析到所属 snapshot 内该工件的版本 —— 这是「一次发布 = 一个原子快照」的实现基础。",
+      "properties": {
+        "kind": {
+          "enum": [
+            "dataSchema",
+            "uiSchema",
+            "logicSchema",
+            "component",
+            "asset",
+            "enum",
+            "action",
+            "api",
+            "flow",
+            "page",
+            "entity",
+            "field",
+            "role"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "key": {
+          "$ref": "#/$defs/Key"
+        },
+        "version": {
+          "$ref": "#/$defs/Version"
+        },
+        "snapshotId": {
+          "$ref": "#/$defs/Id",
+          "description": "跨快照引用。仅模板市场导入 / 应用市场安装场景允许；运行时一律拒绝。L1 校验强制。"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "id"
+          ]
+        },
+        {
+          "required": [
+            "key"
+          ]
+        }
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "Expr": {
+      "description": "统一表达式 DSL（唯一的解释器语义，前后端 + Flowable + 规则引擎共用一个注册表）。歧义规则：对象仅当其恰好含一个以 $ 开头的键、且该键是已知算子时才是表达式；因此需要字面量对象且含 $ 键时必须用 {\"$lit\": {...}} 包裹。",
+      "oneOf": [
+        {
+          "title": "Literal",
+          "type": "object",
+          "properties": {
+            "$lit": {
+              "description": "任意 JSON 字面量，原样返回"
+            }
+          },
+          "required": [
+            "$lit"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "title": "Reference",
+          "type": "object",
+          "description": "取值路径。首段必须是注册表中的 valueRoots（$user/$form/$row/$data/$process...），后续为属性路径。",
+          "properties": {
+            "$ref": {
+              "type": "string",
+              "pattern": "^\\$(user|tenant|env|now|page|route|form|row|rows|data|process|ctx|component|res)(\\.[A-Za-z0-9_\\[\\]$-]+)*$"
+            }
+          },
+          "required": [
+            "$ref"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "title": "Function",
+          "type": "object",
+          "description": "注册表函数调用。name 必须存在于 expression-registry.json，arity/类型由 L2 语义校验检查。",
+          "properties": {
+            "$fn": {
+              "type": "string",
+              "minLength": 1
+            },
+            "$args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Expr"
+              }
+            }
+          },
+          "required": [
+            "$fn"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "title": "Template",
+          "type": "object",
+          "description": "字符串拼接。数组元素为字符串字面量或子表达式，不做字符串解析 —— 避免解析器歧义与注入。",
+          "properties": {
+            "$tpl": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/$defs/Expr"
+                  }
+                ]
+              }
+            }
+          },
+          "required": [
+            "$tpl"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "title": "Conditional",
+          "type": "object",
+          "properties": {
+            "$if": {
+              "$ref": "#/$defs/Expr"
+            },
+            "$then": {
+              "$ref": "#/$defs/Expr"
+            },
+            "$else": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "required": [
+            "$if",
+            "$then"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Value": {
+      "description": "任意可绑定值：JSON 字面量，或 Expr。凡声明为 Value 的位置都支持数据绑定与表达式。",
+      "$comment": "空 schema 接受任意 JSON。算子形状的正确性由 L2 语义校验（见 README 校验流水线）保证。",
+      "type": [
+        "string",
+        "number",
+        "integer",
+        "boolean",
+        "object",
+        "array",
+        "null"
+      ]
+    },
+    "Access": {
+      "type": "object",
+      "description": "数据权限。设计期声明、编译期下推为 SQL 条件与字段裁剪，运行期不再解释。",
+      "properties": {
+        "roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Key"
+          },
+          "description": "允许的角色 key。缺省=继承上层；空数组=仅超管"
+        },
+        "scope": {
+          "enum": [
+            "all",
+            "dept",
+            "deptAndChildren",
+            "self",
+            "custom"
+          ],
+          "description": "数据范围。self 依赖 ownerField，dept 依赖 deptField"
+        },
+        "ownerField": {
+          "$ref": "#/$defs/Key",
+          "description": "数据归属字段（通常指向用户 id）"
+        },
+        "deptField": {
+          "$ref": "#/$defs/Key"
+        },
+        "rowFilter": {
+          "$ref": "#/$defs/Expr",
+          "description": "行级过滤表达式，编译为追加的 WHERE 条件。禁止在此处调用非纯函数。"
+        },
+        "denyWhen": {
+          "$ref": "#/$defs/Expr",
+          "description": "为真则整体拒绝，优先级高于 roles"
+        },
+        "fieldPolicy": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": [
+              "read",
+              "write",
+              "hidden",
+              "masked"
+            ]
+          },
+          "description": "字段级策略：hidden 不出现在 API 响应；masked 按脱敏函数输出；read 只读"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "AssetRef": {
+      "type": "object",
+      "description": "二进制/文本资产引用。BPMN XML、图片、视频、导出代码均以资产形式独立版本化，避免污染结构 Schema。",
+      "properties": {
+        "assetId": {
+          "$ref": "#/$defs/Id"
+        },
+        "key": {
+          "$ref": "#/$defs/Key",
+          "description": "资产在 bundle 内的逻辑键（如 tpl_batch_recall）。跨工件引用一律用 key，assetId 只用于存储寻址。"
+        },
+        "kind": {
+          "enum": [
+            "bpmn",
+            "image",
+            "video",
+            "document",
+            "spreadsheet",
+            "code",
+            "sql",
+            "other"
+          ]
+        },
+        "version": {
+          "$ref": "#/$defs/Version"
+        },
+        "fileName": {
+          "type": "string"
+        },
+        "mime": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "checksum": {
+          "$ref": "#/$defs/Checksum"
+        },
+        "storage": {
+          "enum": [
+            "oss",
+            "inline",
+            "external"
+          ],
+          "default": "oss"
+        },
+        "url": {
+          "type": "string",
+          "description": "仅 storage=external。oss 形态下由运行时按 assetId 解析，不落库绝对地址"
+        },
+        "inline": {
+          "type": "object",
+          "description": "仅 storage=inline 时承载内容（小文件 / 单元测试 / 出码产物 / BPMN 定义）。大文件一律走 storage=oss + url。",
+          "properties": {
+            "mediaType": {
+              "type": "string"
+            },
+            "encoding": {
+              "type": "string",
+              "enum": [
+                "utf8",
+                "base64"
+              ],
+              "default": "utf8"
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "assetId",
+        "key",
+        "kind",
+        "version"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "BreakpointKey": {
+      "enum": [
+        "xs",
+        "sm",
+        "md",
+        "lg",
+        "xl"
+      ],
+      "description": "响应式断点。移动端/小程序出码时按断点降级。"
+    },
+    "Ident": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,62}$",
+      "description": "编程标识符：动作/API 入参名、页面参数名、代码步骤的输入输出变量名、按钮键。允许 camelCase，因为它要直接落到 TS 变量名与 JS 对象属性名上，不能带连字符。"
+    },
+    "HttpToken": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$",
+      "description": "RFC 7230 的 HTTP 头字段名（token 语法）。含连字符，因此既不是 Key 也不是 Ident。"
+    },
+    "JsonPath": {
+      "type": "string",
+      "pattern": "^\\$(\\.[A-Za-z0-9_-]+|\\[[0-9]+\\])*$",
+      "description": "相对 JSONPath：以 $ 开头，如 $.data、$.data.rows、$.data[0].id。用于声明式取值路径（行集 / 总数 / 错误信息 / 出参映射）。它不是 Expr：不参与运算，只做定位，因此不允许写函数或取值根。"
+    }
+  }
+}

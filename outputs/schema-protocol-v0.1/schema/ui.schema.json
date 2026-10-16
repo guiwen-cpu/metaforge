@@ -1,0 +1,1236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lcp.dev/schema/0.1/ui.schema.json",
+  "title": "LCP Protocol v0.1 / UISchema",
+  "description": "页面契约。设计器产出、运行时渲染器消费（递归渲染 layout 树）、出码引擎消费（生成 Vue SFC）。刻意不引入与 layout 平行的 ListSpec/FormSpec —— 表格列、搜索项、表单字段一律由组件契约的 props 承载，避免平行结构漂移。",
+  "type": "object",
+  "properties": {
+    "uiSchema": {
+      "$ref": "#/$defs/UISchema"
+    }
+  },
+  "required": [
+    "uiSchema"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "UISchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Id"
+        },
+        "key": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+        },
+        "title": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "kind": {
+          "$ref": "#/$defs/PageKind"
+        },
+        "scope": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Scope"
+        },
+        "version": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Version"
+        },
+        "description": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Description"
+        },
+        "route": {
+          "$ref": "#/$defs/RouteSpec"
+        },
+        "params": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PageParam"
+          }
+        },
+        "dataSources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DataSource"
+          }
+        },
+        "state": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/StateVar"
+          },
+          "description": "页面级响应式状态，供表达式以 $page.state.<key> 引用"
+        },
+        "layout": {
+          "$ref": "#/$defs/UINode"
+        },
+        "dialogs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/UINode"
+          },
+          "description": "具名弹窗/抽屉的子树，供 openDialog 动作按 key 打开（新建/编辑弹窗表单走这里）"
+        },
+        "handlers": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/HandlerRef"
+          },
+          "description": "页面级事件：onLoad / onMount / onUnmount / onParamChange"
+        },
+        "access": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Access"
+        },
+        "seo": {
+          "type": "object",
+          "properties": {
+            "keywords": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "title",
+        "kind",
+        "version",
+        "layout"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "PageKind": {
+      "enum": [
+        "list",
+        "form",
+        "detail",
+        "dashboard",
+        "approval",
+        "report",
+        "custom",
+        "login",
+        "error"
+      ],
+      "description": "页面语义类型。运行时渲染不依赖它，但它决定设计器的默认模板、出码的目标结构（移动端不做 dashboard）与 AI 的生成策略。"
+    },
+    "RouteSpec": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9_\\-/:*?()]*$",
+          "description": "支持 :id 动态段、:id? 可选段、(*) 正则组等 vue-router 语法"
+        },
+        "name": {
+          "type": "string"
+        },
+        "layout": {
+          "enum": [
+            "default",
+            "blank",
+            "side",
+            "top",
+            "tabs"
+          ],
+          "default": "default"
+        },
+        "keepAlive": {
+          "type": "boolean",
+          "default": false
+        },
+        "cache": {
+          "enum": [
+            "none",
+            "page",
+            "data"
+          ],
+          "default": "none"
+        },
+        "auth": {
+          "type": "boolean",
+          "default": true
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+          }
+        },
+        "redirect": {
+          "type": "string"
+        },
+        "meta": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "PageParam": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Ident"
+        },
+        "label": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "datetime",
+            "array",
+            "json"
+          ]
+        },
+        "from": {
+          "enum": [
+            "query",
+            "route",
+            "context",
+            "state"
+          ],
+          "default": "query"
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "defaultValue": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "key",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "StateVar": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "datetime",
+            "array",
+            "object",
+            "json"
+          ]
+        },
+        "initial": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+        },
+        "persist": {
+          "enum": [
+            "none",
+            "session",
+            "local",
+            "query"
+          ],
+          "default": "none",
+          "description": "query 表示与 URL 同步，保证刷新与分享可复现筛选条件"
+        },
+        "description": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "Origin": {
+      "type": "object",
+      "description": "生成溯源。记录 layout 从何而来，使模板升级与 AI 重生成可幂等重放，同时为 AI 生成质量留可观测数据。",
+      "properties": {
+        "generator": {
+          "enum": [
+            "human",
+            "template",
+            "ai",
+            "import"
+          ]
+        },
+        "templateId": {
+          "type": "string"
+        },
+        "templateVersion": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Version"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "model": {
+          "type": "string",
+          "description": "AI 生成时的模型标识"
+        },
+        "prompt": {
+          "type": "string",
+          "description": "AI 生成时的原始自然语言输入，用于复现与人工修正回流"
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "generator"
+      ],
+      "additionalProperties": false
+    },
+    "UINode": {
+      "type": "object",
+      "description": "渲染树节点。id 必须全局唯一且稳定 —— 它是 diff、版本对比、AI 定点修改、埋点定位的共同锚点。",
+      "properties": {
+        "id": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Id"
+        },
+        "component": {
+          "type": "string",
+          "minLength": 1,
+          "description": "组件名。内建组件注册在平台；租户自定义组件须存在同名 ComponentContract（L2 校验）"
+        },
+        "key": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key",
+          "description": "可选语义标识，出码时用于生成变量名/类名"
+        },
+        "label": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "props": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+          },
+          "description": "组件属性。每个 prop 是否允许表达式由 ComponentContract 的 bindable 决定（L2 校验）"
+        },
+        "bind": {
+          "$ref": "#/$defs/NodeBinding"
+        },
+        "visible": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr",
+          "description": "为假则不渲染。与 style 的 hidden 区别：visible 不产生 DOM 节点"
+        },
+        "disable": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr"
+        },
+        "style": {
+          "$ref": "#/$defs/NodeStyle"
+        },
+        "responsive": {
+          "$ref": "#/$defs/Responsive"
+        },
+        "slots": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/UINode"
+            }
+          },
+          "description": "具名插槽子树。插槽是否存在及 multiplicity 由组件契约的 slot 定义约束"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UINode"
+          },
+          "description": "默认插槽子树。仅当组件契约 container=true 时允许（L2 校验）"
+        },
+        "handlers": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/HandlerRef"
+          },
+          "description": "事件处理器。键必须是组件契约 events[] 中声明的事件名（L2 校验）"
+        },
+        "loop": {
+          "$ref": "#/$defs/LoopSpec",
+          "description": "列表渲染。作用域内提供 $item / $index / $loop"
+        },
+        "locked": {
+          "type": "boolean",
+          "default": false,
+          "description": "锁定后设计器不可拖动或删除，用于模板骨架与平台保留区域"
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "component"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "LoopSpec": {
+      "type": "object",
+      "properties": {
+        "over": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr"
+        },
+        "itemName": {
+          "type": "string",
+          "default": "item"
+        },
+        "indexName": {
+          "type": "string",
+          "default": "index"
+        },
+        "keyField": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key",
+          "description": "用于生成 :key；缺省用索引，可能引发复用错乱"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "over"
+      ],
+      "additionalProperties": false
+    },
+    "NodeBinding": {
+      "type": "object",
+      "description": "节点与数据的关联声明。这是元数据驱动在页面层最直接的体现：组件不自己发请求，只声明它消费哪个数据源。",
+      "properties": {
+        "dataSourceId": {
+          "type": "string",
+          "description": "引用本页 dataSources[].id"
+        },
+        "scope": {
+          "enum": [
+            "page",
+            "form",
+            "row",
+            "component"
+          ],
+          "default": "page"
+        },
+        "entityRef": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef",
+          "description": "绑定实体，使列表与表单能自动派生列与字段"
+        },
+        "fieldKey": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+        },
+        "path": {
+          "type": "string",
+          "description": "数据源内取值路径，如 rows[0].name"
+        },
+        "model": {
+          "type": "string",
+          "description": "双向绑定目标，如 $form.name 或 $page.state.checkedIds"
+        },
+        "valueKey": {
+          "type": "string",
+          "description": "值字段名，用于 select/tree 的 value 取值"
+        },
+        "labelKey": {
+          "type": "string",
+          "description": "显示字段名"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "HandlerRef": {
+      "description": "事件处理：引用具名动作（推荐，可复用可测试），或内联步骤（仅适合一次性简单逻辑）。",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "actionRef": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef"
+            },
+            "params": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+              }
+            }
+          },
+          "required": [
+            "actionRef"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "steps": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "https://lcp.dev/schema/0.1/logic.schema.json#/$defs/Step"
+              }
+            }
+          },
+          "required": [
+            "steps"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "NodeStyle": {
+      "type": "object",
+      "description": "样式。优先 className（Tailwind 原子类）—— 出码时可原样保留且零运行时开销。css 是逃生舱，沙箱组件中被禁用。",
+      "properties": {
+        "className": {
+          "type": "string",
+          "description": "Tailwind 类名，多个以空格分隔"
+        },
+        "width": {
+          "type": "string"
+        },
+        "height": {
+          "type": "string"
+        },
+        "minWidth": {
+          "type": "string"
+        },
+        "maxWidth": {
+          "type": "string"
+        },
+        "minHeight": {
+          "type": "string"
+        },
+        "maxHeight": {
+          "type": "string"
+        },
+        "padding": {
+          "type": "string"
+        },
+        "margin": {
+          "type": "string"
+        },
+        "gap": {
+          "type": "string"
+        },
+        "align": {
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "stretch",
+            "baseline"
+          ]
+        },
+        "justify": {
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "between",
+            "around",
+            "evenly"
+          ]
+        },
+        "direction": {
+          "enum": [
+            "row",
+            "column"
+          ]
+        },
+        "wrap": {
+          "type": "boolean"
+        },
+        "background": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string"
+        },
+        "border": {
+          "type": "string"
+        },
+        "radius": {
+          "type": "string"
+        },
+        "shadow": {
+          "type": "string"
+        },
+        "fontSize": {
+          "type": "string"
+        },
+        "fontWeight": {
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "textAlign": {
+          "enum": [
+            "left",
+            "center",
+            "right",
+            "justify"
+          ]
+        },
+        "overflow": {
+          "enum": [
+            "visible",
+            "hidden",
+            "auto",
+            "scroll"
+          ]
+        },
+        "hidden": {
+          "type": "boolean",
+          "default": false
+        },
+        "zIndex": {
+          "type": "integer"
+        },
+        "css": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "逃生舱：内联 CSS 键值对"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "Responsive": {
+      "type": "object",
+      "description": "响应式配置。base 为默认，断点覆盖向上继承。移动端与小程序出码时只保留 xs/sm 并忽略 css 逃生舱。",
+      "properties": {
+        "base": {
+          "$ref": "#/$defs/BreakpointConfig"
+        },
+        "xs": {
+          "$ref": "#/$defs/BreakpointConfig"
+        },
+        "sm": {
+          "$ref": "#/$defs/BreakpointConfig"
+        },
+        "md": {
+          "$ref": "#/$defs/BreakpointConfig"
+        },
+        "lg": {
+          "$ref": "#/$defs/BreakpointConfig"
+        },
+        "xl": {
+          "$ref": "#/$defs/BreakpointConfig"
+        },
+        "hiddenOn": {
+          "type": "array",
+          "items": {
+            "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/BreakpointKey"
+          }
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "BreakpointConfig": {
+      "type": "object",
+      "properties": {
+        "colSpan": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24,
+          "description": "24 栅格占宽"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        },
+        "order": {
+          "type": "integer"
+        },
+        "hidden": {
+          "type": "boolean",
+          "default": false
+        },
+        "props": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+          },
+          "description": "断点级 props 覆盖，如移动端把表格切成卡片列表"
+        },
+        "style": {
+          "$ref": "#/$defs/NodeStyle"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DataSource": {
+      "description": "页面数据源。组件只声明消费哪个源，由运行时统一编排（并发请求、缓存、错误、loading），不让每个组件各自发请求。",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/EntityDataSource"
+        },
+        {
+          "$ref": "#/$defs/ApiDataSource"
+        },
+        {
+          "$ref": "#/$defs/FlowDataSource"
+        },
+        {
+          "$ref": "#/$defs/StaticDataSource"
+        },
+        {
+          "$ref": "#/$defs/ComputedDataSource"
+        }
+      ]
+    },
+    "EntityDataSource": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,31}$",
+          "description": "页面内唯一，供 bind.dataSourceId 引用；约定 ds 前缀"
+        },
+        "type": {
+          "const": "entity"
+        },
+        "name": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "entityRef": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef"
+        },
+        "mode": {
+          "enum": [
+            "page",
+            "list",
+            "one",
+            "count"
+          ],
+          "default": "page",
+          "description": "page=分页；list=一次性取全部（配 limit）；one=按主键取单条；count=仅取总数"
+        },
+        "select": {
+          "type": "array",
+          "items": {
+            "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+          },
+          "description": "投影字段。缺省取 storage=column 字段 + 关联显示字段，避免把 JSONB 整体拖回前端"
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "需要展开的关联，如 student.dept。默认懒加载，显式声明才 join"
+        },
+        "filter": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr",
+          "description": "固定过滤条件，编译期下推为 SQL WHERE；数据权限行过滤在其上叠加 AND"
+        },
+        "sort": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SortSpec"
+          }
+        },
+        "page": {
+          "$ref": "#/$defs/PageSpec"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "mode=list 时的硬上限，防止把全表拖回前端"
+        },
+        "pkParam": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr"
+            }
+          ],
+          "description": "mode=one 时主键来源：路径字符串（如 $route.params.id）或表达式（如 { \"$ref\": \"$data.ds_task.businessKey\" }）"
+        },
+        "params": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DataSourceParam"
+          },
+          "description": "参数化占位符，使 filter 可写成 :studentId 形式并由运行时绑定"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "声明式依赖：其他 dataSourceId 或表达式来源路径。其值变化时运行时自动重新查询，避免手写 watch"
+        },
+        "immediate": {
+          "type": "boolean",
+          "default": true,
+          "description": "页面加载即请求，还是等显式 refresh 动作"
+        },
+        "cache": {
+          "$ref": "#/$defs/CacheSpec"
+        },
+        "access": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Access"
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "entityRef"
+      ],
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "one"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "required": [
+          "pkParam"
+        ]
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "ApiDataSource": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,31}$"
+        },
+        "type": {
+          "const": "api"
+        },
+        "name": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "apiRef": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+          }
+        },
+        "immediate": {
+          "type": "boolean",
+          "default": true
+        },
+        "cache": {
+          "$ref": "#/$defs/CacheSpec"
+        },
+        "access": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Access"
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "apiRef"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "FlowDataSource": {
+      "type": "object",
+      "description": "审批流页面数据源：待办、已办、我发起的、审批历史、流程变量。",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,31}$"
+        },
+        "type": {
+          "const": "flow"
+        },
+        "name": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "flowRef": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef"
+        },
+        "kind": {
+          "enum": [
+            "todoTasks",
+            "doneTasks",
+            "myInitiated",
+            "history",
+            "variables",
+            "instance"
+          ],
+          "default": "todoTasks"
+        },
+        "variables": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+          }
+        },
+        "immediate": {
+          "type": "boolean",
+          "default": true
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "flowRef",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "StaticDataSource": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,31}$"
+        },
+        "type": {
+          "const": "static"
+        },
+        "name": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "data": {
+          "description": "字面量数据，用于下拉选项、仪表盘占位、原型预览"
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "ComputedDataSource": {
+      "type": "object",
+      "description": "由其他数据源派生（统计卡片、合计行）。声明式派生而非命令式赋值，刷新顺序由依赖图自动拓扑排序。",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,31}$"
+        },
+        "type": {
+          "const": "computed"
+        },
+        "name": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "expr": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "显式依赖声明，用于拓扑排序与缓存失效；缺省由 expr 自动推导"
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "expr"
+      ],
+      "additionalProperties": false
+    },
+    "DataSourceParam": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Ident"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "datetime",
+            "array"
+          ]
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "defaultValue": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+        },
+        "source": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr",
+          "description": "参数取值表达式，优先级高于 defaultValue。用于把参数绑定到路由、登录用户、表单或其他数据源结果，例如 { \"$ref\": \"$data.ds_task.businessKey\" }"
+        },
+        "description": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "key",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "SortSpec": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+        },
+        "direction": {
+          "enum": [
+            "asc",
+            "desc"
+          ],
+          "default": "asc"
+        },
+        "nulls": {
+          "enum": [
+            "first",
+            "last"
+          ],
+          "default": "last"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "field"
+      ],
+      "additionalProperties": false
+    },
+    "PageSpec": {
+      "type": "object",
+      "properties": {
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "default": 20
+        },
+        "pageSizes": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "default": [
+            10,
+            20,
+            50,
+            100
+          ]
+        },
+        "pageParam": {
+          "type": "string",
+          "default": "page"
+        },
+        "sizeParam": {
+          "type": "string",
+          "default": "pageSize"
+        },
+        "maxPageSize": {
+          "type": "integer",
+          "default": 500,
+          "description": "服务端强制上限，防止 pageSize=100000 拖库"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CacheSpec": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "ttl": {
+          "type": "integer",
+          "description": "秒"
+        },
+        "scope": {
+          "enum": [
+            "page",
+            "session",
+            "tenant"
+          ],
+          "default": "page"
+        },
+        "keyExpr": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr",
+          "description": "缓存键，缺省由数据源 id + 参数哈希生成"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false
+    },
+    "MenuItem": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Id"
+        },
+        "key": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+        },
+        "title": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "pageRef": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef"
+        },
+        "url": {
+          "type": "string"
+        },
+        "target": {
+          "enum": [
+            "_self",
+            "_blank"
+          ],
+          "default": "_self"
+        },
+        "order": {
+          "type": "integer"
+        },
+        "visible": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+          }
+        },
+        "badge": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MenuItem"
+          }
+        },
+        "semantic": {
+          "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "title"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "Semantic": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+    }
+  }
+}

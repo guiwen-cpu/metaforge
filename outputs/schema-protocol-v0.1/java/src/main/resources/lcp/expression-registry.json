@@ -1,0 +1,1700 @@
+{
+  "$id": "https://lcp.dev/schema/0.1/expression-registry.json",
+  "title": "LCP Expression Registry v0.1",
+  "protocolVersion": "0.1",
+  "description": "统一表达式 DSL 的唯一权威注册表。前端求值器、BFF 求值器、Flowable 变量绑定、规则引擎、数据权限下推、AI 生成校验器全部读这一份。新增函数=改这一个文件；任何一端私自定义函数视为缺陷。",
+  "fieldDocs": {
+    "name": "函数名，$fn 的取值",
+    "cat": "分类，用于设计器分组与 AI 提示",
+    "arity": "[最小参数个数, 最大参数个数]，null 表示不限",
+    "params": "位置参数的类型提示，variadic 时按最后一个循环",
+    "returns": "返回类型",
+    "pure": "是否纯函数。false 者禁止出现在 Access.rowFilter / Index.where 等编译期下推位置",
+    "desc": "中文说明，同时作为 AI 的语义提示"
+  },
+  "types": [
+    "any",
+    "string",
+    "number",
+    "integer",
+    "boolean",
+    "date",
+    "array",
+    "object",
+    "file",
+    "null"
+  ],
+  "operators": [
+    "$lit",
+    "$ref",
+    "$fn",
+    "$tpl",
+    "$if"
+  ],
+  "valueRoots": [
+    {
+      "name": "$user",
+      "type": "object",
+      "nullable": false,
+      "desc": "当前用户。fields 为约定字段，租户可扩展至 user.attrs.*",
+      "fields": {
+        "id": "string",
+        "name": "string",
+        "username": "string",
+        "tenantId": "string",
+        "deptId": "string",
+        "deptIds": "array",
+        "roleKeys": "array",
+        "email": "string",
+        "phone": "string",
+        "attrs": "object"
+      }
+    },
+    {
+      "name": "$tenant",
+      "type": "object",
+      "nullable": false,
+      "desc": "当前租户",
+      "fields": {
+        "id": "string",
+        "code": "string",
+        "name": "string",
+        "attrs": "object"
+      }
+    },
+    {
+      "name": "$env",
+      "type": "object",
+      "nullable": false,
+      "desc": "运行环境",
+      "fields": {
+        "platform": "string",
+        "locale": "string",
+        "timezone": "string",
+        "appVersion": "string",
+        "mode": "string"
+      }
+    },
+    {
+      "name": "$now",
+      "type": "string",
+      "nullable": false,
+      "desc": "当前时间 ISO8601，每次求值稳定（同一动作链内冻结）"
+    },
+    {
+      "name": "$page",
+      "type": "object",
+      "nullable": false,
+      "desc": "当前页面上下文。state 暴露 UISchema.state 声明的状态变量（读用 $page.state.x；写用 AssignStep.target 的相对路径 state.x）",
+      "fields": {
+        "id": "string",
+        "key": "string",
+        "params": "object",
+        "query": "object",
+        "state": "object"
+      }
+    },
+    {
+      "name": "$route",
+      "type": "object",
+      "nullable": false,
+      "desc": "当前路由",
+      "fields": {
+        "path": "string",
+        "query": "object",
+        "params": "object"
+      }
+    },
+    {
+      "name": "$form",
+      "type": "object",
+      "nullable": true,
+      "desc": "当前表单模型（创建型/编辑型表单的字段值），键为字段 key"
+    },
+    {
+      "name": "$row",
+      "type": "object",
+      "nullable": true,
+      "desc": "当前行（表格行操作、详情页主体）"
+    },
+    {
+      "name": "$rows",
+      "type": "array",
+      "nullable": true,
+      "desc": "当前列表已加载数据"
+    },
+    {
+      "name": "$data",
+      "type": "object",
+      "nullable": false,
+      "desc": "按 dataSourceId 索引的数据源结果：$data.dsUsers.rows / .total / .page / .loading / .item"
+    },
+    {
+      "name": "$process",
+      "type": "object",
+      "nullable": true,
+      "desc": "审批流上下文，非流程页面为 null",
+      "fields": {
+        "processInstanceId": "string",
+        "taskId": "string",
+        "taskKey": "string",
+        "taskName": "string",
+        "initiator": "string",
+        "status": "string",
+        "variables": "object"
+      }
+    },
+    {
+      "name": "$ctx",
+      "type": "object",
+      "nullable": false,
+      "desc": "动作执行上下文。result=紧邻上一步的结果（下一步即被覆盖，跨步骤请用 vars）；vars=动作链内的临时变量（assignTo 前缀 vars 写入）；params=动作入参；event=触发事件载荷",
+      "fields": {
+        "params": "object",
+        "event": "object",
+        "vars": "object",
+        "result": "any",
+        "error": "object",
+        "actionKey": "string",
+        "stepIndex": "integer"
+      }
+    },
+    {
+      "name": "$component",
+      "type": "object",
+      "nullable": true,
+      "desc": "组件作用域内可用：$component.id / .key / .props"
+    },
+    {
+      "name": "$res",
+      "type": "object",
+      "nullable": true,
+      "desc": "HTTP 响应对象。仅在 Api.response 的解析表达式（successWhen / mapping / rowsPath / totalPath / errorPath / errorMessagePath）内可用：$res.status 为 HTTP 状态码，$res.body 为解析后的响应体，$res.headers 为响应头。步骤外读响应体请用 assignTo 落到 $ctx.vars.x。",
+      "fields": {
+        "status": "integer",
+        "body": "any",
+        "headers": "object"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "name": "eq",
+      "cat": "comparison",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "any",
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "等于（深度比较，忽略对象键序）"
+    },
+    {
+      "name": "ne",
+      "cat": "comparison",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "any",
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "不等于"
+    },
+    {
+      "name": "lt",
+      "cat": "comparison",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "any",
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "小于（字符串按字典序，日期按时间序）"
+    },
+    {
+      "name": "lte",
+      "cat": "comparison",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "any",
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "小于等于"
+    },
+    {
+      "name": "gt",
+      "cat": "comparison",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "any",
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "大于"
+    },
+    {
+      "name": "gte",
+      "cat": "comparison",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "any",
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "大于等于"
+    },
+    {
+      "name": "between",
+      "cat": "comparison",
+      "arity": [
+        3,
+        3
+      ],
+      "params": [
+        "any",
+        "any",
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "闭区间包含"
+    },
+    {
+      "name": "in",
+      "cat": "comparison",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "any",
+        "array"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "左侧值是否在右侧数组内"
+    },
+    {
+      "name": "notIn",
+      "cat": "comparison",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "any",
+        "array"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "取反的 in"
+    },
+    {
+      "name": "like",
+      "cat": "comparison",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "string",
+        "string"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "SQL LIKE 语义（% 通配），下推时编译为 ILIKE"
+    },
+    {
+      "name": "startsWith",
+      "cat": "comparison",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "string",
+        "string"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "前缀匹配"
+    },
+    {
+      "name": "endsWith",
+      "cat": "comparison",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "string",
+        "string"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "后缀匹配"
+    },
+    {
+      "name": "isNull",
+      "cat": "comparison",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "是否为 null 或 undefined"
+    },
+    {
+      "name": "isNotNull",
+      "cat": "comparison",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "非空判断"
+    },
+    {
+      "name": "isEmpty",
+      "cat": "comparison",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "空字符串/空数组/空对象/null 皆为真"
+    },
+    {
+      "name": "isNotEmpty",
+      "cat": "comparison",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "非空判断"
+    },
+    {
+      "name": "and",
+      "cat": "logic",
+      "arity": [
+        1,
+        null
+      ],
+      "params": [
+        "any"
+      ],
+      "variadic": true,
+      "returns": "boolean",
+      "pure": true,
+      "desc": "逻辑与，短路求值"
+    },
+    {
+      "name": "or",
+      "cat": "logic",
+      "arity": [
+        1,
+        null
+      ],
+      "params": [
+        "any"
+      ],
+      "variadic": true,
+      "returns": "boolean",
+      "pure": true,
+      "desc": "逻辑或，短路求值"
+    },
+    {
+      "name": "not",
+      "cat": "logic",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "逻辑非"
+    },
+    {
+      "name": "if",
+      "cat": "logic",
+      "arity": [
+        3,
+        3
+      ],
+      "params": [
+        "any",
+        "any",
+        "any"
+      ],
+      "returns": "any",
+      "pure": true,
+      "desc": "三元表达式。复杂嵌套优先用 $if 算子以提升可读性"
+    },
+    {
+      "name": "coalesce",
+      "cat": "logic",
+      "arity": [
+        1,
+        null
+      ],
+      "params": [
+        "any"
+      ],
+      "variadic": true,
+      "returns": "any",
+      "pure": true,
+      "desc": "返回第一个非空值"
+    },
+    {
+      "name": "default",
+      "cat": "logic",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "any",
+        "any"
+      ],
+      "returns": "any",
+      "pure": true,
+      "desc": "空则取默认值"
+    },
+    {
+      "name": "add",
+      "cat": "math",
+      "arity": [
+        2,
+        null
+      ],
+      "params": [
+        "number"
+      ],
+      "variadic": true,
+      "returns": "number",
+      "pure": true,
+      "desc": "求和（高精度十进制语义，非 IEEE754 累加）"
+    },
+    {
+      "name": "sub",
+      "cat": "math",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "number",
+        "number"
+      ],
+      "returns": "number",
+      "pure": true,
+      "desc": "差"
+    },
+    {
+      "name": "mul",
+      "cat": "math",
+      "arity": [
+        2,
+        null
+      ],
+      "params": [
+        "number"
+      ],
+      "variadic": true,
+      "returns": "number",
+      "pure": true,
+      "desc": "积"
+    },
+    {
+      "name": "div",
+      "cat": "math",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "number",
+        "number"
+      ],
+      "returns": "number",
+      "pure": true,
+      "desc": "商；除数为 0 时返回 null 而非抛错"
+    },
+    {
+      "name": "mod",
+      "cat": "math",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "integer",
+        "integer"
+      ],
+      "returns": "integer",
+      "pure": true,
+      "desc": "取余"
+    },
+    {
+      "name": "round",
+      "cat": "math",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "number",
+        "integer"
+      ],
+      "returns": "number",
+      "pure": true,
+      "desc": "四舍五入，第二参数为小数位"
+    },
+    {
+      "name": "floor",
+      "cat": "math",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "number"
+      ],
+      "returns": "number",
+      "pure": true,
+      "desc": "向下取整"
+    },
+    {
+      "name": "ceil",
+      "cat": "math",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "number"
+      ],
+      "returns": "number",
+      "pure": true,
+      "desc": "向上取整"
+    },
+    {
+      "name": "abs",
+      "cat": "math",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "number"
+      ],
+      "returns": "number",
+      "pure": true,
+      "desc": "绝对值"
+    },
+    {
+      "name": "min",
+      "cat": "math",
+      "arity": [
+        1,
+        null
+      ],
+      "params": [
+        "number"
+      ],
+      "variadic": true,
+      "returns": "number",
+      "pure": true,
+      "desc": "最小值，也接受单个数组"
+    },
+    {
+      "name": "max",
+      "cat": "math",
+      "arity": [
+        1,
+        null
+      ],
+      "params": [
+        "number"
+      ],
+      "variadic": true,
+      "returns": "number",
+      "pure": true,
+      "desc": "最大值，也接受单个数组"
+    },
+    {
+      "name": "sum",
+      "cat": "math",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "array",
+        "string"
+      ],
+      "returns": "number",
+      "pure": true,
+      "desc": "数组求和，第二参数可选指定字段名"
+    },
+    {
+      "name": "avg",
+      "cat": "math",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "array",
+        "string"
+      ],
+      "returns": "number",
+      "pure": true,
+      "desc": "数组均值"
+    },
+    {
+      "name": "concat",
+      "cat": "string",
+      "arity": [
+        1,
+        null
+      ],
+      "params": [
+        "string"
+      ],
+      "variadic": true,
+      "returns": "string",
+      "pure": true,
+      "desc": "连接为字符串，null/undefined 视为空串"
+    },
+    {
+      "name": "upper",
+      "cat": "string",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "转大写"
+    },
+    {
+      "name": "lower",
+      "cat": "string",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "转小写"
+    },
+    {
+      "name": "trim",
+      "cat": "string",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "去首尾空白"
+    },
+    {
+      "name": "substr",
+      "cat": "string",
+      "arity": [
+        2,
+        3
+      ],
+      "params": [
+        "string",
+        "integer",
+        "integer"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "截取子串，start/length"
+    },
+    {
+      "name": "replace",
+      "cat": "string",
+      "arity": [
+        3,
+        3
+      ],
+      "params": [
+        "string",
+        "string",
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "全部替换（非正则，避免注入）"
+    },
+    {
+      "name": "split",
+      "cat": "string",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "string",
+        "string"
+      ],
+      "returns": "array",
+      "pure": true,
+      "desc": "按分隔符切分"
+    },
+    {
+      "name": "join",
+      "cat": "string",
+      "arity": [
+        1,
+        3
+      ],
+      "params": [
+        "array",
+        "string",
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "连接数组，可指定分隔符与字段名"
+    },
+    {
+      "name": "padStart",
+      "cat": "string",
+      "arity": [
+        3,
+        3
+      ],
+      "params": [
+        "string",
+        "integer",
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "左填充，如学号补零"
+    },
+    {
+      "name": "padEnd",
+      "cat": "string",
+      "arity": [
+        3,
+        3
+      ],
+      "params": [
+        "string",
+        "integer",
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "右填充"
+    },
+    {
+      "name": "len",
+      "cat": "string",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "any"
+      ],
+      "returns": "integer",
+      "pure": true,
+      "desc": "长度：字符串按字符、数组/对象按元素数"
+    },
+    {
+      "name": "indexOf",
+      "cat": "string",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "string",
+        "string"
+      ],
+      "returns": "integer",
+      "pure": true,
+      "desc": "查找位置，未找到返回 -1"
+    },
+    {
+      "name": "format",
+      "cat": "string",
+      "arity": [
+        1,
+        null
+      ],
+      "params": [
+        "string"
+      ],
+      "variadic": true,
+      "returns": "string",
+      "pure": true,
+      "desc": "占位符格式化，首参含 {0} {1}"
+    },
+    {
+      "name": "first",
+      "cat": "array",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "array"
+      ],
+      "returns": "any",
+      "pure": true,
+      "desc": "首元素"
+    },
+    {
+      "name": "last",
+      "cat": "array",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "array"
+      ],
+      "returns": "any",
+      "pure": true,
+      "desc": "末元素"
+    },
+    {
+      "name": "nth",
+      "cat": "array",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "array",
+        "integer"
+      ],
+      "returns": "any",
+      "pure": true,
+      "desc": "第 n 个元素（0 基）"
+    },
+    {
+      "name": "slice",
+      "cat": "array",
+      "arity": [
+        2,
+        3
+      ],
+      "params": [
+        "array",
+        "integer",
+        "integer"
+      ],
+      "returns": "array",
+      "pure": true,
+      "desc": "切片"
+    },
+    {
+      "name": "filter",
+      "cat": "array",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "array",
+        "any"
+      ],
+      "returns": "array",
+      "pure": true,
+      "desc": "过滤，第二参数为子表达式（作用域内新增 $item 与 $index）"
+    },
+    {
+      "name": "map",
+      "cat": "array",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "array",
+        "any"
+      ],
+      "returns": "array",
+      "pure": true,
+      "desc": "映射，作用域同 filter"
+    },
+    {
+      "name": "sort",
+      "cat": "array",
+      "arity": [
+        1,
+        3
+      ],
+      "params": [
+        "array",
+        "string",
+        "string"
+      ],
+      "returns": "array",
+      "pure": true,
+      "desc": "排序，可指定字段与方向 asc|desc"
+    },
+    {
+      "name": "reverse",
+      "cat": "array",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "array"
+      ],
+      "returns": "array",
+      "pure": true,
+      "desc": "反转"
+    },
+    {
+      "name": "unique",
+      "cat": "array",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "array",
+        "string"
+      ],
+      "returns": "array",
+      "pure": true,
+      "desc": "去重，可指定字段"
+    },
+    {
+      "name": "flatten",
+      "cat": "array",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "array",
+        "integer"
+      ],
+      "returns": "array",
+      "pure": true,
+      "desc": "展平，深度默认 1"
+    },
+    {
+      "name": "groupBy",
+      "cat": "array",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "array",
+        "string"
+      ],
+      "returns": "object",
+      "pure": true,
+      "desc": "按字段分组为 {key: rows[]}"
+    },
+    {
+      "name": "pluck",
+      "cat": "array",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "array",
+        "string"
+      ],
+      "returns": "array",
+      "pure": true,
+      "desc": "抽取字段为数组"
+    },
+    {
+      "name": "size",
+      "cat": "array",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "any"
+      ],
+      "returns": "integer",
+      "pure": true,
+      "desc": "元素个数"
+    },
+    {
+      "name": "get",
+      "cat": "object",
+      "arity": [
+        2,
+        3
+      ],
+      "params": [
+        "object",
+        "string",
+        "any"
+      ],
+      "returns": "any",
+      "pure": true,
+      "desc": "安全深取值，支持 a.b[0].c，缺失返回第三参数或 null"
+    },
+    {
+      "name": "has",
+      "cat": "object",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "object",
+        "string"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "路径是否存在"
+    },
+    {
+      "name": "keys",
+      "cat": "object",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "object"
+      ],
+      "returns": "array",
+      "pure": true,
+      "desc": "键数组"
+    },
+    {
+      "name": "values",
+      "cat": "object",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "object"
+      ],
+      "returns": "array",
+      "pure": true,
+      "desc": "值数组"
+    },
+    {
+      "name": "merge",
+      "cat": "object",
+      "arity": [
+        1,
+        null
+      ],
+      "params": [
+        "object"
+      ],
+      "variadic": true,
+      "returns": "object",
+      "pure": true,
+      "desc": "浅合并，后者覆盖前者"
+    },
+    {
+      "name": "toNumber",
+      "cat": "type",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "any",
+        "any"
+      ],
+      "returns": "number",
+      "pure": true,
+      "desc": "转数字，失败返回第二参数或 null"
+    },
+    {
+      "name": "toString",
+      "cat": "type",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "any",
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "转字符串"
+    },
+    {
+      "name": "toBool",
+      "cat": "type",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "any"
+      ],
+      "returns": "boolean",
+      "pure": true,
+      "desc": "转布尔，遵循 'false'/'0'/'' 为假"
+    },
+    {
+      "name": "toDate",
+      "cat": "type",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "any",
+        "string"
+      ],
+      "returns": "date",
+      "pure": true,
+      "desc": "转日期，第二参数为输入格式"
+    },
+    {
+      "name": "toArray",
+      "cat": "type",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "any"
+      ],
+      "returns": "array",
+      "pure": true,
+      "desc": "标量包成单元素数组，数组原样返回"
+    },
+    {
+      "name": "typeOf",
+      "cat": "type",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "any"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "返回 null|string|number|boolean|array|object|date"
+    },
+    {
+      "name": "now",
+      "cat": "date",
+      "arity": [
+        0,
+        0
+      ],
+      "params": [],
+      "returns": "date",
+      "pure": false,
+      "desc": "当前时间，等价 $now。非纯，禁止用于下推位置"
+    },
+    {
+      "name": "today",
+      "cat": "date",
+      "arity": [
+        0,
+        0
+      ],
+      "params": [],
+      "returns": "date",
+      "pure": false,
+      "desc": "今日零点"
+    },
+    {
+      "name": "dateAdd",
+      "cat": "date",
+      "arity": [
+        3,
+        3
+      ],
+      "params": [
+        "date",
+        "integer",
+        "string"
+      ],
+      "returns": "date",
+      "pure": true,
+      "desc": "日期加减，单位 year|month|week|day|hour|minute"
+    },
+    {
+      "name": "dateDiff",
+      "cat": "date",
+      "arity": [
+        2,
+        3
+      ],
+      "params": [
+        "date",
+        "date",
+        "string"
+      ],
+      "returns": "integer",
+      "pure": true,
+      "desc": "日期差，单位默认 day"
+    },
+    {
+      "name": "formatDate",
+      "cat": "date",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "date",
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "格式化，默认 yyyy-MM-dd HH:mm:ss"
+    },
+    {
+      "name": "startOf",
+      "cat": "date",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "date",
+        "string"
+      ],
+      "returns": "date",
+      "pure": true,
+      "desc": "区间起点，单位 day|week|month|quarter|year"
+    },
+    {
+      "name": "endOf",
+      "cat": "date",
+      "arity": [
+        2,
+        2
+      ],
+      "params": [
+        "date",
+        "string"
+      ],
+      "returns": "date",
+      "pure": true,
+      "desc": "区间终点"
+    },
+    {
+      "name": "year",
+      "cat": "date",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "date"
+      ],
+      "returns": "integer",
+      "pure": true,
+      "desc": "取年，如学期归属"
+    },
+    {
+      "name": "month",
+      "cat": "date",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "date"
+      ],
+      "returns": "integer",
+      "pure": true,
+      "desc": "取月（1-12）"
+    },
+    {
+      "name": "day",
+      "cat": "date",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "date"
+      ],
+      "returns": "integer",
+      "pure": true,
+      "desc": "取日"
+    },
+    {
+      "name": "maskIdCard",
+      "cat": "security",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "string",
+        "integer"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "身份证脱敏，默认保留前 6 后 4"
+    },
+    {
+      "name": "maskPhone",
+      "cat": "security",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "手机号脱敏 138****8000"
+    },
+    {
+      "name": "maskName",
+      "cat": "security",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "姓名脱敏，保留姓氏"
+    },
+    {
+      "name": "maskEmail",
+      "cat": "security",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "邮箱脱敏"
+    },
+    {
+      "name": "hash",
+      "cat": "security",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "string",
+        "string"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "哈希，算法默认 sha256"
+    },
+    {
+      "name": "uuid",
+      "cat": "security",
+      "arity": [
+        0,
+        0
+      ],
+      "params": [],
+      "returns": "string",
+      "pure": false,
+      "desc": "生成 UUID v4"
+    },
+    {
+      "name": "entityField",
+      "cat": "data",
+      "arity": [
+        3,
+        3
+      ],
+      "params": [
+        "string",
+        "string",
+        "any"
+      ],
+      "returns": "any",
+      "pure": false,
+      "desc": "按实体 key + 主键取字段值（BFF 侧带租户与数据权限校验；禁止在 rowFilter 中使用）"
+    },
+    {
+      "name": "lookup",
+      "cat": "data",
+      "arity": [
+        2,
+        3
+      ],
+      "params": [
+        "array",
+        "any",
+        "string"
+      ],
+      "returns": "any",
+      "pure": true,
+      "desc": "在本地数组中按主键查行，第三参数指定返回字段"
+    },
+    {
+      "name": "processVariable",
+      "cat": "flow",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "string",
+        "any"
+      ],
+      "returns": "any",
+      "pure": false,
+      "desc": "读取流程变量（审批流页面与流程监听器内可用）"
+    },
+    {
+      "name": "taskAssignee",
+      "cat": "flow",
+      "arity": [
+        0,
+        1
+      ],
+      "params": [
+        "string"
+      ],
+      "returns": "any",
+      "pure": false,
+      "desc": "当前任务办理人，参数为任务 key 时查指定任务"
+    },
+    {
+      "name": "isTaskClaimed",
+      "cat": "flow",
+      "arity": [
+        0,
+        0
+      ],
+      "params": [],
+      "returns": "boolean",
+      "pure": false,
+      "desc": "当前任务是否已被认领"
+    },
+    {
+      "name": "fileName",
+      "cat": "file",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "file"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "取文件名"
+    },
+    {
+      "name": "fileExt",
+      "cat": "file",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "file"
+      ],
+      "returns": "string",
+      "pure": true,
+      "desc": "取扩展名（小写，不含点）"
+    },
+    {
+      "name": "fileSize",
+      "cat": "file",
+      "arity": [
+        1,
+        1
+      ],
+      "params": [
+        "file"
+      ],
+      "returns": "integer",
+      "pure": true,
+      "desc": "取字节数"
+    },
+    {
+      "name": "fileUrl",
+      "cat": "file",
+      "arity": [
+        1,
+        2
+      ],
+      "params": [
+        "file",
+        "boolean"
+      ],
+      "returns": "string",
+      "pure": false,
+      "desc": "取可访问地址，第二参数为是否强制签发临时签名 URL"
+    }
+  ],
+  "queryOperators": [
+    {
+      "op": "eq",
+      "label": "等于",
+      "args": 1,
+      "sql": "{col} = {p}",
+      "widgetHint": "x-input"
+    },
+    {
+      "op": "ne",
+      "label": "不等于",
+      "args": 1,
+      "sql": "{col} <> {p}",
+      "widgetHint": "x-input"
+    },
+    {
+      "op": "like",
+      "label": "包含",
+      "args": 1,
+      "sql": "{col} ILIKE {p}",
+      "widgetHint": "x-input",
+      "note": "值由编译器包 % 并由参数绑定，禁止字符串拼接"
+    },
+    {
+      "op": "startsWith",
+      "label": "开头是",
+      "args": 1,
+      "sql": "{col} ILIKE {p}",
+      "widgetHint": "x-input"
+    },
+    {
+      "op": "in",
+      "label": "属于",
+      "args": "n",
+      "sql": "{col} = ANY({p})",
+      "widgetHint": "x-select"
+    },
+    {
+      "op": "between",
+      "label": "区间",
+      "args": 2,
+      "sql": "{col} BETWEEN {p1} AND {p2}",
+      "widgetHint": "x-date-picker",
+      "note": "日期区间用 daterange，右端按字段类型补 23:59:59 或加一天"
+    },
+    {
+      "op": "gt",
+      "label": "大于",
+      "args": 1,
+      "sql": "{col} > {p}",
+      "widgetHint": "x-number"
+    },
+    {
+      "op": "gte",
+      "label": "大于等于",
+      "args": 1,
+      "sql": "{col} >= {p}",
+      "widgetHint": "x-number"
+    },
+    {
+      "op": "lt",
+      "label": "小于",
+      "args": 1,
+      "sql": "{col} < {p}",
+      "widgetHint": "x-number"
+    },
+    {
+      "op": "lte",
+      "label": "小于等于",
+      "args": 1,
+      "sql": "{col} <= {p}",
+      "widgetHint": "x-number"
+    },
+    {
+      "op": "isNull",
+      "label": "为空",
+      "args": 0,
+      "sql": "{col} IS NULL",
+      "widgetHint": "x-switch"
+    },
+    {
+      "op": "notNull",
+      "label": "不为空",
+      "args": 0,
+      "sql": "{col} IS NOT NULL",
+      "widgetHint": "x-switch"
+    }
+  ],
+  "queryOperatorDocs": "searchFieldList[].op 的取值域，同时是前端控件提示与后端 SQL 下推编译的唯一来源。前端渲染搜索项、BFF 生成 WHERE、出码引擎生成查询函数三处共用；新增算子=改这一段。",
+  "statePathConvention": "状态读写路径约定：表达式读取统一带 $ 前缀根（$page.state.x / $form.x / $row.x）；AssignStep.target 写相对路径（state.x / form.x / row.x / vars.x）。两侧由同一份路径解析器实现，前端与 BFF 行为一致。",
+  "pageHandlerConvention": "页面级 handlers 的键是页面生命周期事件（onLoad / onParamsChange / onError / onUnmount / onBeforeLeave），不是业务动作；节点级 handlers 的键是该组件 EventDef 声明的事件名；可复用的业务逻辑一律沉淀为 LogicSchema.actions 并用 HandlerRef.actionRef 引用。",
+  "assignToConvention": "结果落点约定：任何步骤的 assignTo 都接受 state.x / form.x / row.x / rows.x / vars.x 五类相对路径。state 写页面状态、form 写当前表单模型、row 写当前行、vars 写动作链临时变量。读回时分别用 $page.state.x / $form.x / $row.x / $ctx.vars.x。仅「紧邻下一步」读上一步原始结果才用 $ctx.result —— 这是新手最常踩的坑（下一步执行后 result 即被覆盖）。"
+}

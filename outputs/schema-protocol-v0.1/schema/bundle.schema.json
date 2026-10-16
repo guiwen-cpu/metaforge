@@ -1,0 +1,788 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lcp.dev/schema/0.1/bundle.schema.json",
+  "title": "LCP Protocol v0.1 / AppBundle",
+  "description": "应用包（发布单元）。一次发布 = 一个 AppBundle = 一个原子快照：三份子 Schema + 组件 + 资产 + 权限，全部版本对齐。回滚 = 以历史快照内容重新发布为新版本。",
+  "type": "object",
+  "properties": {
+    "bundle": {
+      "$ref": "#/$defs/AppBundle"
+    }
+  },
+  "required": [
+    "bundle"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Id": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Id"
+    },
+    "Key": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Key"
+    },
+    "Name": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Name"
+    },
+    "Text": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Text"
+    },
+    "Description": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Description"
+    },
+    "Scope": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Scope"
+    },
+    "Version": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Version"
+    },
+    "Expr": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Expr"
+    },
+    "Checksum": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Checksum"
+    },
+    "AssetRef": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/AssetRef"
+    },
+    "Semantic": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Semantic"
+    },
+    "AppBundle": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "本包遵循的协议版本。运行时拒绝加载高于自身支持版本的主版本号"
+        },
+        "tenantId": {
+          "type": "string",
+          "description": "租户标识。仅出现在信封层，避免每个工件重复携带导致漂移"
+        },
+        "app": {
+          "$ref": "#/$defs/AppMeta"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/Snapshot"
+        },
+        "artifacts": {
+          "$ref": "#/$defs/Artifacts"
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssetRef"
+          }
+        },
+        "navigation": {
+          "$ref": "#/$defs/Navigation"
+        },
+        "publish": {
+          "$ref": "#/$defs/PublishConfig"
+        },
+        "checksums": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Checksum"
+          },
+          "description": "工件路径 -> 校验和。用于完整性校验与「内容未变不重复发布」判定"
+        },
+        "meta": {
+          "$ref": "#/$defs/BundleMeta"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "tenantId",
+        "app",
+        "snapshot",
+        "artifacts"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "AppMeta": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "key": {
+          "$ref": "#/$defs/Key"
+        },
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "type": {
+          "enum": [
+            "education",
+            "office",
+            "business",
+            "template",
+            "demo"
+          ],
+          "description": "业务领域。教育/办公/通用业务，影响默认模板与权限预设"
+        },
+        "category": {
+          "type": "string",
+          "description": "模板市场分类，如 教务管理 / 学籍 / 排课 / 考勤 / 报销 / 招聘"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "name"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "Snapshot": {
+      "type": "object",
+      "description": "快照元数据。version 单调递增，回滚不覆盖历史（rollbackOf 指向被回滚到的版本），使审计链完整。",
+      "properties": {
+        "snapshotId": {
+          "$ref": "#/$defs/Id"
+        },
+        "version": {
+          "$ref": "#/$defs/Version"
+        },
+        "basedOn": {
+          "$ref": "#/$defs/Id",
+          "description": "父快照 id。首版缺省"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "author": {
+          "$ref": "#/$defs/Actor"
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "变更说明。发布必须填写 —— 没有它版本管理形同虚设"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "published",
+            "archived",
+            "deprecated"
+          ],
+          "default": "draft"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "publishedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "publishedBy": {
+          "$ref": "#/$defs/Actor"
+        },
+        "rollbackOf": {
+          "$ref": "#/$defs/Id",
+          "description": "本快照是从哪个历史快照回滚而来"
+        },
+        "changeSummary": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ChangeEntry"
+          },
+          "description": "结构化变更摘要，供发布评审与回滚影响分析"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "snapshotId",
+        "version",
+        "createdAt",
+        "author",
+        "status"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "Actor": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "user",
+            "ai",
+            "system",
+            "import"
+          ],
+          "default": "user"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "ChangeEntry": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "added",
+            "modified",
+            "removed",
+            "renamed"
+          ]
+        },
+        "artifactKind": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "breaking": {
+          "type": "boolean",
+          "default": false,
+          "description": "破坏性变更需人工确认才能发布"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "kind",
+        "artifactKind"
+      ],
+      "additionalProperties": false
+    },
+    "Artifacts": {
+      "type": "object",
+      "properties": {
+        "dataSchemas": {
+          "type": "array",
+          "items": {
+            "$ref": "https://lcp.dev/schema/0.1/data.schema.json#/$defs/DataSchema"
+          }
+        },
+        "uiSchemas": {
+          "type": "array",
+          "items": {
+            "$ref": "https://lcp.dev/schema/0.1/ui.schema.json#/$defs/UISchema"
+          }
+        },
+        "logicSchemas": {
+          "type": "array",
+          "items": {
+            "$ref": "https://lcp.dev/schema/0.1/logic.schema.json#/$defs/LogicSchema"
+          }
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "$ref": "https://lcp.dev/schema/0.1/component.schema.json#/$defs/ComponentContract"
+          },
+          "description": "随应用分发的自定义组件契约。平台内建组件不入包"
+        },
+        "enums": {
+          "type": "array",
+          "items": {
+            "$ref": "https://lcp.dev/schema/0.1/data.schema.json#/$defs/EnumDef"
+          }
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RoleDef"
+          }
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PermissionGrant"
+          }
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "dataSchemas"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "RoleDef": {
+      "type": "object",
+      "description": "角色定义。dataScope 是数据权限的语义层，编译期下推为 SQL 条件；custom 时才用 customRule，避免所有角色都靠手写条件。",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "key": {
+          "$ref": "#/$defs/Key"
+        },
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "description": {
+          "$ref": "#/$defs/Description"
+        },
+        "level": {
+          "enum": [
+            "system",
+            "tenant",
+            "app"
+          ],
+          "default": "app"
+        },
+        "builtin": {
+          "type": "boolean",
+          "default": false,
+          "description": "平台内置角色，租户不可删除（如 租户管理员 / 教师 / 学生 / 家长）"
+        },
+        "dataScope": {
+          "enum": [
+            "all",
+            "dept",
+            "deptAndChildren",
+            "self",
+            "custom",
+            "none"
+          ],
+          "default": "self"
+        },
+        "customRule": {
+          "$ref": "#/$defs/Expr",
+          "description": "dataScope=custom 时的行级条件表达式"
+        },
+        "inheritFrom": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Key"
+          },
+          "description": "角色继承，权限取并集"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "name"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "PermissionGrant": {
+      "type": "object",
+      "properties": {
+        "roleKey": {
+          "$ref": "#/$defs/Key"
+        },
+        "resource": {
+          "type": "string",
+          "description": "资源标识：实体 key / 页面 key / 动作 key / api:xxx / *"
+        },
+        "resourceType": {
+          "enum": [
+            "entity",
+            "page",
+            "action",
+            "api",
+            "flow",
+            "component",
+            "menu",
+            "field",
+            "all"
+          ],
+          "default": "entity"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "create",
+              "read",
+              "update",
+              "delete",
+              "list",
+              "export",
+              "import",
+              "approve",
+              "reject",
+              "return",
+              "transfer",
+              "addSign",
+              "execute",
+              "*"
+            ]
+          },
+          "description": "允许的操作。数据操作（create/read/update/delete/list/export/import）+ 流程办理动作（approve/reject/return/transfer/addSign，与 TaskForm.buttons[].outcome 同一套取值）+ 动作编排的 execute 权 + 通配 *。"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Key"
+          },
+          "description": "字段级授权；缺省全部字段"
+        },
+        "condition": {
+          "$ref": "#/$defs/Expr",
+          "description": "附加条件，为真才授权。用于「仅本学院可见」这类场景"
+        },
+        "inherit": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否向子角色/子部门传递"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "roleKey",
+        "resource",
+        "actions"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "Navigation": {
+      "type": "object",
+      "properties": {
+        "menus": {
+          "type": "array",
+          "items": {
+            "$ref": "https://lcp.dev/schema/0.1/ui.schema.json#/$defs/MenuItem"
+          }
+        },
+        "defaultRoute": {
+          "type": "string"
+        },
+        "homePageRef": {
+          "type": "string"
+        },
+        "breadcrumb": {
+          "type": "boolean",
+          "default": true
+        },
+        "tabs": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否启用多标签页工作台（教务/办公系统常用）"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "PublishConfig": {
+      "type": "object",
+      "description": "发布与部署配置。migrationStrategy 是本协议最重要的运维决策：strict 表示 DDL 变更必须人工审核后执行，低代码平台强烈建议默认 strict。",
+      "properties": {
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "enum": [
+                  "web",
+                  "mobile",
+                  "miniprogram",
+                  "wecom",
+                  "dingtalk",
+                  "desktop"
+                ]
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "config": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "minVersion": {
+                "type": "string"
+              },
+              "semantic": {
+                "$ref": "#/$defs/Semantic"
+              }
+            },
+            "required": [
+              "platform"
+            ],
+            "additionalProperties": false
+          },
+          "description": "多端发布开关，对应「一键发布」需求"
+        },
+        "environments": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "dev",
+              "test",
+              "staging",
+              "prod"
+            ]
+          },
+          "default": [
+            "dev",
+            "prod"
+          ]
+        },
+        "requireApproval": {
+          "type": "boolean",
+          "default": true,
+          "description": "发布到 prod 需要二级审批"
+        },
+        "migrationStrategy": {
+          "enum": [
+            "auto",
+            "strict",
+            "manual",
+            "none"
+          ],
+          "default": "strict"
+        },
+        "allowDestructive": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否允许自动执行 DROP COLUMN / DROP TABLE。默认禁止"
+        },
+        "backupBefore": {
+          "type": "boolean",
+          "default": true
+        },
+        "rollbackWindowHours": {
+          "type": "integer",
+          "default": 72,
+          "description": "可快速回滚的时间窗，超窗需走数据补偿流程"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "BundleMeta": {
+      "type": "object",
+      "properties": {
+        "generator": {
+          "type": "string",
+          "description": "产出该包的工具与版本，如 lcp-designer/0.1.0"
+        },
+        "createdWith": {
+          "type": "string"
+        },
+        "docs": {
+          "type": "string"
+        },
+        "changelog": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ai": {
+          "type": "object",
+          "description": "AI 参与的记录。为生成质量度量与人工修正回流保留数据",
+          "properties": {
+            "generatedParts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "由 AI 生成并保留至今的工件路径"
+            },
+            "model": {
+              "type": "string"
+            },
+            "prompt": {
+              "type": "string"
+            },
+            "humanEditedRatio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "generator": {
+              "type": "string",
+              "description": "生成该应用的 AI 服务标识，如 lcp-ai/0.1.0；人工手写填 human"
+            },
+            "capabilities": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "本应用中用到/开放的 AI 生成能力，如 form-from-text"
+            },
+            "note": {
+              "type": "string"
+            },
+            "semantic": {
+              "$ref": "#/$defs/Semantic"
+            }
+          },
+          "additionalProperties": false
+        },
+        "marketplace": {
+          "type": "object",
+          "description": "模板市场元数据。安装时以快照为源，安装后与原模板解耦（可选择接收升级）",
+          "properties": {
+            "listingId": {
+              "type": "string"
+            },
+            "publisher": {
+              "type": "string"
+            },
+            "price": {
+              "type": "number",
+              "default": 0
+            },
+            "license": {
+              "type": "string"
+            },
+            "installCount": {
+              "type": "integer"
+            },
+            "upgradeable": {
+              "type": "boolean",
+              "default": true
+            },
+            "publishable": {
+              "type": "boolean",
+              "default": false,
+              "description": "是否允许发布到模板市场"
+            },
+            "category": {
+              "type": "string",
+              "description": "市场分类，如 education/hr"
+            },
+            "previewImage": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/AssetRef"
+            },
+            "installParams": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/InstallParam"
+              }
+            },
+            "semantic": {
+              "$ref": "#/$defs/Semantic"
+            }
+          },
+          "additionalProperties": false
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "InstallParam": {
+      "type": "object",
+      "description": "应用安装时需要使用者填写的参数（如组织架构来源、审批阈值）。",
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/Key"
+        },
+        "label": {
+          "$ref": "#/$defs/Text"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "select",
+            "json"
+          ]
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "options": {
+          "type": "array",
+          "items": {}
+        },
+        "defaultValue": {
+          "$ref": "#/$defs/Value"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "Value": {
+      "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+    }
+  }
+}
