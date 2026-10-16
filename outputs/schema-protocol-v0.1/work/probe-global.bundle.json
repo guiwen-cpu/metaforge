@@ -1,0 +1,33 @@
+{
+  "bundle": {
+    "protocolVersion": "0.1",
+    "tenantId": "tenant_probe",
+    "app": { "key": "probe_global", "name": "探针" },
+    "artifacts": {
+      "dataSchemas": [
+        {
+          "key": "probe_core", "scope": "system", "version": 1, "name": "探针模型",
+          "entities": [
+            {
+              "id": "01PROBE0000000000001", "key": "sys_dict", "tableName": "sys_dict", "name": "数据字典",
+              "titleField": "name",
+              "storage": {
+                "primaryKey": "id", "idType": "ulid", "tenantColumn": null, "jsonbColumn": "ext",
+                "softDelete": { "enabled": true },
+                "timestamps": { "createdAt": "created_at", "updatedAt": "updated_at", "createdBy": "created_by", "updatedBy": "updated_by" }
+              },
+              "fields": [
+                { "id": "01PROBE0000000000F1", "key": "id", "label": "主键", "type": "string", "storage": "column", "columnType": "varchar(26)", "required": true },
+                { "id": "01PROBE0000000000F2", "key": "dict_key", "label": "字典键", "type": "string", "storage": "column", "length": 64, "required": true, "unique": true },
+                { "id": "01PROBE0000000000F3", "key": "name", "label": "名称", "type": "string", "storage": "column", "length": 128 },
+                { "id": "01PROBE0000000000F4", "key": "items", "label": "条目", "type": "array", "storage": "jsonb", "itemType": { "type": "json" } },
+                { "id": "01PROBE0000000000F5", "key": "label_count", "label": "条目数", "type": "formula", "formula": { "$fn": "len", "$args": [ { "$ref": "$form.items" } ] } }
+              ],
+              "indexes": [ { "id": "01PROBE0000000000X1", "name": "uk_dict_key", "fields": [ "dict_key" ], "unique": true, "concurrently": false } ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

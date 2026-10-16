@@ -1,0 +1,17 @@
+# tools/gen-entity.mjs 的产物清单。每行一个文件路径（相对本目录）。
+# 下一轮生成时，凡是不在本清单里的 .sql/.ts/.java/.md 都会被删掉 —— 不要往本目录放手工文件。
+# 文件数：14（含本清单）
+[object Object]
+[object Object]
+[object Object]
+[object Object]
+[object Object]
+[object Object]
+[object Object]
+[object Object]
+[object Object]
+[object Object]
+[object Object]
+[object Object]
+[object Object]
+GENERATED.txt

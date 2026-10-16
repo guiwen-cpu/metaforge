@@ -1,0 +1,27 @@
+{
+  "bundle": {
+    "protocolVersion": "0.1",
+    "tenantId": "tenant_probe",
+    "app": { "key": "probe_bad", "name": "坏探针" },
+    "artifacts": {
+      "dataSchemas": [
+        {
+          "key": "probe_core", "scope": "system", "version": 1, "name": "坏模型",
+          "entities": [
+            {
+              "id": "01PROBEBAD000000001", "key": "weird", "tableName": "weird", "name": "非法类型",
+              "titleField": "id",
+              "storage": { "primaryKey": "id", "idType": "ulid", "tenantColumn": "tenant_id", "jsonbColumn": "ext", "timestamps": { "createdAt": "created_at", "updatedAt": "updated_at", "createdBy": "created_by", "updatedBy": "updated_by" } },
+              "fields": [
+                { "id": "01PROBEBAD0000000F1", "key": "id", "label": "主键", "type": "string", "storage": "column", "columnType": "varchar(26)", "required": true },
+                { "id": "01PROBEBAD0000000F2", "key": "wheel", "label": "轮子", "type": "wheel", "storage": "column" },
+                { "id": "01PROBEBAD0000000F3", "key": "nested", "label": "深数组", "type": "array", "storage": "jsonb", "itemType": { "type": "array", "itemType": { "type": "array", "itemType": { "type": "array", "itemType": { "type": "string" } } } } }
+              ],
+              "indexes": [ { "id": "01PROBEBAD0000000X1", "name": "bad_gin_uk", "fields": [ "ext" ], "unique": true, "method": "gin" } ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

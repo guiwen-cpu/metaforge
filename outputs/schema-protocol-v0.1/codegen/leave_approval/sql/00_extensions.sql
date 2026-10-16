@@ -1,0 +1,18 @@
+-- 由 tools/gen-entity.mjs 生成，勿手改。
+-- 应用 leave_approval · 协议版本 0.1 · 租户 tenant_demo_school
+-- 数据模型：leave_core
+--
+-- 执行顺序（用 psql -f 逐个执行，或让迁移框架按文件名排序）：
+--   00_extensions.sql   本文件：扩展与运行时约定
+--   10_<table>.sql      逐表：建表 + 列注释 + 索引
+--   90_rls.sql          行级安全策略（租户隔离兜底）
+--
+-- 幂等：全部 create ... if not exists / drop ... if exists，可重复执行。
+-- 事务：create index concurrently 不能出现在事务块内 —— 不要用 BEGIN/COMMIT 包裹本目录脚本，
+--      也不要用「每条迁移自动开事务」的框架执行 10_*.sql；必要时把并发建索引单独拆出。
+-- 灰度：业务列一律可空（required 由应用层校验），只有平台注入列非空，便于新旧 Schema 共存。
+create extension if not exists pgcrypto;
+-- 租户上下文由连接池在借出连接时注入，RLS 策略依赖它：
+--   set local lcp.tenant_id = '<tenantId>';
+-- 策略里 current_setting('lcp.tenant_id', true) 的 true 表示 missing_ok：
+-- 未设置时返回 NULL，任何行都不匹配 —— 失败即关闭，不会退化成全租户可见。

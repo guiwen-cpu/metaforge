@@ -24,7 +24,8 @@ schema-protocol-v0.1/
 ├─ ts/                          TypeScript 绑定（生成 + 2 个手写文件）
 ├─ java/                        Java 绑定（Maven 工程，含 Schema 与注册表资源副本）
 ├─ examples/                    参考 Bundle：请假审批（含 BPMN XML）
-└─ tools/                       gen-ts.mjs / gen-java.mjs / validate.mjs
+├─ tools/                       gen-ts.mjs / gen-java.mjs / gen-entity.mjs / validate.mjs
+└─ codegen/<appKey>/            出码产物：sql / ts / java（按应用分目录，生成物）
 ```
 
 合计 `$defs` 159 个。两份注册表与 6 份 Schema 一起随 Java 包发布（`java/src/main/resources/lcp/`），
@@ -196,22 +197,60 @@ $env:LCP_JSON='1'                             # 机器可读模式：每行一�
 node tools/validate.mjs     # 校验协议与示例 Bundle
 node tools/gen-ts.mjs       # → ts/  types.ts guards.ts registry.ts index.ts README.md
 node tools/gen-java.mjs     # → java/  src/main/java/**  +  resources/lcp/**  +  pom.xml  +  README.md
+node tools/gen-entity.mjs   # → codegen/<appKey>/  sql/ + ts/ + java/（出码引擎第一步，读 bundle 而非 $defs）
+node tools/gen-entity.mjs --self-test   # 负向自检：用内存 Bundle 把每条不变量逼出来验一遍，不写盘
 ```
 
 - 两端是**同一份 Schema 的两个绑定，类型名逐个相同**（`LogicStepAssign` 在 TS 与 Java 都叫 `LogicStepAssign`）。
   这不是审美问题：AI 提示词、Code Connect 映射、出码引擎都靠这个名字把两端对上。
   唯三例外：① 纯 `$ref` 别名与标量在 Java 侧不生成类（反查表在 `registry/Aliases`）；
   ② `common.Expr` 在 Java 侧叫 `CommonExpr`；③ 属性级内联枚举在 Java 侧变成具名枚举类。
-- 两个生成器都**自带自检**并在末尾执行，失败即非零退出：括号配平、空类型/空赋值、引用完整性、
+- 三个生成器都**自带自检**并在末尾执行，失败即非零退出：括号配平、空类型/空赋值、引用完整性、
   `package` 与类名一致、类型简单名唯一、与 `ts/types.ts` 导出逐名对齐、枚举覆盖、资源存在性。
 - 生成产物**不要手改**。`gen-java.mjs` 按 `java/GENERATED.txt` 清理上一轮的过期产物（定义被删、别名改名留下的孤儿类），
   所以也不要在生成目录里放手工文件。要改契约就改 Schema / 注册表，然后重跑生成器。
+  `gen-entity.mjs` 同理按 `codegen/<appKey>/GENERATED.txt` 清理过期产物，顶层 `codegen/GENERATED.txt` 记录在册的应用；
+  顶层没有我们清单的子目录一律视为手工目录，生成器不动它。
+  带 `--self-test` 时不落盘地把生成器自己的不变量验一遍（含未知 FieldType、无租户表、唯一索引前导、enum 落 varchar、深数组、formula 不进 Java）。
 
 > **边界声明（重要）**：生成器跑在**没有 JDK 也没有 TypeScript 编译器**的环境里，
 > `pom.xml` 与全部 Java 源、TS 源**都没有真正编译过**。自检只覆盖上一条列出的结构性不变量，
 > **不等于可编译**。首次 `mvn -q compile` / `tsc --noEmit` 之前不要假定它能通过；
 > 报错请**改生成器**，不要改产物。
 
+### 8.1 出码引擎第一步：数据模型 → 落地代码
+
+上面三个生成器产出的是**协议绑定**（元数据的类型）；`gen-entity.mjs` 产出的是**业务数据平面的落地代码**，
+所以它读 Bundle（需要 `app.key` / `tenantId`）而不是读 `schema/*.json` 的 `$defs`：
+
+```
+codegen/<appKey>/
+├─ sql/    00_extensions.sql · 10_<table>.sql … · 90_rls.sql · README.md
+├─ ts/     entities.ts（API 返回形态）· index.ts
+└─ java/   src/main/java/dev/lcp/generated/<appKey>/{entity,support}/*.java
+```
+
+类型规则唯一来源是 `registry/type-mapping.json`，本步骤**不允许发明类型**。四条硬约定：
+
+- **业务列一律可空**：`required=true` 不生成 `NOT NULL`，交应用层校验（灰度期新旧 Schema 共存）。
+- **非空列只有平台注入列**：主键、租户列、`created_at` / `updated_at`、`version`，以及 `ext jsonb`（默认 `'{}'`）。
+- **`enum` 落 `varchar`**，不建 PG enum 类型、不建 CHECK 约束：新增枚举值不该要 DDL。
+- **唯一性收敛到租户内**：唯一索引前导租户列；开软删除时改为**部分唯一索引 `WHERE deleted_at IS NULL`**。
+
+`storage.tenantColumn = null` 的实体（仅 system scope 允许）不加租户列、不建 RLS。其余每张表
+`enable row level security` 加一条 `<table>_tenant_isolation` 策略，条件读会话变量 `lcp.tenant_id`
+（`missing_ok = true`：未设置时条件恒不成立，失败即关闭，不会退化成全租户可见）。
+RLS 默认对表 owner 不生效，是否补 `force row level security` 由部署形态决定，出码只给注释版本。
+
+两端的形态**有意不同**：TS 描述 **API / BFF 返回形态**（含平台列、含 `formula` 派生字段、
+`immutable` 标 `readonly`，`storage=jsonb` 的字段是一等属性）；Java 描述**数据平面行形态**
+（`record`，含平台列但**不含**派生字段）。这一条写在各应用的 `codegen/<appKey>/README.md` 里。
+
+### 8.2 生成范围的边界
+
+出码第一步只做「数据模型 → 落库代码」，以下是有意不生成的：业务列 `NOT NULL`、PG enum 类型与 CHECK、
+`formula` 落库、`Index.where` 部分索引条件（表达式未编译）、分区表、跨实体真实外键（协议默认软关联）、
+审计触发器（走平台侧 `lcp_audit_log`）。`LcpEnumRef` 是平台 runtime 注解的占位实现，接入后换 import 即可。
 ## 九、扩展指南
 
 ### 9.1 新增一个 FieldType（四处齐改）
@@ -222,6 +261,7 @@ node tools/gen-java.mjs     # → java/  src/main/java/**  +  resources/lcp/**  
 | 2 | `registry/type-mapping.json` → `types.<新类型>` | 补齐 `pg` / `ts` / `java` / `widget` / `semantic` 五个分块 |
 | 3 | `tools/gen-ts.mjs` | 落 TS 类型与 `FIELD_TYPE_MAPPING` 再导出 |
 | 4 | `tools/gen-java.mjs` | 落 Java 类型与 `FieldTypeMapping` |
+| 5 | `tools/gen-entity.mjs` | 业务数据平面的 PG / TS / Java 投影。类型唯一来源是注册表，新增类型**不必改本文件**，但要在自检里补断言 |
 
 `data.FieldType` 与 `data.ValueType.type` 指向**同一个枚举**，实现上通过
 `VALUE_TYPE_VALUES = DATA_FIELD_TYPE_VALUES` 别名共用，**禁止复制字面量**。
