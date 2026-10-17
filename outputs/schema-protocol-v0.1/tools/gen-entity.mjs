@@ -24,7 +24,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
@@ -32,16 +32,16 @@ const OUT_ROOT = path.join(ROOT, "codegen");
 const REG = JSON.parse(fs.readFileSync(path.join(ROOT, "registry", "type-mapping.json"), "utf8"));
 const TYPES = REG.types;
 
-const PROBLEMS = [];
-const NOTES = [];
+export const PROBLEMS = [];
+export const NOTES = [];
 const bad = (where, msg) => PROBLEMS.push({ where, msg });
 const note = (where, msg) => NOTES.push({ level: "info", where, msg });
 const warn = (where, msg) => NOTES.push({ level: "warn", where, msg });
 
 // ============================================================ 命名与转义
 const upperFirst = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-const pascal = (s) => String(s).split(/[^A-Za-z0-9]+/).filter(Boolean).map(upperFirst).join("");
-const camel = (s) => {
+export const pascal = (s) => String(s).split(/[^A-Za-z0-9]+/).filter(Boolean).map(upperFirst).join("");
+export const camel = (s) => {
   const p = pascal(s);
   return p.charAt(0).toLowerCase() + p.slice(1);
 };
@@ -51,23 +51,23 @@ const isPlainLiteral = (v) => v === null || ["string", "number", "boolean"].incl
 const litSql = (v) =>
   v === null ? "null" : typeof v === "string" ? sq(v) : typeof v === "boolean" ? String(v) : String(v);
 /** common.Text 允许裸字符串 */
-const textOf = (t) => (t == null ? "" : typeof t === "string" ? t : (t.default ?? Object.values(t)[0] ?? ""));
-const indent = (s, pad) => String(s).split("\n").map((l) => (l ? pad + l : l)).join("\n");
+export const textOf = (t) => (t == null ? "" : typeof t === "string" ? t : (t.default ?? Object.values(t)[0] ?? ""));
+export const indent = (s, pad) => String(s).split("\n").map((l) => (l ? pad + l : l)).join("\n");
 
 // ============================================================ 实体访问器
-const tableOf = (entity) => entity.tableName ?? entity.key;
-const primaryKeyOf = (entity) => entity.storage?.primaryKey ?? "id";
+export const tableOf = (entity) => entity.tableName ?? entity.key;
+export const primaryKeyOf = (entity) => entity.storage?.primaryKey ?? "id";
 /** tenantColumn 显式为 null 表示全局共享表 */
-const tenantColumnOf = (entity) => (entity.storage?.tenantColumn === undefined ? "tenant_id" : entity.storage.tenantColumn);
-const jsonbColumnOf = (entity) => entity.storage?.jsonbColumn ?? "ext";
-const softDeleteOf = (entity) => {
+export const tenantColumnOf = (entity) => (entity.storage?.tenantColumn === undefined ? "tenant_id" : entity.storage.tenantColumn);
+export const jsonbColumnOf = (entity) => entity.storage?.jsonbColumn ?? "ext";
+export const softDeleteOf = (entity) => {
   const sd = entity.storage?.softDelete;
   if (!sd || sd.enabled === false) return null;
   return { column: sd.column ?? "deleted_at", type: sd.type ?? "timestamp" };
 };
-const timestampsOf = (entity) => entity.storage?.timestamps ?? null;
-const isFormula = (f) => f.type === "formula";
-const storageOf = (f) => f.storage ?? "jsonb";
+export const timestampsOf = (entity) => entity.storage?.timestamps ?? null;
+export const isFormula = (f) => f.type === "formula";
+export const storageOf = (f) => f.storage ?? "jsonb";
 
 function enumValuesOf(field, ds) {
   if (field.enumValues) return field.enumValues;
@@ -1028,7 +1028,7 @@ function renderAppReadme(entry) {
   return lines.join("\n");
 }
 
-function renderApp(bundle, source) {
+export function renderApp(bundle, source) {
   const appKey = bundle.app?.key;
   if (!appKey) {
     bad(source, "bundle.app.key 缺失，无法定位产物目录");
@@ -1111,14 +1111,25 @@ function listFiles(root) {
 }
 
 /**
+ * 本生成器只拥有这几个子树。codegen/<app>/api/ 归 gen-api.mjs 所有 ——
+ * 两个生成器各扫各的目录，谁也不许顺手删掉对方的产物。
+ */
+export const OWNED_SUBDIRS = ["sql", "ts", "java"];
+export const OWNED_ROOT_FILES = new Set(["README.md"]);
+export function ownsPath(rel) {
+  return OWNED_ROOT_FILES.has(rel) || OWNED_SUBDIRS.some((dir) => rel.startsWith(dir + "/"));
+}
+
+/**
  * 删掉上一轮留下、这一轮不再产出的文件（实体改名、枚举删值都会留下孤儿）。
- * 只认本生成器产出的后缀，且显式跳过清单自身 —— 删了它下一轮就判断不出谁过期。
+ * 只认本生成器产出的后缀与自己的子树，且显式跳过清单自身 —— 删了它下一轮就判断不出谁过期。
  */
 function removeStale(appDir, keep) {
   const removed = [];
   for (const existing of listFiles(appDir)) {
     const rel = path.relative(appDir, existing).replace(/\\/g, "/");
     if (keep.has(rel) || rel === MANIFEST_NAME) continue;
+    if (!ownsPath(rel)) continue;
     if (!/\.(sql|ts|java|md)$/.test(rel)) continue;
     fs.rmSync(existing, { force: true });
     removed.push(rel);
@@ -1147,7 +1158,7 @@ function pruneEmptyDirs(root) {
 function manifestText(written, removed) {
   const lines = [
     MANIFEST_MARK + "。每行一个文件路径（相对本目录）。",
-    "# 下一轮生成时，凡是不在本清单里的 .sql/.ts/.java/.md 都会被删掉 —— 不要往本目录放手工文件。",
+    "# 下一轮生成时，sql/ ts/ java/ 下不在本清单里的 .sql/.ts/.java/.md 会被删掉；api/ 归 gen-api.mjs 所有，本生成器不动。",
     `# 文件数：${written.length + 1}（含本清单）`,
   ];
   for (const rel of written) lines.push(rel);
@@ -1185,7 +1196,7 @@ function writeAll() {
       fs.writeFileSync(target, item.text, "utf8");
     }
     fs.writeFileSync(path.join(appDir, MANIFEST_NAME), manifestText(written, removed), "utf8");
-    pruneEmptyDirs(appDir);
+    for (const sub of OWNED_SUBDIRS) pruneEmptyDirs(path.join(appDir, sub));
     summary.apps.push({ key: entry.key, dir: appDir, files: written.length + 1, removed });
   }
 
@@ -1564,4 +1575,4 @@ function main() {
   printSummary(writeAll());
 }
 
-main();
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) main();

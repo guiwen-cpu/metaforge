@@ -1,5 +1,5 @@
 # tools/gen-entity.mjs 的产物清单。每行一个文件路径（相对本目录）。
-# 下一轮生成时，凡是不在本清单里的 .sql/.ts/.java/.md 都会被删掉 —— 不要往本目录放手工文件。
+# 下一轮生成时，sql/ ts/ java/ 下不在本清单里的 .sql/.ts/.java/.md 会被删掉；api/ 归 gen-api.mjs 所有，本生成器不动。
 # 文件数：14（含本清单）
 [object Object]
 [object Object]

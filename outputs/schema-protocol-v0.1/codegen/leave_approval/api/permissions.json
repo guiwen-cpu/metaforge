@@ -1,0 +1,363 @@
+{
+  "appKey": "leave_approval",
+  "protocolVersion": "0.1",
+  "generatedBy": "tools/gen-api.mjs",
+  "note": "服务端授权的事实来源。BFF 的鉴权层按 roles / permissions 判定动作与字段白名单；condition 是协议表达式，由 BFF 表达式引擎翻译成行级过滤，出码侧不解释。",
+  "roles": [
+    {
+      "id": "01J8ZQ4K2M000000000000005X",
+      "key": "student",
+      "name": "学生",
+      "level": "app",
+      "builtin": true,
+      "dataScope": "self",
+      "description": "只能查看与操作本人的请假单",
+      "semantic": {
+        "intent": "最窄数据范围，用于压测行级数据权限"
+      }
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000005Y",
+      "key": "teacher",
+      "name": "教职工",
+      "level": "app",
+      "builtin": true,
+      "dataScope": "self",
+      "description": "与 student 同权限，区分角色便于按岗位类别配置不同审批链"
+    },
+    {
+      "id": "01J8ZQ4K2M000000000000005Z",
+      "key": "dept_manager",
+      "name": "部门负责人",
+      "level": "app",
+      "builtin": true,
+      "dataScope": "deptAndChildren",
+      "description": "可查看本部门及下级部门的请假单，并办理所在部门的审批任务",
+      "inheritFrom": [
+        "teacher"
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000060",
+      "key": "school_admin",
+      "name": "院级管理员",
+      "level": "app",
+      "builtin": true,
+      "dataScope": "deptAndChildren",
+      "description": "院级审批人，同时持有平台管理菜单（设计器/模型/流程/发布）",
+      "inheritFrom": [
+        "dept_manager"
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000061",
+      "key": "hr_admin",
+      "name": "人事专员",
+      "level": "app",
+      "builtin": true,
+      "dataScope": "all",
+      "description": "全校数据只读 + 导出，不参与审批决策",
+      "inheritFrom": [
+        "teacher"
+      ]
+    },
+    {
+      "id": "01J8ZQ4K2M0000000000000062",
+      "key": "system",
+      "name": "系统",
+      "level": "system",
+      "builtin": true,
+      "dataScope": "all",
+      "description": "定时任务与监听器专用主体，不下发给任何真实用户",
+      "semantic": {
+        "intent": "供 onSchedule / FlowListener 等无会话场景使用；其调用必须在审计日志中可区分"
+      }
+    }
+  ],
+  "permissions": [
+    {
+      "roleKey": "student",
+      "resource": "leave_request",
+      "resourceType": "entity",
+      "actions": [
+        "create",
+        "read",
+        "update",
+        "delete"
+      ],
+      "fields": [
+        "leave_type",
+        "urgency",
+        "start_at",
+        "end_at",
+        "reason",
+        "images",
+        "video_proof",
+        "documents",
+        "days",
+        "status"
+      ],
+      "condition": {
+        "$fn": "eq",
+        "$args": [
+          {
+            "$ref": "$row.applicant_id"
+          },
+          {
+            "$ref": "$user.id"
+          }
+        ]
+      },
+      "inherit": true,
+      "semantic": {
+        "intent": "本人可增删改查；条件表达式由 BFF 翻译为行级过滤 + 写入校验"
+      }
+    },
+    {
+      "roleKey": "student",
+      "resource": "page_leave_list",
+      "resourceType": "page",
+      "actions": [
+        "read",
+        "export"
+      ],
+      "inherit": true
+    },
+    {
+      "roleKey": "student",
+      "resource": "leave_submit",
+      "resourceType": "action",
+      "actions": [
+        "execute"
+      ]
+    },
+    {
+      "roleKey": "student",
+      "resource": "attachment",
+      "resourceType": "entity",
+      "actions": [
+        "create",
+        "read"
+      ],
+      "inherit": true,
+      "fields": [
+        "id",
+        "biz_type",
+        "biz_id",
+        "file_name",
+        "object_key",
+        "mime",
+        "size",
+        "kind",
+        "checksum"
+      ]
+    },
+    {
+      "roleKey": "teacher",
+      "resource": "page_leave_form",
+      "resourceType": "page",
+      "actions": [
+        "read"
+      ],
+      "inherit": true
+    },
+    {
+      "roleKey": "dept_manager",
+      "resource": "leave_request",
+      "resourceType": "entity",
+      "actions": [
+        "read"
+      ],
+      "fields": [
+        "applicant_id",
+        "applicant_name",
+        "dept_id",
+        "leave_type",
+        "urgency",
+        "start_at",
+        "end_at",
+        "days",
+        "reason",
+        "status",
+        "created_at"
+      ],
+      "condition": {
+        "$fn": "in",
+        "$args": [
+          {
+            "$ref": "$row.dept_id"
+          },
+          {
+            "$ref": "$user.deptIds"
+          }
+        ]
+      },
+      "inherit": true,
+      "semantic": {
+        "intent": "部门可见；id_card / phone 等敏感字段不在 fields 白名单内即不可见"
+      }
+    },
+    {
+      "roleKey": "dept_manager",
+      "resource": "page_leave_approval",
+      "resourceType": "page",
+      "actions": [
+        "read"
+      ],
+      "inherit": true
+    },
+    {
+      "roleKey": "dept_manager",
+      "resource": "action:leave_approve",
+      "resourceType": "action",
+      "actions": [
+        "execute",
+        "reject",
+        "return",
+        "transfer"
+      ]
+    },
+    {
+      "roleKey": "school_admin",
+      "resource": "action:leave_approve",
+      "resourceType": "action",
+      "actions": [
+        "execute",
+        "reject",
+        "addSign"
+      ],
+      "inherit": true
+    },
+    {
+      "roleKey": "school_admin",
+      "resource": "leave_request",
+      "resourceType": "entity",
+      "actions": [
+        "read",
+        "export"
+      ],
+      "inherit": true,
+      "fields": [
+        "id",
+        "applicant_id",
+        "applicant_name",
+        "dept_id",
+        "leave_type",
+        "urgency",
+        "start_at",
+        "end_at",
+        "days",
+        "reason",
+        "images",
+        "video_proof",
+        "documents",
+        "status",
+        "current_task",
+        "approver_id",
+        "approved_at",
+        "created_at"
+      ]
+    },
+    {
+      "roleKey": "school_admin",
+      "resource": "designer",
+      "resourceType": "menu",
+      "actions": [
+        "read",
+        "update"
+      ],
+      "inherit": true,
+      "semantic": {
+        "intent": "设计态入口只授予管理员，运行时用户永远拿不到"
+      }
+    },
+    {
+      "roleKey": "hr_admin",
+      "resource": "leave_request",
+      "resourceType": "entity",
+      "actions": [
+        "read",
+        "export"
+      ],
+      "fields": [
+        "applicant_id",
+        "applicant_name",
+        "dept_id",
+        "leave_type",
+        "urgency",
+        "start_at",
+        "end_at",
+        "days",
+        "status"
+      ],
+      "condition": {
+        "$fn": "eq",
+        "$args": [
+          {
+            "$ref": "$tenant.id"
+          },
+          {
+            "$ref": "$user.tenantId"
+          }
+        ]
+      },
+      "inherit": true,
+      "semantic": {
+        "intent": "全校只读；即便 dataScope=all 也必须显式列字段白名单"
+      }
+    },
+    {
+      "roleKey": "system",
+      "resource": "leave_request",
+      "resourceType": "entity",
+      "actions": [
+        "read",
+        "update",
+        "delete"
+      ],
+      "inherit": false
+    },
+    {
+      "roleKey": "system",
+      "resource": "api:api_leave_find_stale",
+      "resourceType": "api",
+      "actions": [
+        "execute"
+      ]
+    }
+  ],
+  "entities": {
+    "attachment": {
+      "create": [
+        "student"
+      ],
+      "read": [
+        "student"
+      ]
+    },
+    "leave_request": {
+      "create": [
+        "student"
+      ],
+      "read": [
+        "dept_manager",
+        "hr_admin",
+        "school_admin",
+        "student",
+        "system"
+      ],
+      "update": [
+        "student",
+        "system"
+      ],
+      "delete": [
+        "student",
+        "system"
+      ],
+      "export": [
+        "hr_admin",
+        "school_admin"
+      ]
+    }
+  }
+}

@@ -1,0 +1,32 @@
+# tools/gen-api.mjs 的产物清单。每行一个文件路径（相对 api/）。
+# 下一轮生成时，api/ 下不在本清单里的 .java/.ts/.json/.md 都会被删掉 —— 本目录归本生成器所有。
+# 文件数：29（含本清单）
+README.md
+client/api.ts
+permissions.json
+src/main/java/dev/lcp/generated/leave_approval/api/crud/AttachmentController.java
+src/main/java/dev/lcp/generated/leave_approval/api/crud/EmployeeController.java
+src/main/java/dev/lcp/generated/leave_approval/api/crud/LeaveRequestController.java
+src/main/java/dev/lcp/generated/leave_approval/api/dto/AttachmentCreateRequest.java
+src/main/java/dev/lcp/generated/leave_approval/api/dto/AttachmentQuery.java
+src/main/java/dev/lcp/generated/leave_approval/api/dto/AttachmentUpdateRequest.java
+src/main/java/dev/lcp/generated/leave_approval/api/dto/EmployeeCreateRequest.java
+src/main/java/dev/lcp/generated/leave_approval/api/dto/EmployeeQuery.java
+src/main/java/dev/lcp/generated/leave_approval/api/dto/EmployeeUpdateRequest.java
+src/main/java/dev/lcp/generated/leave_approval/api/dto/LeaveRequestCreateRequest.java
+src/main/java/dev/lcp/generated/leave_approval/api/dto/LeaveRequestQuery.java
+src/main/java/dev/lcp/generated/leave_approval/api/dto/LeaveRequestUpdateRequest.java
+src/main/java/dev/lcp/generated/leave_approval/api/support/LcpApiError.java
+src/main/java/dev/lcp/generated/leave_approval/api/support/LcpApiException.java
+src/main/java/dev/lcp/generated/leave_approval/api/support/LcpColumn.java
+src/main/java/dev/lcp/generated/leave_approval/api/support/LcpCrudRuntime.java
+src/main/java/dev/lcp/generated/leave_approval/api/support/LcpExceptionHandler.java
+src/main/java/dev/lcp/generated/leave_approval/api/support/LcpFieldPolicy.java
+src/main/java/dev/lcp/generated/leave_approval/api/support/LcpFilter.java
+src/main/java/dev/lcp/generated/leave_approval/api/support/LcpIds.java
+src/main/java/dev/lcp/generated/leave_approval/api/support/LcpPageQuery.java
+src/main/java/dev/lcp/generated/leave_approval/api/support/LcpPageResult.java
+src/main/java/dev/lcp/generated/leave_approval/api/support/LcpPrincipal.java
+src/main/java/dev/lcp/generated/leave_approval/api/support/LcpTableSpec.java
+src/main/java/dev/lcp/generated/leave_approval/api/table/LeaveApprovalTables.java
+GENERATED.txt

@@ -24,8 +24,8 @@ schema-protocol-v0.1/
 ├─ ts/                          TypeScript 绑定（生成 + 2 个手写文件）
 ├─ java/                        Java 绑定（Maven 工程，含 Schema 与注册表资源副本）
 ├─ examples/                    参考 Bundle：请假审批（含 BPMN XML）
-├─ tools/                       gen-ts.mjs / gen-java.mjs / gen-entity.mjs / validate.mjs
-└─ codegen/<appKey>/            出码产物：sql / ts / java（按应用分目录，生成物）
+├─ tools/                       gen-ts.mjs / gen-java.mjs / gen-entity.mjs / gen-api.mjs / validate.mjs
+└─ codegen/<appKey>/            出码产物：sql / ts / java / api（按应用分目录，生成物）
 ```
 
 合计 `$defs` 159 个。两份注册表与 6 份 Schema 一起随 Java 包发布（`java/src/main/resources/lcp/`），
@@ -199,13 +199,15 @@ node tools/gen-ts.mjs       # → ts/  types.ts guards.ts registry.ts index.ts R
 node tools/gen-java.mjs     # → java/  src/main/java/**  +  resources/lcp/**  +  pom.xml  +  README.md
 node tools/gen-entity.mjs   # → codegen/<appKey>/  sql/ + ts/ + java/（出码引擎第一步，读 bundle 而非 $defs）
 node tools/gen-entity.mjs --self-test   # 负向自检：用内存 Bundle 把每条不变量逼出来验一遍，不写盘
+node tools/gen-api.mjs      # → codegen/<appKey>/api/（出码引擎第二步：BFF CRUD；依赖第一步的 ts/entities.ts）
+node tools/gen-api.mjs --self-test       # 同上，负向自检，不写盘
 ```
 
 - 两端是**同一份 Schema 的两个绑定，类型名逐个相同**（`LogicStepAssign` 在 TS 与 Java 都叫 `LogicStepAssign`）。
   这不是审美问题：AI 提示词、Code Connect 映射、出码引擎都靠这个名字把两端对上。
   唯三例外：① 纯 `$ref` 别名与标量在 Java 侧不生成类（反查表在 `registry/Aliases`）；
   ② `common.Expr` 在 Java 侧叫 `CommonExpr`；③ 属性级内联枚举在 Java 侧变成具名枚举类。
-- 三个生成器都**自带自检**并在末尾执行，失败即非零退出：括号配平、空类型/空赋值、引用完整性、
+- 三个协议绑定生成器都**自带自检**并在末尾执行，失败即非零退出：括号配平、空类型/空赋值、引用完整性、
   `package` 与类名一致、类型简单名唯一、与 `ts/types.ts` 导出逐名对齐、枚举覆盖、资源存在性。
 - 生成产物**不要手改**。`gen-java.mjs` 按 `java/GENERATED.txt` 清理上一轮的过期产物（定义被删、别名改名留下的孤儿类），
   所以也不要在生成目录里放手工文件。要改契约就改 Schema / 注册表，然后重跑生成器。
@@ -251,6 +253,41 @@ RLS 默认对表 owner 不生效，是否补 `force row level security` 由部�
 出码第一步只做「数据模型 → 落库代码」，以下是有意不生成的：业务列 `NOT NULL`、PG enum 类型与 CHECK、
 `formula` 落库、`Index.where` 部分索引条件（表达式未编译）、分区表、跨实体真实外键（协议默认软关联）、
 审计触发器（走平台侧 `lcp_audit_log`）。`LcpEnumRef` 是平台 runtime 注解的占位实现，接入后换 import 即可。
+
+### 8.3 出码引擎第二步：数据模型 → BFF CRUD
+
+`gen-api.mjs` 与第一步**共用同一个规划器**（`import { renderApp } from "./gen-entity.mjs"`），
+所以列名、平台列、`storage` 口径不会出现第二套；它只写 `codegen/<appKey>/api/`，不碰 `sql/` `ts/` `java/`。
+两步有先后：`gen-api` 需要第一步已产出的 `ts/entities.ts`，换机器后按 `gen-entity → gen-api` 顺序重跑。
+
+```
+codegen/<appKey>/api/
+├─ README.md                 接口约定、路由表、错误码、接入清单
+├─ permissions.json          roles + permissions + 实体×动作→角色矩阵
+├─ client/api.ts             类型安全 TS 客户端（HttpClient 接口可挂 axios / fetch / uni.request）
+├─ GENERATED.txt             本子树产物清单（gen-api 清理过期文件的依据）
+└─ src/main/java/dev/lcp/generated/<appPkg>/api/
+   ├─ support/               13 个 runtime 支撑类（LcpPrincipal / LcpCrudRuntime / LcpTableSpec …）
+   ├─ table/<App>Tables.java 每实体的 LcpTableSpec 常量（列名、平台列、jsonb/req/imm/sens/search/sort 标记）
+   ├─ dto/                   每实体 Query / CreateRequest / UpdateRequest 各一个 record
+   └─ crud/                  每实体一个 Controller：GET / · GET /{id} · POST / · PUT /{id} · DELETE /{id}
+```
+
+路由前缀 `/api/v1/<appKey>/<entity>`。四条约定：
+
+- **Controller 只做绑定**：`Query.toPageQuery()` / `toFilters()` 把参数收敛成 `LcpPageQuery`，SQL 只在 runtime 里。
+- **写入体只含业务字段**：主键由平台生成；租户、时间戳、操作人、`version`、删除标记一律服务端注入。
+- **`PUT` = 整体替换**（JSONB 整份重写）；`immutable` 字段不在 UpdateRequest 里，服务端也会忽略。
+- **乐观锁**：`storage.optimisticLock=true` 时 UpdateRequest 带 `version`；缺失 → 428，版本不符 → 409。
+
+runtime 的五条安全边界（自检逐条断言）：表名/列名只来自 `LcpTableSpec`，绝不来自请求；所有值走命名参数；
+排序键必须在 `sortableColumns()` 白名单内，否则 400；租户条件强制注入；软删除默认过滤（`include_deleted=true` 才放开）。
+`sensitive` 字段默认不返回（`LcpFieldPolicy.denySensitive`），需要时由平台层显式放行。
+
+**有意不做**（属于平台层，不是出码层的职责）：行级数据权限与字段脱敏策略、JSONB 路径筛选、批量导入/导出、
+OpenAPI 文档、BFF 跨服务聚合编排、游标分页（当前是 offset + `LcpPageResult.pages()`）、OSS STS 直传、
+鉴权注解与 `LcpPrincipal` 的实现（平台侧从会话 / JWT 注入）。生成的 Java 同样**没有编译过**，边界声明见上。
+
 ## 九、扩展指南
 
 ### 9.1 新增一个 FieldType（四处齐改）
@@ -308,9 +345,11 @@ RLS 默认对表 owner 不生效，是否补 `force row level security` 由部�
 | Java 绑定 | 已生成，265 个（144 DTO / 98 枚举 / 4 注册表 / 5 文档根 / 2 支撑 / package-info + 9 份资源 / pom + README + 清单） |
 | 编译验证 | **未做**（环境无 JDK、无 tsc、无网络），见第八节边界声明 |
 | 内置组件注册表 | 38 个组件契约，`kind` 覆盖 layout / container / data / field / display / action / advanced |
+| 出码 · 第一步 | 已生成 `codegen/leave_approval/{sql,ts,java}`：DDL + TS / Java 行类型，自检 7 条 |
+| 出码 · 第二步 | 已生成 `codegen/leave_approval/api`：3 实体 / 15 路由 / 29 文件；元数据驱动 runtime + TS 客户端 + 权限清单，自检 6 条 |
 
 **尚未落地**（协议已预留位置，属于平台建设阶段）：设计器画布、元数据仓库的版本表与快照表、
-出码引擎（计划用 ts-morph）、AI 生成链路（走同一个校验器）、模板市场 / 应用市场。
+出码引擎剩余步骤（页面 / 流程 / 集成 → 代码，计划用 ts-morph）、AI 生成链路（走同一个校验器）、模板市场 / 应用市场。
 协议层为它们预留的关键位：`Semantic`（语义描述层，面向 AI 生成与自然语言检索，运行时忽略）、
 `Origin`（生成溯源，记录 layout 从何而来，使模板升级与 AI 重生成可幂等重放）、
 `BundleMeta.ai` / `BundleMeta.marketplace`、`InstallParam`（安装参数化）。
