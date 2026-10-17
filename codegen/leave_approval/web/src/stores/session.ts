@@ -12,6 +12,7 @@ export interface SessionUser {
 const TOKEN_KEY = "lcp.token";
 const TENANT_KEY = "lcp.tenant";
 const USER_KEY = "lcp.user";
+const DEFAULT_TENANT = "tenant_demo_school";
 
 function readUser(): SessionUser | null {
   const raw = localStorage.getItem(USER_KEY);
@@ -27,7 +28,7 @@ function readUser(): SessionUser | null {
 
 export const useSession = defineStore("session", () => {
   const token = ref<string>(localStorage.getItem(TOKEN_KEY) ?? "");
-  const tenantId = ref<string>(localStorage.getItem(TENANT_KEY) ?? "demo");
+  const tenantId = ref<string>(localStorage.getItem(TENANT_KEY) || DEFAULT_TENANT);
   const user = ref<SessionUser | null>(readUser());
 
   const roles = computed<string[]>(() => user.value?.roles ?? []);

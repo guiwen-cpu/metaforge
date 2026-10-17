@@ -1185,6 +1185,7 @@ export function tagStyleOf(column: ColumnSpec, value: unknown): Record<string, s
 }
 
 function sessionTsOf(entry) {
+  const defaultTenant = JSON.stringify(entry.bundle?.tenantId ?? "demo");
   return `import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
 
@@ -1199,6 +1200,7 @@ export interface SessionUser {
 const TOKEN_KEY = "lcp.token";
 const TENANT_KEY = "lcp.tenant";
 const USER_KEY = "lcp.user";
+const DEFAULT_TENANT = ${defaultTenant};
 
 function readUser(): SessionUser | null {
   const raw = localStorage.getItem(USER_KEY);
@@ -1214,7 +1216,7 @@ function readUser(): SessionUser | null {
 
 export const useSession = defineStore("session", () => {
   const token = ref<string>(localStorage.getItem(TOKEN_KEY) ?? "");
-  const tenantId = ref<string>(localStorage.getItem(TENANT_KEY) ?? "demo");
+  const tenantId = ref<string>(localStorage.getItem(TENANT_KEY) || DEFAULT_TENANT);
   const user = ref<SessionUser | null>(readUser());
 
   const roles = computed<string[]>(() => user.value?.roles ?? []);
@@ -1331,12 +1333,15 @@ export function safeFileName(name: string): string {
 `;
 }
 
-function ossTsOf() {
+function ossTsOf(entry) {
+  const defaultTenant = JSON.stringify(entry.bundle?.tenantId ?? "demo");
   return `import OSS from "ali-oss";
 import type { UploadSpec } from "@/generated/schema";
 import { APP_KEY } from "@/generated/schema";
 import { request } from "./http";
 import { extOf, safeFileName, ulid } from "./id";
+
+const DEFAULT_TENANT = ${defaultTenant};
 
 export interface OssCredentials {
   accessKeyId: string;
@@ -1407,7 +1412,7 @@ export async function uploadToOss(
   const now = new Date();
   const ext = extOf(file.name);
   const key = applyTemplate(spec.pathTemplate ?? "{yyyy}/{MM}/{ulid}.{ext}", {
-    tenant: localStorage.getItem("lcp.tenant") ?? "demo",
+    tenant: localStorage.getItem("lcp.tenant") || DEFAULT_TENANT,
     app: APP_KEY,
     entity: context.entity ?? "common",
     field: context.field ?? "files",
@@ -2804,7 +2809,7 @@ function buildFiles(entry) {
   files.set("src/stores/session.ts", sessionTsOf(entry));
   files.set("src/lib/access.ts", accessTsOf());
   files.set("src/lib/id.ts", idTsOf());
-  files.set("src/lib/oss.ts", ossTsOf());
+  files.set("src/lib/oss.ts", ossTsOf(entry));
   files.set("src/lib/refs.ts", refsTsOf());
   files.set("src/lib/useCrudPage.ts", useCrudPageTsOf());
   files.set("src/components/DynamicField.vue", dynamicFieldVueOf());

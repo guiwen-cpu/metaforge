@@ -9,10 +9,12 @@
 |---|---|
 | 统一 Schema 协议（6 份 JSON Schema + 2 份注册表） | 完成 |
 | L1~L4 校验流水线 `tools/validate.mjs` | 完成 |
-| TS / Java 双端类型绑定 | 已生成；Java 尚未编译验证 |
+| TS / Java 双端类型绑定 | 已生成；Java 协议库尚未编译验证 |
 | 出码 · 第一步：DataSchema → PG DDL + TS / Java 实体 | 完成 |
 | 出码 · 第二步：DataSchema → BFF CRUD + TS 客户端 + 权限清单 | 完成 |
 | 出码 · 第三步：DataSchema → Vue3 CRUD 页面 + OSS 直传 | 完成，前端已通过 typecheck / build |
+| Spring Boot BFF（租户上下文 + RLS 会话变量） | 完成，CRUD 与租户隔离已实测 |
+| Docker Compose 部署骨架（web + bff + PG + Redis） | 完成，本地全栈已跑通 |
 | 可视化页面设计器、数据模型设计器 | 规划中 |
 | 逻辑编排引擎、审批流页面、多端发布 | 规划中 |
 | AI 辅助生成、模板市场 / 应用市场 | 规划中 |
@@ -23,6 +25,8 @@
 - `registry/` —— FieldType 四向映射（19 个类型）、38 个内置组件契约
 - `ts/` —— TypeScript 协议绑定（204 个导出类型）
 - `java/` —— Java 协议绑定（Maven 工程，含随包发布的 Schema 资源副本）
+ - `bff/` —— Spring Boot BFF：租户过滤器、RLS 事务切面、Actuator、统一错误
+ - `deploy/` —— Docker Compose、镜像、迁移、冒烟与发布脚本（见 `deploy/README.md`）
 - `tools/` —— 校验器与出码引擎：`validate.mjs`、`gen-ts.mjs`、`gen-java.mjs`、`gen-entity.mjs`、`gen-api.mjs`、`gen-page.mjs`
   - `tools/dev/` —— 本地联调：`mock-bff.mjs`（内存 CRUD）与 `dev.mjs`（同时拉起 Mock 与示例前端）
   - `tools/archive/` —— 早期 bootstrap 与一次性修补脚本（仅追溯，不作为日常入口）
@@ -58,7 +62,27 @@ node tools/gen-api.mjs    examples/leave-approval.bundle.json
 node tools/gen-page.mjs   examples/leave-approval.bundle.json
 ```
 
-## 本地运行示例前端
+## Docker 运行（推荐）
+
+需要 Docker Desktop / Docker Engine + Compose v2。首次启动：
+
+```powershell
+Copy-Item deploy/.env.example deploy/.env   # 修改 POSTGRES_PASSWORD / META_FORGE_APP_PASSWORD / REDIS_PASSWORD
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d postgres redis
+docker compose --env-file deploy/.env -f deploy/compose.yaml --profile tools run --rm migrate
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
+```
+
+打开 http://localhost:8080 。真实 BFF 以 `metaforge_app` 连接数据库，租户来自 `X-Tenant-Id`，
+RLS 在事务内生效。端到端校验：
+
+```bash
+BASE_URL=http://localhost:8080 sh deploy/smoke.sh
+```
+
+生产发布、镜像、回滚与检查清单见 `deploy/README.md`。
+
+## 本地运行示例前端（Mock BFF）
 
 当前仓库包含协议库、出码引擎和一份生成的示例前端，平台主应用与 Spring Boot BFF 尚未落地。
 本地可以直接把这份示例跑成可点击的 CRUD 页面：
@@ -81,20 +105,24 @@ npm run dev
 
 ## Java 侧
 
-`java/` 目前是 Schema 协议的 Maven 库（Jackson DTO + 资源文件），不是可启动服务：
+仓库有两个 Maven 工程：
+
+ - `java/`：Schema 协议绑定（Jackson DTO + 资源文件），作为库发布。
+ - `bff/`：可启动的 Spring Boot BFF，编译时并入 `codegen/<app>/api`，提供租户过滤器、
+   RLS 事务切面、Actuator 与统一异常。
 
 ```bash
-cd java
-mvn -q compile
+mvn -q -f java/pom.xml compile
+mvn -q -f bff/pom.xml -DskipTests package
 ```
 
-Spring Boot BFF、Flowable、PostgreSQL / Redis 运行时尚未落地；BFF 模块建立后再补充完整启动方式。
+完整启动走 Docker（见上）；没有本地 JDK/Maven 时可直接用 `deploy/bff/Dockerfile` 构建。
 
 ## 已知边界
 
-- `java/` 与协议绑定的 `ts/` 产物尚未编译验证（当前环境无 JDK / Maven / 独立 tsc）；
-  首次 `mvn -q compile` / `tsc --noEmit` 之前不要假定能通过，报错请改生成器。
-- 第三步生成的前端已实测 `vue-tsc --noEmit` + `vite build` 通过；Java 产物仍未编译。
-- 校验器当前残留 1 条 warn：`leave_approval` 流程的第二个监听器未限定 `taskKey`，将对所有节点生效。
+ - 平台主应用（设计器 / 工作台）、Flowable 运行时、OSS STS、JWT/SSO 尚未实现。
+ - `bff/` 已在 Docker 构建中编译通过；本机直接 `mvn` 需要 JDK 21 + Maven。
+ - 生成前端使用演示会话（默认租户取 Bundle 的 `tenantId`），不能用于生产鉴权。
+ - 校验器残留 warn：内联枚举与共享枚举取值不一致；流程监听器未限定 `taskKey`。
 
 协议细节见 `PROTOCOL.md`。

@@ -1,313 +1,172 @@
-# MetaForge Docker 部署规划
+# MetaForge Docker 部署
 
-> 适用阶段：协议库 + 出码示例已具备，Spring Boot BFF 尚未落地。
-> 本文是上线目标形态与实施顺序；标注「待补」的部分需要先写代码，再按本文部署。
+> 状态：P0 可部署骨架已落地并实测通过（单机 Docker Compose：nginx + BFF + PostgreSQL + Redis）。
+> 平台主应用、Flowable 运行时、OSS STS、JWT/SSO 仍属 P1，见文末「已知缺口」。
 
-## 1. 结论先行
+## 1. 组成
 
-| 决策 | v1 选择 | 理由 |
+```text
+浏览器
+  │ :${WEB_PORT}
+  ▼
+web（nginx-unprivileged）
+  ├─ /      → Vite 构建产物（history fallback）
+  └─ /api/  → bff:8080
+                ├─ PostgreSQL 16（元数据 + 业务数据）
+                └─ Redis 7（缓存 / 会话 / 分布式锁）
+```
+
+- `web` 是唯一发布宿主机端口的服务；`bff`、`postgres`、`redis` 只在 `data` 内网。
+- 所有容器非 root、只读根文件系统（`web`/`bff`）、`no-new-privileges`、健康检查、日志可轮转。
+- BFF 是普通 Spring Boot 进程，生成的 `codegen/<app>/api` 源码通过 `build-helper` 一起编译。
+
+## 2. 目录
+
+| 路径 | 用途 |
+|---|---|
+| `deploy/compose.yaml` | 本地/单机全栈编排 |
+| `deploy/compose.prod.yaml` | 生产覆盖层：镜像改为 GHCR |
+| `deploy/web/Dockerfile` | Node 构建 + nginx 非特权镜像 |
+| `deploy/bff/Dockerfile` | Alpine Maven 构建 + JRE 21 运行 |
+| `deploy/nginx/nginx.conf` | 静态资源、`/api` 反代、`/healthz` |
+| `deploy/migrate/` | `00_role.sql`、`99_grants.sql`、`run.sh`（advisory lock + `ON_ERROR_STOP`） |
+| `deploy/release.sh` | pull → migrate → up |
+| `deploy/smoke.sh` | 端到端冒烟（CRUD + 租户隔离） |
+| `deploy/.env.example` | 环境变量模板 |
+
+## 3. 本地一键启动
+
+要求：Docker Desktop（含 Compose v2）。Windows 用 PowerShell：
+
+```powershell
+Copy-Item deploy/.env.example deploy/.env
+# 修改 deploy/.env 中的三个密码
+
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d postgres redis
+docker compose --env-file deploy/.env -f deploy/compose.yaml --profile tools run --rm migrate
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
+```
+
+打开 <http://localhost:8080>。示例应用是 `leave_approval`（人员 / 请假单 / 附件）。
+
+验证：
+
+```powershell
+docker compose --env-file deploy/.env -f deploy/compose.yaml ps
+docker compose --env-file deploy/.env -f deploy/compose.yaml logs -f bff
+```
+
+Linux/macOS 上冒烟脚本：
+
+```bash
+BASE_URL=http://localhost:8080 sh deploy/smoke.sh
+```
+
+脚本覆盖：`/healthz`、缺失租户头 400、创建、更新、跨租户不可见、删除 204。
+
+## 4. 环境变量
+
+`deploy/.env` 已被 `.gitignore` 排除，不要提交。
+
+| 变量 | 必填 | 说明 |
 |---|---|---|
-| 部署形态 | 单台 ECS + Docker Compose | 团队小、流量低，先把业务闭环跑通 |
-| 数据层 | 阿里云 RDS PostgreSQL + Redis | 备份、补丁、主从切换不自己扛 |
-| 对象存储 | 阿里云 OSS + STS 直传 | 文件字节不经过应用服务器 |
-| 应用进程 | nginx（静态资源）+ bff（Spring Boot，内嵌 Flowable） | 业务与流程同事务，少一个引擎服务 |
-| 多副本 | v2：2 台 ECS + SLB | JWT 无状态，天然可水平扩展 |
-| Kubernetes | 暂不上 | Compose 足够；模块和团队规模上来再迁 |
+| `POSTGRES_PASSWORD` | 是 | `metaforge_owner` 密码，仅迁移/运维使用 |
+| `META_FORGE_APP_PASSWORD` | 是 | `metaforge_app` 密码，BFF 使用 |
+| `REDIS_PASSWORD` | 是 | Redis `requirepass` |
+| `WEB_PORT` | 否 | 宿主机端口，默认 `8080` |
+| `TAG` | 生产必填 | 镜像标签，本地默认 `dev` |
 
-私有化或预算敏感的场景，可以用本文的 `postgres` / `redis` 容器替代托管服务，其余不变。
+生产建议把密码放进云密钥管理，由发布流水线写入 `/opt/metaforge/deploy/.env`（权限 `600`）。
 
-## 2. 目标拓扑
+## 5. 数据迁移与租户隔离
 
-生产（推荐）：
+迁移顺序由 `run.sh` 固定：
 
-```text
-用户
-  │ 443
-  ▼
-SLB / WAF
-  │
-  ▼
-ECS · Docker Compose
-  ├─ nginx + web 静态资源
-  │    /      → dist（history fallback）
-  │    /api   → bff:8080
-  └─ bff（Spring Boot / Flowable / Actuator）
-       ├─ RDS PostgreSQL（元数据 + 业务数据，JSONB）
-       ├─ Redis（会话、缓存、分布式锁）
-       └─ OSS（STS 临时凭证，客户端直传）
-```
-
-测试 / 私有化（全容器）：
-
-```text
-nginx+web → bff → postgres + redis（同一 compose，数据网络不对外）
-```
-
-## 3. 容器清单
-
-| 服务 | 基础镜像 | 端口 | 对外 | 持久化 | 健康检查 |
-|---|---|---|---|---|---|
-| `web` | `node:22-alpine` → `nginx:1.27-alpine` | 80/443 | 是 | nginx cache | `GET /healthz` |
-| `bff` | `maven:3.9-eclipse-temurin-21` → `eclipse-temurin:21-jre` | 8080 | 否 | 仅日志 | `/actuator/health/readiness` |
-| `postgres` | `postgres:16-alpine` | 5432 | 否 | `pg_data` | `pg_isready` |
-| `redis` | `redis:7-alpine` | 6379 | 否 | `redis_data` | `redis-cli ping` |
-| `migrate` | `postgres:16-alpine` | - | 否 | - | 一次性任务 |
-
-约定：
-
-- 只有 `web` 发布宿主机端口；`bff`、`postgres`、`redis` 只在内部网络。
-- `bff` 不写本地磁盘；上传文件只进 OSS，附件表只存 objectKey。
-- 所有容器 `restart: unless-stopped`、日志轮转、非 root 运行。
-- 镜像标签用不可变版本：`v1.4.0`、`sha-<7位>`，禁止线上使用 `latest`。
-
-## 4. 镜像构建
-
-### 4.1 web（Vite 静态资源 + nginx）
-
-```dockerfile
-# deploy/web/Dockerfile
-FROM node:22-alpine AS build
-WORKDIR /app
-COPY codegen/leave_approval/web/package*.json ./
-RUN npm ci
-COPY codegen/leave_approval/web/ ./
-ARG VITE_API_BASE=""
-ARG VITE_STS_URL="/api/v1/platform/oss/sts"
-RUN npm run build
-
-FROM nginx:1.27-alpine
-COPY deploy/nginx/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /usr/share/nginx/html
-RUN adduser -D -H -u 10001 web && chown -R web:web /usr/share/nginx/html /var/cache/nginx
-USER web
-EXPOSE 80
-HEALTHCHECK CMD wget -qO- http://127.0.0.1/healthz || exit 1
-```
-
-注意：`VITE_*` 是**构建期**变量。多环境要么按环境分别构建，要么改成容器启动时生成
-`/config.js` 的运行时配置；后者可以一份镜像跑 staging/prod，推荐尽早做。
-
-### 4.2 bff（待补 Spring Boot 应用后启用）
-
-```dockerfile
-# deploy/bff/Dockerfile
-FROM maven:3.9-eclipse-temurin-21 AS build
-WORKDIR /src
-COPY pom.xml ./
-COPY bff/pom.xml bff/pom.xml
-RUN mvn -q -pl bff -am dependency:go-offline
-COPY . .
-RUN mvn -q -pl bff -am -DskipTests package
-
-FROM eclipse-temurin:21-jre
-RUN useradd -r -u 10002 app
-WORKDIR /app
-COPY --from=build /src/bff/target/*.jar app.jar
-USER app
-EXPOSE 8080
-ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Shanghai"
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
-```
-
-## 5. Compose 关键约束
-
-```yaml
-# deploy/compose.yaml（示意，BFF 落地后补全）
-services:
-  web:
-    image: ghcr.io/guiwen-cpu/metaforge-web:${TAG:?}
-    ports: ["80:80", "443:443"]
-    depends_on: { bff: { condition: service_healthy } }
-    networks: [edge]
-    read_only: true
-    tmpfs: [/var/cache/nginx, /var/run]
-    logging: { driver: json-file, options: { max-size: "20m", max-file: "5" } }
-
-  bff:
-    image: ghcr.io/guiwen-cpu/metaforge-bff:${TAG:?}
-    env_file: [.env]
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    networks: [edge, data]
-    read_only: true
-    tmpfs: [/tmp]
-    security_opt: [no-new-privileges:true]
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/actuator/health/readiness"]
-      interval: 15s
-      timeout: 3s
-      retries: 10
-      start_period: 60s
-
-  migrate:
-    image: postgres:16-alpine
-    profiles: [tools]
-    env_file: [.env]
-    volumes: ["./migrations:/migrations:ro"]
-    networks: [data]
-
-networks:
-  edge: {}
-  data: { internal: true }
-
-volumes:
-  pg_data: {}
-  redis_data: {}
-```
+1. `deploy/migrate/00_role.sql`：创建/更新 `metaforge_app`（`NOSUPERUSER NOBYPASSRLS`）
+2. `codegen/<app>/sql/*.sql`：`00_extensions` → `10_*` → `90_rls`
+3. `deploy/migrate/99_grants.sql`：DML 权限与默认权限
 
 要点：
 
-- `data` 网络 `internal: true`，数据库和 Redis 不可能被公网直连。
-- `bff` 等 `postgres`/`redis` 健康后再启动，避免启动风暴。
-- `read_only` + `tmpfs`，容器被入侵后不可写文件系统。
-- 资源限制建议：`bff` 2G、`web` 256M、`postgres` 2G、`redis` 512M（按 4C8G 单机起步）。
-- 密钥不要放 `.env` 提交到仓库；用 Docker secrets 挂 `/run/secrets/`，Spring 侧
-  用 `spring.config.import=optional:configtree:/run/secrets/` 读取。
+- 整个脚本用 `pg_advisory_lock` 串行化，`psql -v ON_ERROR_STOP=1`，**不包事务**
+  （生成的 DDL 含 `create index concurrently`）。
+- 可重复执行；角色与授权使用 `DO $$ ... $$` 幂等写法。
+- BFF 以 `metaforge_app` 连接，该角色不是 owner、不能 `BYPASSRLS`。
+- 每个请求由 `TenantTransactionAspect` 在事务内执行
+  `select set_config('lcp.tenant_id', ?, true)`；RLS 策略读 `current_setting('lcp.tenant_id', true)`。
+  未设置会话变量时策略恒不成立，查询返回 0 行。
 
-## 6. 配置项
-
-| 变量 | 说明 |
-|---|---|
-| `SPRING_PROFILES_ACTIVE` | `prod` |
-| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://<rds>:5432/metaforge?sslmode=require` |
-| `SPRING_DATASOURCE_USERNAME` / `PASSWORD` | 应用角色 `metaforge_app` |
-| `SPRING_DATA_REDIS_HOST` / `PASSWORD` | 托管 Redis 内网地址 |
-| `LCP_OSS_STS_ROLE_ARN` | STS AssumeRole 的 RAM 角色 |
-| `LCP_OSS_BUCKET` / `LCP_OSS_REGION` | OSS 桶与地域 |
-| `LCP_AUTH_JWT_SECRET` | 至少 32 字节，走 secret |
-| `LCP_TENANT_HEADER` | 默认 `X-Tenant-Id`，只信任网关/鉴权后的值 |
-| `MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE` | `health,info,prometheus` |
-| `TZ` | `Asia/Shanghai`（数据库建议存 UTC / `timestamptz`） |
-
-安全边界：`X-Tenant-Id` 只能由网关在 JWT 校验后注入；不能直接信任浏览器传来的租户头，
-否则等于绕过租户隔离。
-
-## 7. 数据库与迁移（最容易踩坑）
-
-### 7.1 双角色
+实测（3 条断言）：
 
 ```sql
--- 迁移账号：建表、建索引、改策略
-create role metaforge_owner login password :'owner_pw';
--- 运行账号：只有 DML，RLS 才会对它生效
-create role metaforge_app   login password :'app_pw';
-
-grant usage on schema public to metaforge_app;
-grant select, insert, update, delete on all tables in schema public to metaforge_app;
-alter default privileges in schema public
-  grant select, insert, update, delete on tables to metaforge_app;
+-- 以 metaforge_app 连接，未设置 lcp.tenant_id
+select count(*) from edu_employee;            -- 0
+begin; select set_config('lcp.tenant_id','tenant_demo_school',true);
+select count(*) from edu_employee; commit;    -- > 0
+begin; select set_config('lcp.tenant_id','tenant_other',true);
+select count(*) from edu_employee; commit;    -- 0
 ```
 
-`bff` 永远用 `metaforge_app` 连接；`migrate` 用 `metaforge_owner`。这样 `90_rls.sql`
-的租户兜底才真正生效。若应用角色就是表 owner，RLS 默认**不生效**（需要 `force row level security`）。
+## 6. 请求契约
 
-### 7.2 RLS 与租户上下文
+- 租户：`X-Tenant-Id`；操作人：`X-User-Id`。缺失租户返回 `400 tenant_required`。
+- **当前 BFF 信任网关注入的请求头，没有 JWT 校验**。生产必须在 SLB/WAF 或 BFF 前置鉴权，
+  并由网关注入这两个头，禁止客户端直连 BFF。
+- JSON 命名：BFF 配置 `spring.jackson.property-naming-strategy: SNAKE_CASE`，
+  请求/响应字段统一蛇形（`employee_no`、`dept_id`、`hire_date`）。
+- 未在 DTO 中声明的字段会被忽略；`PUT` 用完整必填字段替换（`name`、`dept_id` 必填）。
 
-生成的 `90_rls.sql` 依赖会话变量 `lcp.tenant_id`。当前出码运行时是按 `tenant_id = :_tenant`
-显式过滤，**没有**设置该会话变量。因此：
+## 7. 镜像与发布
 
-- 只启用 `90_rls.sql`、又用非 owner 角色连接 → 所有查询返回 0 行；
-- 正确做法：BFF 在每个事务开始时执行 `set local lcp.tenant_id = :tenant`（`SET LOCAL`
-  随事务结束自动清理），再配合非 owner 角色；
-- 在会话变量注入实现之前，生产可只使用 owner 角色并**不启用** RLS（租户过滤仍由 SQL 承担），
-  但这是降级方案，要列入 P1 补掉。
+本地构建（带源码）：
 
-连接池用 HikariCP 时，务必在事务内设置；PgBouncer 用 transaction 模式，`SET LOCAL` 仍可用，
-但不要用会话级 `SET`。
-
-### 7.3 迁移执行器
-
-生成的 SQL 里有 `create index concurrently`，**不能在事务块内执行**。Flyway 默认给 SQL
-迁移开事务，直接用会失败。推荐：
-
-```sh
-# deploy/migrations/run.sh（migrate 容器入口）
-{ echo "select pg_advisory_lock(918273645);";
-  cat /migrations/*.sql;
-  echo "select pg_advisory_unlock(918273645);"; } > /tmp/migrate.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /tmp/migrate.sql
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml build
 ```
 
-- 按文件名排序执行：`00_extensions.sql` → `10_*.sql` → `90_rls.sql`。
-- 不要包 `BEGIN/COMMIT`；psql 默认逐条自动提交。
-- 用 advisory lock 防止两个发布任务并发迁移。
-- 元数据版本表（`lcp_schema_version` 等）后续由平台自身管理，迁移脚本只负责物理结构。
+生产：GitHub Actions 在 `v*` tag 上构建并推送 GHCR：
 
-### 7.4 发布顺序
+- `ghcr.io/guiwen-cpu/metaforge/web:<tag>` 与 `:sha-<sha>`
+- `ghcr.io/guiwen-cpu/metaforge/bff:<tag>` 与 `:sha-<sha>`
 
-1. 备份（`pg_dump -Fc` 或 RDS 快照）；
-2. 跑 `migrate`；
-3. 滚动替换 `bff`；
-4. 健康检查通过后再切流量；
-5. 出问题回滚镜像标签，数据结构按 expand-contract 兼容（先加列、后删列）。
+服务器首次准备：
 
-## 8. CI/CD
-
-GitHub Actions，触发 `v*` tag：
-
-```text
-validate ──┬─ build-web ──┐
-           └─ build-bff ──┴─ docker buildx push (GHCR) ── trivy scan ── deploy
+```bash
+sudo mkdir -p /opt/metaforge
+# 放入仓库的 deploy/ 目录（或只放 compose 文件 + nginx 配置）
+cd /opt/metaforge
+cp deploy/.env.example deploy/.env && vi deploy/.env
 ```
 
-- 镜像：`ghcr.io/guiwen-cpu/metaforge-web:<tag>`、`metaforge-bff:<tag>`，同时打 `sha-*`。
-- 构建缓存：`type=gha`；平台 `linux/amd64`，需要 ARM 再加 `linux/arm64`。
-- 部署：GitHub Environments（prod 需人工批准）→ SSH 到 ECS →
-  `docker compose pull && docker compose run --rm migrate && docker compose up -d`。
-- 回滚：保留上一版 `TAG`，`TAG=<prev> docker compose up -d`；数据库迁移保持向后兼容。
-- 本地验证：`docker compose config` 必须进 CI，防止 YAML/变量错误上生产。
+发布：
 
-## 9. 上线检查清单
+```bash
+TAG=v1.0.0 sh deploy/release.sh
+# 等价于：pull → --profile tools run --rm migrate → up -d
+```
 
-- [ ] 域名 A 记录指向 SLB/ECS，证书自动续期（certbot 或云证书）
-- [ ] 只暴露 80/443；22 端口限制办公网 IP
-- [ ] 数据库/Redis 无公网地址，安全组只放行 ECS
-- [ ] `.env` 权限 600，secret 不进 Git、不进镜像层
-- [ ] `bff` 用非 owner 数据库角色；RLS 策略与 `SET LOCAL` 已验证
-- [ ] 迁移脚本在 staging 全量跑过，并做过回滚演练
-- [ ] `pg_dump` 每日备份到 OSS，保留 30 天，季度恢复演练
-- [ ] 健康检查、5xx 告警、磁盘/连接数告警接入
-- [ ] nginx：`client_max_body_size`、gzip/brotli、静态资源 immutable 缓存、`index.html` no-cache
-- [ ] 安全头：HSTS、`X-Content-Type-Options`、`Referrer-Policy`、合理 CSP
-- [ ] OSS：私有桶、STS 最小权限、上传类型/大小限制、生命周期规则
-- [ ] 日志 JSON 化并集中收集，禁止打印身份证等敏感字段
-- [ ] 压测一遍列表分页与导出接口，确认连接池与慢查询
+回滚：改回上一个 `TAG` 重新 `up -d`。数据库变更遵循 expand-contract（先加列、后删列），
+保证旧镜像仍可运行。
 
-## 10. 运维基线
+CI（`.github/workflows/ci.yml`）覆盖：协议校验、前端构建、BFF 打包、`compose config -q`。
 
-- 备份：RDS 自动备份 + 每日逻辑备份到 OSS；恢复演练比备份本身更重要。
-- 监控：Actuator + Prometheus + Grafana；前端接 Sentry；日志走 Loki/SLS。
-- 容量：起步 4C8G ECS、RDS 2C4G、Redis 1G；先观察 P95 与连接数再扩。
-- 安全：容器非 root、`no-new-privileges`、只读根文件系统；镜像每周重建打补丁。
-- 上传：STS 直传后异步做病毒扫描；附件下载走 7 天签名 URL，不暴露 bucket。
+## 8. 上线检查清单
 
-## 11. 分阶段实施
+- [ ] 只暴露 80/443（或 `WEB_PORT`），22 端口限制来源 IP
+- [ ] 数据库/Redis 无公网地址；生产优先用 RDS / 托管 Redis
+- [ ] `deploy/.env` 权限 600，secret 不进 Git、不进镜像层
+- [ ] 网关鉴权 + 注入 `X-Tenant-Id` / `X-User-Id`，BFF 不直接暴露
+- [ ] TLS 证书、HSTS、`X-Content-Type-Options`、`Referrer-Policy`
+- [ ] `pg_dump -Fc` 每日备份到 OSS，保留 30 天并做恢复演练
+- [ ] Actuator 健康检查、5xx 与连接数告警接入
+- [ ] 镜像定期重建打补丁，线上禁止 `latest`
+- [ ] OSS 私有桶 + STS 最小权限 + 上传类型/大小限制
 
-### P0 · 可部署骨架（BFF 落地时一起做）
+## 9. 已知缺口（P1）
 
-1. 新建 `bff/` Spring Boot 模块：`@SpringBootApplication`、DataSource、Redis、
-   Actuator、统一异常、`LcpPrincipal` 解析、租户过滤器。
-2. 接入生成的 `codegen/<app>/api` 源码与 `sql/`，跑通本地 `mvn test`。
-3. 写 `deploy/web/Dockerfile`、`deploy/bff/Dockerfile`、`deploy/nginx/nginx.conf`、
-   `deploy/compose.yaml`、`deploy/.env.example`。
-4. `migrate` 容器与迁移脚本；staging 跑通一次全量建库。
-5. GitHub Actions 构建并推送 GHCR。
-
-### P1 · 上线必备
-
-TLS、域名、备份、监控告警、密钥管理、RLS 会话变量、STS 真实联调、压测。
-
-### P2 · 规模化
-
-2 台 ECS + SLB、RDS 高可用版、Redis 集群版、蓝绿/滚动发布；
-只有出现多团队、多环境、强隔离需求时再评估 K8s。
-
-## 12. 当前缺口（阻塞上线的部分）
-
-- 没有可启动的 Spring Boot BFF：目前只有生成的 Controller / Runtime 源码和 Maven 协议库。
-- 没有认证与租户上下文实现：`LcpPrincipal` 只有接口，没有从 JWT/SSO 填充的 Bean。
-- 没有迁移执行器：`sql/` 尚未接入任何发布流程。
-- 没有平台主应用：现在的前端是 `leave_approval` 示例，不是设计器/工作台。
-- 生成前端使用 demo 会话与 localStorage token，不能直接用于生产鉴权。
-- Flowable、Redis 尚未接入运行时。
+- 认证：无 JWT/SSO，`X-User-Id` 仅是占位；权限快照尚未在服务端强制执行。
+- Flowable 未接入 BFF；审批流页面与运行时尚未落地。
+- OSS STS 接口未实现，上传字段当前不可用。
+- 平台主应用（页面设计器、数据模型设计器、逻辑编排）尚未开始。
+- 前端仍是生成示例应用；演示会话写入 `localStorage`，不能用于生产鉴权。
+- 示例库为空表；如需演示数据，另加 `deploy/seed/`（不要混入生产迁移）。

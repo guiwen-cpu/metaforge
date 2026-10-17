@@ -1,0 +1,8 @@
+# 生产覆盖层：镜像来自 GHCR，不依赖服务器上构建。
+services:
+  bff:
+    image: ghcr.io/guiwen-cpu/metaforge/bff:${TAG:?TAG 未设置}
+    pull_policy: always
+  web:
+    image: ghcr.io/guiwen-cpu/metaforge/web:${TAG:?TAG 未设置}
+    pull_policy: always

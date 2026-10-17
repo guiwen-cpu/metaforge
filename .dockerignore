@@ -1,0 +1,9 @@
+.git
+.gitignore
+.idea
+.vscode
+**/node_modules
+**/dist
+**/target
+**/*.log
+deploy/.env

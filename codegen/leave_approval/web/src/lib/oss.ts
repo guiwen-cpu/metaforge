@@ -4,6 +4,8 @@ import { APP_KEY } from "@/generated/schema";
 import { request } from "./http";
 import { extOf, safeFileName, ulid } from "./id";
 
+const DEFAULT_TENANT = "tenant_demo_school";
+
 export interface OssCredentials {
   accessKeyId: string;
   accessKeySecret: string;
@@ -73,7 +75,7 @@ export async function uploadToOss(
   const now = new Date();
   const ext = extOf(file.name);
   const key = applyTemplate(spec.pathTemplate ?? "{yyyy}/{MM}/{ulid}.{ext}", {
-    tenant: localStorage.getItem("lcp.tenant") ?? "demo",
+    tenant: localStorage.getItem("lcp.tenant") || DEFAULT_TENANT,
     app: APP_KEY,
     entity: context.entity ?? "common",
     field: context.field ?? "files",
