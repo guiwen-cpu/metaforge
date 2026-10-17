@@ -24,8 +24,8 @@ schema-protocol-v0.1/
 ├─ ts/                          TypeScript 绑定（生成 + 2 个手写文件）
 ├─ java/                        Java 绑定（Maven 工程，含 Schema 与注册表资源副本）
 ├─ examples/                    参考 Bundle：请假审批（含 BPMN XML）
-├─ tools/                       gen-ts.mjs / gen-java.mjs / gen-entity.mjs / gen-api.mjs / validate.mjs
-└─ codegen/<appKey>/            出码产物：sql / ts / java / api（按应用分目录，生成物）
+├─ tools/                       gen-ts.mjs / gen-java.mjs / gen-entity.mjs / gen-api.mjs / gen-page.mjs / validate.mjs
+└─ codegen/<appKey>/            出码产物：sql / ts / java / api / web（按应用分目录，生成物）
 ```
 
 合计 `$defs` 159 个。两份注册表与 6 份 Schema 一起随 Java 包发布（`java/src/main/resources/lcp/`），
@@ -201,6 +201,8 @@ node tools/gen-entity.mjs   # → codegen/<appKey>/  sql/ + ts/ + java/（出码
 node tools/gen-entity.mjs --self-test   # 负向自检：用内存 Bundle 把每条不变量逼出来验一遍，不写盘
 node tools/gen-api.mjs      # → codegen/<appKey>/api/（出码引擎第二步：BFF CRUD；依赖第一步的 ts/entities.ts）
 node tools/gen-api.mjs --self-test       # 同上，负向自检，不写盘
+node tools/gen-page.mjs     # → codegen/<appKey>/web/（出码引擎第三步：Vue3 标准 CRUD 页面；依赖第一步元数据）
+node tools/gen-page.mjs --self-test      # 同上，负向自检，不写盘
 ```
 
 - 两端是**同一份 Schema 的两个绑定，类型名逐个相同**（`LogicStepAssign` 在 TS 与 Java 都叫 `LogicStepAssign`）。
@@ -215,9 +217,9 @@ node tools/gen-api.mjs --self-test       # 同上，负向自检，不写盘
   顶层没有我们清单的子目录一律视为手工目录，生成器不动它。
   带 `--self-test` 时不落盘地把生成器自己的不变量验一遍（含未知 FieldType、无租户表、唯一索引前导、enum 落 varchar、深数组、formula 不进 Java）。
 
-> **边界声明（重要）**：生成器跑在**没有 JDK 也没有 TypeScript 编译器**的环境里，
-> `pom.xml` 与全部 Java 源、TS 源**都没有真正编译过**。自检只覆盖上一条列出的结构性不变量，
-> **不等于可编译**。首次 `mvn -q compile` / `tsc --noEmit` 之前不要假定它能通过；
+> **边界声明（重要）**：`pom.xml` 与全部 Java 源**都没有真正编译过**（环境无 JDK / Maven）；
+> 协议绑定的 TS 源也未单独跑 `tsc`。第三步生成的前端已在 Node 22 下通过 `vue-tsc --noEmit` 与 `vite build`。
+> 自检只覆盖结构性不变量，**不等于可编译**；首次 `mvn -q compile` 之前不要假定 Java 能通过。
 > 报错请**改生成器**，不要改产物。
 
 ### 8.1 出码引擎第一步：数据模型 → 落地代码
@@ -277,16 +279,54 @@ codegen/<appKey>/api/
 
 - **Controller 只做绑定**：`Query.toPageQuery()` / `toFilters()` 把参数收敛成 `LcpPageQuery`，SQL 只在 runtime 里。
 - **写入体只含业务字段**：主键由平台生成；租户、时间戳、操作人、`version`、删除标记一律服务端注入。
-- **`PUT` = 整体替换**（JSONB 整份重写）；`immutable` 字段不在 UpdateRequest 里，服务端也会忽略。
+- **`PUT` = 列整体替换 + JSONB 浅合并**：业务列按请求体赋值；JSONB 文档只写请求体里**真实出现**的键，未出现的键保持原值。`immutable` 字段不在 UpdateRequest 里，服务端也会忽略。
 - **乐观锁**：`storage.optimisticLock=true` 时 UpdateRequest 带 `version`；缺失 → 428，版本不符 → 409。
 
 runtime 的五条安全边界（自检逐条断言）：表名/列名只来自 `LcpTableSpec`，绝不来自请求；所有值走命名参数；
 排序键必须在 `sortableColumns()` 白名单内，否则 400；租户条件强制注入；软删除默认过滤（`include_deleted=true` 才放开）。
 `sensitive` 字段默认不返回（`LcpFieldPolicy.denySensitive`），需要时由平台层显式放行。
+更新时 `sensitive` 字段省略或传 `null` 都表示**保持原值**（不是清空）—— 与「只写不读」配对，避免读取脱敏值后回写把原值抹掉。
 
 **有意不做**（属于平台层，不是出码层的职责）：行级数据权限与字段脱敏策略、JSONB 路径筛选、批量导入/导出、
-OpenAPI 文档、BFF 跨服务聚合编排、游标分页（当前是 offset + `LcpPageResult.pages()`）、OSS STS 直传、
+OpenAPI 文档、BFF 跨服务聚合编排、游标分页（当前是 offset + `LcpPageResult.pages()`）、OSS STS 签发（第三步只给前端直传客户端，凭证签发仍归平台层）、
 鉴权注解与 `LcpPrincipal` 的实现（平台侧从会话 / JWT 注入）。生成的 Java 同样**没有编译过**，边界声明见上。
+
+### 8.4 出码引擎第三步：数据模型 → Vue3 CRUD 页面
+
+`gen-page.mjs` 与第一步共用同一个规划器，只写 `codegen/<appKey>/web/`，不碰 `sql/` `ts/` `java/` `api/`。
+本步生成的是**实体驱动的标准 CRUD 页面**（分页 / 搜索 / 排序 / 弹窗表单 / 删除），不是已有 `uiSchemas` 的自由布局渲染；
+自由布局留给后续的页面设计器编译器。
+
+```
+codegen/<appKey>/web/
+├─ README.md                    运行方式、目录约定、接入清单
+├─ package.json                 Vue3 + Vite + TS + Element Plus + TailwindCSS + ali-oss
+├─ src/pages/<Entity>/index.vue 每实体一页（薄壳，统一挂 ResourcePage）
+├─ src/components/
+│  ├─ ResourcePage.vue          CRUD 引擎：表格 / 搜索 / 分页 / 弹窗表单 / 权限显隐
+│  ├─ DynamicField.vue          按 FieldType 渲染控件（枚举 / 日期 / 数字 / 文本）
+│  ├─ RefSelect.vue             远程搜索引用字段
+│  └─ UploadField.vue           图片 / 视频 / 办公文件
+├─ src/generated/
+│  ├─ schema.ts                 规划结果快照（实体、列、筛选、上传约束）
+│  └─ permissions.ts            权限快照（服务端 permissions.json 的前端投影）
+├─ src/lib/
+│  ├─ useCrudPage.ts            分页 / 查询 / 乐观锁 / 错误映射
+│  ├─ oss.ts                    STS 临时凭证 + ali-oss 直传（AccessKey 不进包）
+│  └─ refs.ts                   引用字段的远程搜索适配
+└─ GENERATED.txt                本子树产物清单（gen-page 清理过期文件的依据）
+```
+
+五条约定：
+
+- **权限只做显隐**：`permissions.ts` 只控制按钮可见性，服务端 `api/permissions.json` 才是授权事实来源。
+- **`sensitive` 只出现在创建表单**：不进列表、不进编辑表单；更新请求省略该字段，服务端保持原值。
+- **`immutable` 编辑只读**：创建可填，更新不看、不提交。
+- **乐观锁**：更新体带 `version`；409 / 428 统一提示刷新重试。
+- **上传走 STS 直传**：前端只拿临时凭证，路径模板由 Schema `storage` 生成；文件元数据回写业务字段。
+
+`gen-page` 按 `web/GENERATED.txt` 清理过期页面，**手写扩展放在 `src/custom/`**（不在清单内，不会被删除）。
+生成前端已实测 `npm install` + `npm run typecheck` + `npm run build` 通过（Vite 仅提示 chunk 体积，不是错误）；Java 仍未编译。
 
 ## 九、扩展指南
 
@@ -343,13 +383,14 @@ OpenAPI 文档、BFF 跨服务聚合编排、游标分页（当前是 offset + `
 | 校验器 | 已完成，四层流水线，`examples/` 参考 Bundle **0 error / 1 warn** |
 | TypeScript 绑定 | 已生成，204 个导出类型；`expr.ts` / `text.ts` 为手写 |
 | Java 绑定 | 已生成，265 个（144 DTO / 98 枚举 / 4 注册表 / 5 文档根 / 2 支撑 / package-info + 9 份资源 / pom + README + 清单） |
-| 编译验证 | **未做**（环境无 JDK、无 tsc、无网络），见第八节边界声明 |
+| 编译验证 | 生成前端已通过 `vue-tsc --noEmit` + `vite build`；Java 与协议绑定 TS 仍未编译（无 JDK / Maven），见第八节边界声明 |
 | 内置组件注册表 | 38 个组件契约，`kind` 覆盖 layout / container / data / field / display / action / advanced |
-| 出码 · 第一步 | 已生成 `codegen/leave_approval/{sql,ts,java}`：DDL + TS / Java 行类型，自检 7 条 |
-| 出码 · 第二步 | 已生成 `codegen/leave_approval/api`：3 实体 / 15 路由 / 29 文件；元数据驱动 runtime + TS 客户端 + 权限清单，自检 6 条 |
+| 出码 · 第一步 | 已生成 `codegen/leave_approval/{sql,ts,java}`：DDL + TS / Java 行类型，自检 8 条 |
+| 出码 · 第二步 | 已生成 `codegen/leave_approval/api`：3 实体 / 15 路由 / 29 文件；元数据驱动 runtime + TS 客户端 + 权限清单，自检 7 条 |
+| 出码 · 第三步 | 已生成 `codegen/leave_approval/web`：3 实体 / 3 页面 / 33 文件；通用 CRUD 页面引擎 + OSS 直传 + 权限快照，自检 10 条，前端构建通过 |
 
 **尚未落地**（协议已预留位置，属于平台建设阶段）：设计器画布、元数据仓库的版本表与快照表、
-出码引擎剩余步骤（页面 / 流程 / 集成 → 代码，计划用 ts-morph）、AI 生成链路（走同一个校验器）、模板市场 / 应用市场。
+出码引擎剩余步骤（流程 / 集成 → 代码，计划用 ts-morph）、AI 生成链路（走同一个校验器）、模板市场 / 应用市场。
 协议层为它们预留的关键位：`Semantic`（语义描述层，面向 AI 生成与自然语言检索，运行时忽略）、
 `Origin`（生成溯源，记录 layout 从何而来，使模板升级与 AI 重生成可幂等重放）、
 `BundleMeta.ai` / `BundleMeta.marketplace`、`InstallParam`（安装参数化）。

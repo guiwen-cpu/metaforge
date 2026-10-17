@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #f6f7fb;
+  color: #0f172a;
+}
+
+.lcp-card {
+  @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+}
+
+.lcp-muted {
+  @apply text-sm text-slate-500;
+}

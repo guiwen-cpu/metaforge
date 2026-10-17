@@ -1161,7 +1161,7 @@ function manifestText(written, removed) {
     "# 下一轮生成时，sql/ ts/ java/ 下不在本清单里的 .sql/.ts/.java/.md 会被删掉；api/ 归 gen-api.mjs 所有，本生成器不动。",
     `# 文件数：${written.length + 1}（含本清单）`,
   ];
-  for (const rel of written) lines.push(rel);
+  for (const item of written) lines.push(item.rel);
   lines.push(MANIFEST_NAME);
   if (removed.length > 0) {
     lines.push("");
@@ -1496,6 +1496,16 @@ function selfTestCases() {
       name: "array 嵌套超 3 层必须告警",
       bundle: probeBundle("st_deep", probeEntity(PROBE_STORAGE, [PROBE_ID, { id: "01SELFTESTF5", key: "deep", label: "深数组", type: "array", storage: "jsonb", itemType: { type: "array", itemType: { type: "array", itemType: { type: "array", itemType: { type: "string" } } } } }], [])),
       check: (r) => (r.notes.some((n) => n.level === "warn" && n.msg.includes("array 嵌套超过 3 层")) ? null : "没有对超深数组告警")
+    },
+    {
+      name: "产物清单必须是真实路径，不能出现 [object Object]",
+      bundle: probeBundle("st_manifest", probeEntity(PROBE_STORAGE, [PROBE_ID], [])),
+      check: () => {
+        const text = manifestText([{ rel: "sql/10_probe_tbl.sql", text: "x" }], []);
+        if (text.includes("[object Object]")) return "清单里出现 [object Object]";
+        if (!text.includes("sql/10_probe_tbl.sql")) return "清单没有列出产物路径";
+        return null;
+      }
     },
     {
       name: "formula 进 TS（readonly）但不进 Java",

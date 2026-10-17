@@ -19,7 +19,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
  * 3. 排序键必须在 spec.sortableColumns() 白名单里，否则 400。
  *
  * 语义约定：
- * - 写入（create / update）是**整体替换**：更新时 JSONB 文档整份重写，没给的键就是 null；
+ * - 写入（create / update）：列字段整体替换；JSONB 文档**浅合并**，没给的键保留原值；
  * - immutable 字段在 update 时被忽略（不是报错），与「创建后不可改」的语义一致；
  * - 软删除实体的读 / 改 / 删默认只作用于未删除行；includeDeleted 仅影响列表查询。
  */
@@ -152,7 +152,7 @@ public final class LcpCrudRuntime {
       params.addValue("_v_" + entry.getKey(), entry.getValue());
     }
     if (spec.jsonb() != null) {
-      sets.add(q(spec.jsonb()) + " = cast(:_doc as jsonb)");
+      sets.add(q(spec.jsonb()) + " = coalesce(" + q(spec.jsonb()) + ", '{}'::jsonb) || cast(:_doc as jsonb)");
       params.addValue("_doc", toJson(document(spec, split)));
     }
     if (spec.updatedAt() != null) {
@@ -333,11 +333,15 @@ public final class LcpCrudRuntime {
     return new WriteSet(stored, document);
   }
 
-  /** 整体替换语义：文档里必须带全所有 JSONB 字段，没给的就是 null。 */
+  /** JSONB 浅合并：请求体给到的键覆盖，没给的键保留原值（sensitive 字段因此可以只写不读）。 */
   private static Map<String, Object> document(LcpTableSpec spec, WriteSet split) {
     Map<String, Object> document = new LinkedHashMap<>();
     for (LcpColumn column : spec.documents()) {
-      document.put(column.key(), split.document().get(column.key()));
+      // 只带请求体里真实出现的键：sensitive 字段在创建/更新时会被省略，
+      // 若这里补 null，浅合并会把库里的原值覆盖掉。
+      if (split.document().containsKey(column.key())) {
+        document.put(column.key(), split.document().get(column.key()));
+      }
     }
     return document;
   }

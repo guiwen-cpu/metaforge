@@ -76,7 +76,7 @@ const javaDirOf = (appPkg, sub) => `api/src/main/java/dev/lcp/generated/${appPkg
  * 只保留真正落库的业务字段（column / jsonb）。平台注入列与 formula 派生字段都不属于「接口契约」：
  * 平台列由服务端自己写，formula 目前的运行时还没做求值 —— 都不该出现在请求体里。
  */
-function businessItems(plan) {
+export function businessItems(plan) {
   return plan.shape.filter((item) => item.kind === "column" || item.kind === "jsonb");
 }
 
@@ -86,8 +86,8 @@ const columnItemsOf = (plan) => businessItems(plan).filter((item) => item.kind =
 
 /** 写入体能触达的字段：去掉主键（平台生成）与 formula */
 const writableItemsOf = (plan) => businessItems(plan).filter((item) => item.name !== primaryKeyOf(plan.entity));
-const creatableItemsOf = (plan) => writableItemsOf(plan);
-const updatableItemsOf = (plan) => writableItemsOf(plan).filter((item) => item.field?.immutable !== true);
+export const creatableItemsOf = (plan) => writableItemsOf(plan);
+export const updatableItemsOf = (plan) => writableItemsOf(plan).filter((item) => item.field?.immutable !== true);
 
 /** LcpColumn 的紧凑标记。顺序固定，便于人工扫读，也便于自检断言。 */
 function flagsOf(item) {
@@ -105,7 +105,7 @@ function flagsOf(item) {
 /** 查询条件：列存 + enum/ref/boolean 出等值，date/datetime/integer/decimal 出区间 */
 const EQ_KINDS = new Set(["enum", "ref", "boolean"]);
 const RANGE_KINDS = new Set(["date", "datetime", "integer", "decimal"]);
-function filtersOf(plan) {
+export function filtersOf(plan) {
   const out = [];
   for (const item of columnItemsOf(plan)) {
     if (item.name === primaryKeyOf(plan.entity)) continue;
@@ -120,10 +120,10 @@ function filtersOf(plan) {
 }
 
 /** 排序白名单：只有列存且声明 sortable 的字段 */
-const sortableItemsOf = (plan) => columnItemsOf(plan).filter((item) => item.field?.sortable === true);
+export const sortableItemsOf = (plan) => columnItemsOf(plan).filter((item) => item.field?.sortable === true);
 
 /** 敏感列（读接口默认不返回；接入平台后换 LcpFieldPolicy 实现） */
-const sensitiveItemsOf = (plan) => businessItems(plan).filter((item) => item.field?.sensitive === true);
+export const sensitiveItemsOf = (plan) => businessItems(plan).filter((item) => item.field?.sensitive === true);
 
 /** 由 validators 推出 Jakarta Bean Validation 注解；推不出来的显式告警，不静默丢。 */
 function annotationsOf(plan, item, imports, where) {
@@ -664,7 +664,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
  * 3. 排序键必须在 spec.sortableColumns() 白名单里，否则 400。
  *
  * 语义约定：
- * - 写入（create / update）是**整体替换**：更新时 JSONB 文档整份重写，没给的键就是 null；
+ * - 写入（create / update）：列字段整体替换；JSONB 文档**浅合并**，没给的键保留原值；
  * - immutable 字段在 update 时被忽略（不是报错），与「创建后不可改」的语义一致；
  * - 软删除实体的读 / 改 / 删默认只作用于未删除行；includeDeleted 仅影响列表查询。
  */
@@ -797,7 +797,7 @@ public final class LcpCrudRuntime {
       params.addValue("_v_" + entry.getKey(), entry.getValue());
     }
     if (spec.jsonb() != null) {
-      sets.add(q(spec.jsonb()) + " = cast(:_doc as jsonb)");
+      sets.add(q(spec.jsonb()) + " = coalesce(" + q(spec.jsonb()) + ", '{}'::jsonb) || cast(:_doc as jsonb)");
       params.addValue("_doc", toJson(document(spec, split)));
     }
     if (spec.updatedAt() != null) {
@@ -978,11 +978,15 @@ public final class LcpCrudRuntime {
     return new WriteSet(stored, document);
   }
 
-  /** 整体替换语义：文档里必须带全所有 JSONB 字段，没给的就是 null。 */
+  /** JSONB 浅合并：请求体给到的键覆盖，没给的键保留原值（sensitive 字段因此可以只写不读）。 */
   private static Map<String, Object> document(LcpTableSpec spec, WriteSet split) {
     Map<String, Object> document = new LinkedHashMap<>();
     for (LcpColumn column : spec.documents()) {
-      document.put(column.key(), split.document().get(column.key()));
+      // 只带请求体里真实出现的键：sensitive 字段在创建/更新时会被省略，
+      // 若这里补 null，浅合并会把库里的原值覆盖掉。
+      if (split.document().containsKey(column.key())) {
+        document.put(column.key(), split.document().get(column.key()));
+      }
     }
     return document;
   }
@@ -1260,7 +1264,7 @@ function renderUpdateRequest(appPkg, plan) {
   }
   const body = parts.join("\n").replace(/,\s*$/, "");
   const doc = [
-    `${plan.entity.key} 的更新请求体（PUT = 整体替换）。`,
+    `${plan.entity.key} 的更新请求体（PUT = 列整体替换 + JSONB 浅合并）。`,
     "immutable 字段不在其中：服务端会忽略对它们的修改。",
     plan.entity.storage?.optimisticLock ? "带 version，更新时以 version 作并发条件。" : "本实体未开启乐观锁，不带 version。"
   ];
@@ -1374,12 +1378,18 @@ function renderController(appPkg, appKey, plan, plans) {
   lines.push(`    return ResponseEntity.created(URI.create(${specConst}.path() + "/" + id)).body(created);`);
   lines.push("  }");
   lines.push("");
-  lines.push("  /** 更新（整体替换）。immutable 字段被忽略。 */");
+  lines.push("  /** 更新（列整体替换 + JSONB 浅合并）。immutable 字段被忽略，sensitive 字段缺省保持。 */");
   lines.push("  @PutMapping(\"/{id}\")");
   lines.push(`  public Map<String, Object> update(@PathVariable("id") String id, @Valid @RequestBody ${plan.className}UpdateRequest body) {`);
   lines.push("    Map<String, Object> values = new LinkedHashMap<>();");
   for (const item of updatableItemsOf(plan)) {
-    lines.push(`    values.put(${J(item.name)}, body.${camel(item.name)}());`);
+    if (item.field?.sensitive) {
+      lines.push(`    if (body.${camel(item.name)}() != null) {`);
+      lines.push(`      values.put(${J(item.name)}, body.${camel(item.name)}());`);
+      lines.push("    }");
+    } else {
+      lines.push(`    values.put(${J(item.name)}, body.${camel(item.name)}());`);
+    }
   }
   const versionArg = plan.entity.storage?.optimisticLock ? "body.version()" : "null";
   lines.push(`    return runtime.update(${specConst}, id, values, ${versionArg});`);
@@ -1518,11 +1528,10 @@ function renderTsClient(appKey, plans) {
 }
 
 // ============================================================ 权限清单
-function renderPermissions(bundle) {
-  const roles = bundle.artifacts?.roles ?? [];
-  const permissions = bundle.artifacts?.permissions ?? [];
+/** 实体级权限矩阵：{ resource: { action: [roleKey...] } }。gen-page 复用同一份口径。 */
+export function permissionMatrixOf(bundle) {
   const matrix = {};
-  for (const grant of permissions) {
+  for (const grant of bundle.artifacts?.permissions ?? []) {
     if (grant.resourceType !== "entity") continue;
     const entity = matrix[grant.resource] ?? (matrix[grant.resource] = {});
     for (const action of grant.actions ?? []) {
@@ -1533,6 +1542,13 @@ function renderPermissions(bundle) {
   for (const entity of Object.values(matrix)) {
     for (const action of Object.keys(entity)) entity[action].sort();
   }
+  return matrix;
+}
+
+function renderPermissions(bundle) {
+  const roles = bundle.artifacts?.roles ?? [];
+  const permissions = bundle.artifacts?.permissions ?? [];
+  const matrix = permissionMatrixOf(bundle);
   const sortedMatrix = {};
   for (const key of Object.keys(matrix).sort()) sortedMatrix[key] = matrix[key];
   const doc = {
@@ -1567,10 +1583,10 @@ function renderReadme(entry, files) {
   docs.push("");
   docs.push("- 租户与操作人来自 `LcpPrincipal`（平台实现），请求体里带了 `tenant_id` / `created_by` 也不采信。");
   docs.push("- 所有值走命名参数；表名 / 列名只来自 `LcpTableSpec`；排序键必须在 `sortableColumns()` 白名单内。");
-  docs.push("- `PUT` 是整体替换：JSONB 文档整份重写，没给的键就是 `null`；`immutable` 字段被忽略。");
+  docs.push("- `PUT` 的列字段整体替换；JSONB 文档是**浅合并**：请求体给到的键覆盖，没给的键保留原值。`immutable` 字段被忽略。");
   docs.push("- 开启乐观锁的表，`PUT` 必须带 `version`，否则 428；版本不匹配返回 409 `version_conflict`。");
   docs.push("- 开启软删除的表，`DELETE` 是置 `deleted_at`；读 / 改 / 删默认只看未删除行，列表可用 `include_deleted=true` 放宽（需平台授权）。");
-  docs.push("- 读接口默认**不返回** sensitive 字段（`LcpFieldPolicy.denySensitive`）。接入平台后换成按 `permissions.json` 的 fields 白名单实现。");
+  docs.push("- sensitive 字段**只写不读**：读接口默认不返回（`LcpFieldPolicy.denySensitive`）；更新时传 `null` / 省略表示**保持不变**，不会被清空。接入平台后读策略换成按 `permissions.json` 的 fields 白名单实现。");
   docs.push("");
   docs.push("## 路由");
   docs.push("");
@@ -1584,7 +1600,7 @@ function renderReadme(entry, files) {
   docs.push("GET    {base}            分页查询 → LcpPageResult");
   docs.push("GET    {base}/{id}       取一行");
   docs.push("POST   {base}            创建 → 201 + Location");
-  docs.push("PUT    {base}/{id}       更新（整体替换）");
+  docs.push("PUT    {base}/{id}       更新（列整体替换 / JSONB 浅合并）");
   docs.push("DELETE {base}/{id}       软删除 / 物理删除 → 204");
   docs.push("```");
   docs.push("");
@@ -1845,6 +1861,11 @@ function selfCheckProducts(results) {
       if (sensitiveItemsOf(plan).length > 0 && !controller.includes("LcpFieldPolicy.denySensitive")) {
         bad(where, "有 sensitive 字段但 Controller 没有挂 denySensitive 策略");
       }
+      for (const item of sensitiveItemsOf(plan)) {
+        if (!controller.includes(`if (body.${camel(item.name)}() != null)`)) {
+          bad(where, `sensitive 字段 ${item.name} 在更新时没有做缺省保持，会被 PUT 清空`);
+        }
+      }
     }
   }
 
@@ -1859,6 +1880,7 @@ function selfCheckProducts(results) {
   if (!text.includes("if (spec.softDeleteColumn() != null && !includeDeleted)")) bad("runtime", "列表查询没有软删除过滤");
   if (!text.includes("column == null || column.jsonb()")) bad("runtime", "筛选字段没有做 spec 白名单校验");
   if (!text.includes("if (update && column.immutable())")) bad("runtime", "更新没有跳过 immutable 字段");
+  if (!text.includes("|| cast(:_doc as jsonb)")) bad("runtime", "JSONB 更新没有做浅合并（sensitive 字段会被清空）");
 
   for (const { entry, files } of results) {
     const client = files.get("api/client/api.ts");
@@ -2018,6 +2040,26 @@ function selfTestCases() {
         const tables = FILE_OF(r, "Tables.java");
         if (!tables) return "没有生成 Tables 常量";
         if (!/PlatformColumns\(\s*"id",\s*null,/.test(tables)) return "全局表的 tenant 应该编译成 null";
+        return null;
+      }
+    },
+    {
+      name: "JSONB 文档只写请求体里出现过的键（防止 sensitive 被 null 覆盖）",
+      bundle: probeBundle(
+        "api_jsonb_sens",
+        probeEntity(PROBE_STORAGE, [
+          PROBE_ID,
+          { id: "01SELFTESTAPI8", key: "phone", label: "手机号", type: "string", storage: "jsonb", sensitive: true },
+          { id: "01SELFTESTAPI9", key: "email", label: "邮箱", type: "string", storage: "jsonb" }
+        ])
+      ),
+      check: (r) => {
+        const runtime = FILE_OF(r, "LcpCrudRuntime.java");
+        if (!runtime.includes("split.document().containsKey(column.key())")) return "runtime 仍会为缺省 JSONB 键补 null";
+        const create = FILE_OF(r, "ProbeCreateRequest.java");
+        if (!create.includes("String phone")) return "CreateRequest 丢了 sensitive 字段（创建时应可写）";
+        const update = FILE_OF(r, "ProbeUpdateRequest.java");
+        if (!update.includes("String phone")) return "UpdateRequest 丢了 sensitive 字段";
         return null;
       }
     },

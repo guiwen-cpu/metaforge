@@ -81,7 +81,7 @@ public class AttachmentController {
     return ResponseEntity.created(URI.create(LeaveApprovalTables.ATTACHMENT.path() + "/" + id)).body(created);
   }
 
-  /** 更新（整体替换）。immutable 字段被忽略。 */
+  /** 更新（列整体替换 + JSONB 浅合并）。immutable 字段被忽略，sensitive 字段缺省保持。 */
   @PutMapping("/{id}")
   public Map<String, Object> update(@PathVariable("id") String id, @Valid @RequestBody AttachmentUpdateRequest body) {
     Map<String, Object> values = new LinkedHashMap<>();

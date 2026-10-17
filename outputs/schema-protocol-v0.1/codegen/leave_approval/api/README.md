@@ -7,10 +7,10 @@
 
 - 租户与操作人来自 `LcpPrincipal`（平台实现），请求体里带了 `tenant_id` / `created_by` 也不采信。
 - 所有值走命名参数；表名 / 列名只来自 `LcpTableSpec`；排序键必须在 `sortableColumns()` 白名单内。
-- `PUT` 是整体替换：JSONB 文档整份重写，没给的键就是 `null`；`immutable` 字段被忽略。
+- `PUT` 的列字段整体替换；JSONB 文档是**浅合并**：请求体给到的键覆盖，没给的键保留原值。`immutable` 字段被忽略。
 - 开启乐观锁的表，`PUT` 必须带 `version`，否则 428；版本不匹配返回 409 `version_conflict`。
 - 开启软删除的表，`DELETE` 是置 `deleted_at`；读 / 改 / 删默认只看未删除行，列表可用 `include_deleted=true` 放宽（需平台授权）。
-- 读接口默认**不返回** sensitive 字段（`LcpFieldPolicy.denySensitive`）。接入平台后换成按 `permissions.json` 的 fields 白名单实现。
+- sensitive 字段**只写不读**：读接口默认不返回（`LcpFieldPolicy.denySensitive`）；更新时传 `null` / 省略表示**保持不变**，不会被清空。接入平台后读策略换成按 `permissions.json` 的 fields 白名单实现。
 
 ## 路由
 
@@ -26,7 +26,7 @@
 GET    {base}            分页查询 → LcpPageResult
 GET    {base}/{id}       取一行
 POST   {base}            创建 → 201 + Location
-PUT    {base}/{id}       更新（整体替换）
+PUT    {base}/{id}       更新（列整体替换 / JSONB 浅合并）
 DELETE {base}/{id}       软删除 / 物理删除 → 204
 ```
 

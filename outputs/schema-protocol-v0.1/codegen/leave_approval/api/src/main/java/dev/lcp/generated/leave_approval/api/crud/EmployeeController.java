@@ -83,15 +83,19 @@ public class EmployeeController {
     return ResponseEntity.created(URI.create(LeaveApprovalTables.EMPLOYEE.path() + "/" + id)).body(created);
   }
 
-  /** 更新（整体替换）。immutable 字段被忽略。 */
+  /** 更新（列整体替换 + JSONB 浅合并）。immutable 字段被忽略，sensitive 字段缺省保持。 */
   @PutMapping("/{id}")
   public Map<String, Object> update(@PathVariable("id") String id, @Valid @RequestBody EmployeeUpdateRequest body) {
     Map<String, Object> values = new LinkedHashMap<>();
     values.put("name", body.name());
     values.put("dept_id", body.deptId());
     values.put("dept_name", body.deptName());
-    values.put("phone", body.phone());
-    values.put("id_card", body.idCard());
+    if (body.phone() != null) {
+      values.put("phone", body.phone());
+    }
+    if (body.idCard() != null) {
+      values.put("id_card", body.idCard());
+    }
     values.put("position", body.position());
     values.put("hire_date", body.hireDate());
     return runtime.update(LeaveApprovalTables.EMPLOYEE, id, values, null);

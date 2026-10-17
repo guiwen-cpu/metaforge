@@ -9,7 +9,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
- * leave_request 的更新请求体（PUT = 整体替换）。
+ * leave_request 的更新请求体（PUT = 列整体替换 + JSONB 浅合并）。
  * immutable 字段不在其中：服务端会忽略对它们的修改。
  * 带 version，更新时以 version 作并发条件。
  */

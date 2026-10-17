@@ -1,0 +1,35 @@
+# tools/gen-page.mjs 的产物清单。每行一个文件路径（相对本目录）。
+# app: leave_approval
+# 下一轮只删除「本清单里有、下一轮不再产出」的生成文件；node_modules / dist / 手写文件不受影响。
+README.md
+index.html
+package.json
+postcss.config.js
+src/App.vue
+src/components/DynamicField.vue
+src/components/RefSelect.vue
+src/components/ResourcePage.vue
+src/components/UploadField.vue
+src/env.d.ts
+src/generated/permissions.ts
+src/generated/schema.ts
+src/layouts/AppLayout.vue
+src/lib/access.ts
+src/lib/format.ts
+src/lib/http.ts
+src/lib/id.ts
+src/lib/oss.ts
+src/lib/refs.ts
+src/lib/useCrudPage.ts
+src/main.ts
+src/pages/Attachment/index.vue
+src/pages/Employee/index.vue
+src/pages/LeaveRequest/index.vue
+src/router/index.ts
+src/stores/session.ts
+src/styles/index.css
+src/views/NotFound.vue
+tailwind.config.js
+tsconfig.json
+tsconfig.node.json
+vite.config.ts

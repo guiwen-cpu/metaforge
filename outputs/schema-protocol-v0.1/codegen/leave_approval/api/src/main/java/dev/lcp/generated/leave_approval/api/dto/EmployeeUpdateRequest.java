@@ -5,7 +5,7 @@ import jakarta.validation.constraints.Pattern;
 import java.time.LocalDate;
 
 /**
- * employee 的更新请求体（PUT = 整体替换）。
+ * employee 的更新请求体（PUT = 列整体替换 + JSONB 浅合并）。
  * immutable 字段不在其中：服务端会忽略对它们的修改。
  * 本实体未开启乐观锁，不带 version。
  */
