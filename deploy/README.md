@@ -47,9 +47,10 @@ web（nginx-unprivileged）
 | `deploy/web/Dockerfile` | Node 构建 + nginx 非特权镜像 |
 | `deploy/bff/Dockerfile` | Alpine Maven 构建 + JRE 21 运行 |
 | `deploy/nginx/nginx.conf` | 静态资源、`/api` 反代、`/healthz` |
-| `deploy/migrate/` | `00_role.sql`、`99_grants.sql`、`run.sh`（advisory lock + `ON_ERROR_STOP`） |
+| `deploy/migrate/` | `00_role.sql`、`10_platform.sql`、`99_grants.sql`、`run.sh`（advisory lock + `ON_ERROR_STOP`） |
 | `deploy/release.sh` | 按环境发布：pull → migrate → up |
-| `deploy/smoke.sh` | 端到端冒烟（CRUD + 租户隔离） |
+| `deploy/smoke.sh` | 出码 CRUD 冒烟（CRUD + 租户隔离） |
+| `deploy/smoke-platform.sh` | 控制平面冒烟（草稿 / 发布 / 回滚 / 乐观锁 / 租户隔离） |
 
 ## 4. 本地一键启动
 
@@ -159,8 +160,9 @@ sh deploy/release.sh prod v1.2.2   # 回到上一个版本
 迁移顺序由 `run.sh` 固定：
 
 1. `deploy/migrate/00_role.sql`：创建/更新 `metaforge_app`（`NOSUPERUSER NOBYPASSRLS`）
-2. `codegen/<app>/sql/*.sql`：`00_extensions` → `10_*` → `90_rls`
-3. `deploy/migrate/99_grants.sql`：DML 权限与默认权限
+2. `deploy/migrate/10_platform.sql`：控制平面表（应用 / 版本）+ RLS + append-only 触发器
+3. `codegen/<app>/sql/*.sql`：`00_extensions` → `10_*` → `90_rls`
+4. `deploy/migrate/99_grants.sql`：DML 权限与默认权限
 
 要点：
 
@@ -210,6 +212,6 @@ select count(*) from edu_employee; commit;    -- 0
 - 认证：无 JWT/SSO，`X-User-Id` 仅是占位；权限快照尚未在服务端强制执行。
 - Flowable 未接入 BFF；审批流页面与运行时尚未落地。
 - OSS STS 接口未实现，上传字段当前不可用。
-- 平台主应用（页面设计器、数据模型设计器、逻辑编排）尚未开始。
+- 控制平面 P0（应用 / 草稿 / 发布 / 回滚）已完成；页面设计器、数据模型设计器、逻辑编排的 UI 尚未开始。
 - 前端仍是生成示例应用；演示会话写入 `localStorage`，不能用于生产鉴权。
 - 示例库为空表；如需演示数据，另加 `deploy/seed/`（不要混入生产迁移）。

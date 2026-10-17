@@ -25,7 +25,7 @@ public class TenantTransactionAspect {
     this.jdbc = jdbc;
   }
 
-  @Around("within(dev.lcp.generated..*) && @within(org.springframework.web.bind.annotation.RestController)")
+  @Around("within(dev.lcp..*) && @within(org.springframework.web.bind.annotation.RestController)")
   public Object around(ProceedingJoinPoint joinPoint) throws Throwable {
     String tenantId = TenantContext.tenantId();
     if (tenantId == null || tenantId.isBlank()) {

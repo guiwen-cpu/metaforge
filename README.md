@@ -14,8 +14,9 @@
 | 出码 · 第二步：DataSchema → BFF CRUD + TS 客户端 + 权限清单 | 完成 |
 | 出码 · 第三步：DataSchema → Vue3 CRUD 页面 + OSS 直传 | 完成，前端已通过 typecheck / build |
 | Spring Boot BFF（租户上下文 + RLS 会话变量） | 完成，CRUD 与租户隔离已实测 |
+| 平台控制平面：应用 / 草稿 / 发布 / 回滚（见 `PLATFORM.md`） | 完成，12 步冒烟通过 |
 | Docker Compose 部署骨架（web + bff + PG + Redis） | 完成，本地全栈已跑通 |
-| 可视化页面设计器、数据模型设计器 | 规划中 |
+| 可视化页面设计器、数据模型设计器 | 规划中（元数据与版本底座已就绪） |
 | 逻辑编排引擎、审批流页面、多端发布 | 规划中 |
 | AI 辅助生成、模板市场 / 应用市场 | 规划中 |
 
@@ -33,6 +34,7 @@
 - `examples/` —— 请假审批参考 Bundle（含 BPMN 20 XML）；`probes/` 为校验探针
 - `codegen/<appKey>/` —— 出码产物：`sql/`、`ts/`、`java/`、`api/`、`web/`（生成物，不要手改）
 - `PROTOCOL.md` —— 协议总览：分层模型、表达式 DSL、快照与回滚、组件契约、沙箱、扩展指南
+- `PLATFORM.md` —— 控制平面：应用 / 草稿 / 发布 / 回滚 API 与版本语义
 - `项目提示词.txt` —— 产品定位、技术栈与模块清单
 
 ## 技术栈
