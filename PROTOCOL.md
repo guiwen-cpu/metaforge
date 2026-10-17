@@ -9,7 +9,9 @@ BFF 与运行时读它，出码引擎编译它，AI 生成它 —— 全部围�
 ## 目录结构
 
 ```
-schema-protocol-v0.1/
+MetaForge/
+├─ README.md                    项目概览与快速开始
+├─ PROTOCOL.md                  本文（协议总览）
 ├─ schema/                      6 份 JSON Schema（协议本体，唯一真源）
 │  ├─ common.schema.json        共享基元（18 个定义）
 │  ├─ data.schema.json          数据模型（15 个定义）—— 数据平面结构
@@ -23,8 +25,8 @@ schema-protocol-v0.1/
 │  └─ builtin-components.json   38 个内置组件的契约实例（运行时读，不内联进代码）
 ├─ ts/                          TypeScript 绑定（生成 + 2 个手写文件）
 ├─ java/                        Java 绑定（Maven 工程，含 Schema 与注册表资源副本）
-├─ examples/                    参考 Bundle：请假审批（含 BPMN XML）
-├─ tools/                       gen-ts.mjs / gen-java.mjs / gen-entity.mjs / gen-api.mjs / gen-page.mjs / validate.mjs
+├─ examples/                    参考 Bundle：请假审批（含 BPMN XML）；probes/ 为校验探针
+├─ tools/                       校验器与出码引擎（tools/archive/ 为历史脚本）
 └─ codegen/<appKey>/            出码产物：sql / ts / java / api / web（按应用分目录，生成物）
 ```
 

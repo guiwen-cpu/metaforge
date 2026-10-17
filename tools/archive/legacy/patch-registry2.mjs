@@ -1,5 +1,5 @@
 import fs from "node:fs";
-const P = "outputs/schema-protocol-v0.1/schema/expression-registry.json";
+const P = "schema/expression-registry.json";
 const r = JSON.parse(fs.readFileSync(P, "utf8"));
 
 const ctx = r.valueRoots.find(v => v.name === "$ctx");

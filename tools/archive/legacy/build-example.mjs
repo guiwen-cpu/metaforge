@@ -1,5 +1,8 @@
 import fs from "node:fs";
-const P = "outputs/schema-protocol-v0.1";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const P = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const FILE = `${P}/examples/leave-approval.bundle.json`;
 const bundle = JSON.parse(fs.readFileSync(FILE, "utf8")).bundle;
 

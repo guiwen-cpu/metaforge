@@ -1,4 +1,8 @@
 import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const P = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const A = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 let seq = 0;
 const uid = () => { seq += 1; let n = seq, s = ""; while (s.length < 6) { s = A[n % 32] + s; n = Math.floor(n / 32); } return "01J8ZQ4K2M0000000000" + s; };
@@ -333,6 +337,6 @@ const registry = {
   fieldBindingRule: "控件解析优先级：① UINode.props.fieldList[].widget ② DataSchema Field.uiHints.widget ③ Field.itemType 命中组件的 fieldBindings ④ Field.type 命中 fieldBindings（priority 值小者优先）。第③步让 array<image> 自动落到 x-upload 而无需逐字段手写 widget。",
   components
 };
-fs.mkdirSync("outputs/schema-protocol-v0.1/registry", { recursive: true });
-fs.writeFileSync("outputs/schema-protocol-v0.1/registry/builtin-components.json", JSON.stringify(registry, null, 2) + "\n", "utf8");
+fs.mkdirSync(`${P}/registry`, { recursive: true });
+fs.writeFileSync(`${P}/registry/builtin-components.json`, JSON.stringify(registry, null, 2) + "\n", "utf8");
 console.log("components:", registry.components.length, "ids unique:", new Set(registry.components.map(c => c.id)).size === registry.components.length);

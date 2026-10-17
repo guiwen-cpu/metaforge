@@ -1,5 +1,5 @@
 import fs from "node:fs";
-const P = "outputs/schema-protocol-v0.1/schema/expression-registry.json";
+const P = "schema/expression-registry.json";
 const r = JSON.parse(fs.readFileSync(P, "utf8"));
 const page = r.valueRoots.find(v => v.name === "$page");
 page.desc = "当前页面上下文。state 暴露 UISchema.state 声明的状态变量（读用 $page.state.x；写用 AssignStep.target 的相对路径 state.x）";

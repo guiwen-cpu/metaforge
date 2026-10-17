@@ -1,5 +1,5 @@
 import fs from "node:fs";
-const P = "outputs/schema-protocol-v0.1/registry/builtin-components.json";
+const P = "registry/builtin-components.json";
 const reg = JSON.parse(fs.readFileSync(P, "utf8"));
 const p = (key, label, type, flags = "", extra = {}) => ({
   key, label, type,

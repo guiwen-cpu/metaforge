@@ -1,5 +1,5 @@
 import fs from "node:fs";
-const P = "outputs/schema-protocol-v0.1/schema/expression-registry.json";
+const P = "schema/expression-registry.json";
 const r = JSON.parse(fs.readFileSync(P, "utf8"));
 const ctx = r.valueRoots.find(v => v.name === "$ctx");
 ctx.desc = "动作执行上下文。result=紧邻上一步的结果（下一步即被覆盖，跨步骤请用 vars）；vars=动作链内的临时变量（assignTo 前缀 vars 写入）；params=动作入参；event=触发事件载荷";

@@ -1,5 +1,5 @@
 import fs from "node:fs";
-const file = JSON.parse(fs.readFileSync("outputs/schema-protocol-v0.1/examples/leave-approval.bundle.json","utf8"));
+const file = JSON.parse(fs.readFileSync("examples/leave-approval.bundle.json","utf8"));
 export function mkResolve(root){
   return function resolve(ptr0){
     if (!ptr0) return undefined;

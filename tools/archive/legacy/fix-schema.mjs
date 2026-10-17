@@ -1,5 +1,5 @@
 import fs from "node:fs";
-const DIR = "outputs/schema-protocol-v0.1";
+const DIR = ".";
 const S = DIR + "/schema", R = DIR + "/registry";
 const load = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
 const save = (p, o) => fs.writeFileSync(p, JSON.stringify(o, null, 2) + "\n", "utf8");
