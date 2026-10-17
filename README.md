@@ -80,12 +80,20 @@ RLS 在事务内生效。端到端校验：
 BASE_URL=http://localhost:8080 sh deploy/smoke.sh
 ```
 
-生产发布、镜像、回滚与检查清单见 `deploy/README.md`。
+环境划分：
+
+| 环境 | 模板 | Compose 覆盖层 | 项目名 |
+|---|---|---|---|
+| local | `.env`（由 `.env.example` 复制） | — | `metaforge` |
+| staging | `.env.staging` | `compose.staging.yaml` | `metaforge-staging` |
+| prod | `.env.prod` | `compose.prod.yaml` | `metaforge-prod` |
+
+staging 由 `main` 推送触发，prod 由 `v*` tag 触发；发布、回滚与检查清单见 `deploy/README.md`。
 
 ## 本地运行示例前端（Mock BFF）
 
-当前仓库包含协议库、出码引擎和一份生成的示例前端，平台主应用与 Spring Boot BFF 尚未落地。
-本地可以直接把这份示例跑成可点击的 CRUD 页面：
+当前仓库包含协议库、出码引擎和一份生成的示例前端；平台主应用尚未落地。
+不依赖 Docker 时，可以用 Mock BFF 把示例跑成可点击的 CRUD 页面：
 
 ```bash
 # 首次：安装示例前端依赖

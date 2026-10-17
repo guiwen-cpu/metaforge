@@ -47,4 +47,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose --env-file deploy/.env.example -f deploy/compose.yaml -f deploy/compose.prod.yaml config -q
+      - name: Validate staging overlay
+        run: docker compose --env-file deploy/.env.staging.example -f deploy/compose.yaml -f deploy/compose.staging.yaml config -q
+      - name: Validate prod overlay
+        run: docker compose --env-file deploy/.env.prod.example -f deploy/compose.yaml -f deploy/compose.prod.yaml config -q
+      - name: Validate local env
+        run: docker compose --env-file deploy/.env.example -f deploy/compose.yaml config -q
+      - name: Shell syntax
+        run: for f in deploy/*.sh deploy/migrate/*.sh; do sh -n "$f"; done

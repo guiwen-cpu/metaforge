@@ -18,3 +18,5 @@ desktop.ini
 
 # 本地部署密钥
 deploy/.env
+deploy/.env.staging
+deploy/.env.prod
