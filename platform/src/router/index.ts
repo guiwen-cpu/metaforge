@@ -4,6 +4,7 @@ import AppListPage from "@/pages/AppListPage.vue";
 import AppDetailPage from "@/pages/AppDetailPage.vue";
 import ModelDesignerPage from "@/pages/ModelDesignerPage.vue";
 import PageDesignerPage from "@/pages/PageDesignerPage.vue";
+import LogicDesignerPage from "@/pages/LogicDesignerPage.vue";
 import NotFoundView from "@/views/NotFoundView.vue";
 
 const router = createRouter({
@@ -31,6 +32,12 @@ const router = createRouter({
           name: "app-pages",
           component: PageDesignerPage,
           meta: { title: "页面设计器" }
+        },
+        {
+          path: "apps/:appId/logic",
+          name: "app-logic",
+          component: LogicDesignerPage,
+          meta: { title: "逻辑编排" }
         }
       ]
     },
