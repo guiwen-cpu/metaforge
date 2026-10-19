@@ -23,6 +23,23 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 cd platform; npm run typecheck; npm run build
 ```
 
+## 里程碑提交
+
+| 提交 | 模块 | 验证 |
+|---|---|---|
+| `29c22e8` | 控制平面工作台（草稿/发布/版本/diff/回滚） | 16 步冒烟通过 |
+| `5b55e98` | 数据模型设计器 | typecheck / build / CDP 实测 |
+| `51b4c89` | 页面设计器 | 模板、画布、数据源、校验实测 |
+| `a318495` | 逻辑编排设计器 | 14 动作 / 87 步骤 / 11 API / 1 流程 / 3 规则实测 |
+| `547916f` | 自定义组件注册与 iframe 沙箱 | CDP：沙箱属性、CSP、页面设计器联动、r7/r8 保存 |
+| `bb628fb` | 接手上下文文档 | — |
+
+## 文档维护
+
+- 每个模块完成后同步更新本文件：已完成项、环境快照、下一步、里程碑提交表。
+- 影响架构的决策补到「设计决策」；范围变化直接改「剩余路线图」的勾选项。
+- 本文件只记事实与状态，不写过程日志。
+
 ## 已完成
 
 ### 1. 协议与校验（地基）
@@ -111,6 +128,17 @@ cd platform; npm run typecheck; npm run build
 - [ ] 内置页面模板市场。
 - [ ] 应用市场（安装/升级/依赖）。
 - [ ] 组件市场。
+
+## 设计决策
+
+- **单一 Bundle**：设计器、发布快照、运行时共享 `bundle.artifacts.*`；组件、页面、逻辑都不另建表。
+- **组件存储**：只把租户自定义组件写入 `artifacts.components`；平台内建组件留在 `registry/`。
+- **组件标识**：`name`（kebab-case）是稳定标识，创建后不可改；改名通过复制新组件完成。
+- **沙箱策略**：设计器用 `iframe srcdoc` + `sandbox="allow-scripts"`，不授予 same-origin；CSP 默认 `default-src 'none'`。
+- **策略字段**：`sandbox.*` 是运行时声明，设计器只做编辑与校验，真正执行在发布态渲染器（待实现）。
+- **扩展键**：平台私有字段统一 `x-` 前缀（`x-previewHtml`、`x-previewScript`），随 Bundle 版本化。
+- **草稿并发**：控制平面用 `revision` 乐观锁，冲突时提示加载最新草稿。
+- **语义预留**：实体、页面、组件、流程均带 `semantic.intent`，为 AI 生成做准备。
 
 ## 已知边界
 

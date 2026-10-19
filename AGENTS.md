@@ -75,6 +75,19 @@ git add -A; git commit -m "..."; git push origin dev
 - 演示应用与租户见 `PROGRESS.md` 的「环境快照」。
 - 每个模块完成后的固定流程：`typecheck` → `build` → 重建 web 容器 → CDP 实测 → `git diff --check` → 提交并推送 `dev`。
 
+## 任务完成标准（Definition of Done）
+
+每个功能模块收尾时必须全部完成，缺一不可：
+
+1. `npm run typecheck` 与 `npm run build` 通过（涉及前端时）。
+2. 实际验证：CDP 页面操作、API 调用或端到端冒烟，至少覆盖一条主链路。
+3. `git diff --check` 无空白错误。
+4. **更新 `PROGRESS.md`**：勾选/新增已完成项、刷新环境快照、改写「下一步」、必要时补设计决策。
+5. 提交并推送 `dev`，提交信息用 `feat(scope): 中文描述` / `docs:` / `fix(scope):`。
+6. 向用户汇报：做了什么、验证结果、提交号、下一步。
+
+纯文档或纯配置改动可跳过 1~2，但第 4~6 条始终适用。
+
 ## 代码风格
 
 - Vue3 `<script setup lang="ts">`，Tailwind 原子类 + Element Plus。
