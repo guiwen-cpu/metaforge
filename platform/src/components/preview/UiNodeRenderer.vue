@@ -2,7 +2,8 @@
 import { computed } from "vue";
 import type { DataEntity, DataField, DataSchema } from "@/types/dataModel";
 import type { UINode, UISchema } from "@/types/uiModel";
-import { componentOf, findEntity, textOf } from "@/lib/uiModel";
+import { componentOf, findEntity, isBuiltinComponent, textOf } from "@/lib/uiModel";
+import SandboxFrame from "@/components/component/SandboxFrame.vue";
 
 defineOptions({ name: "UiNodeRenderer" });
 
@@ -16,11 +17,18 @@ const props = defineProps<{
 const emit = defineEmits<{ select: [id: string] }>();
 
 const def = computed(() => componentOf(props.node.component));
+const isCustomComponent = computed(
+  () => !!def.value && !isBuiltinComponent(props.node.component)
+);
 const selected = computed(() => props.selectedId === props.node.id);
 const nodeProps = computed<Record<string, unknown>>(() => props.node.props ?? {});
 const entity = computed<DataEntity | null>(() => findEntity(props.schemas, nodeProps.value.entityRef));
 const label = computed(
-  () => textOf(nodeProps.value.text) || textOf(nodeProps.value.title) || def.value?.title || props.node.component
+  () =>
+    textOf(nodeProps.value.text) ||
+    textOf(nodeProps.value.title) ||
+    textOf(def.value?.title) ||
+    props.node.component
 );
 
 function pick(event: MouseEvent) {
@@ -622,6 +630,36 @@ const taskRows = [
 
     <template v-else-if="node.component === 'x-json-editor'">
       <pre class="rounded-lg bg-slate-900 p-3 text-[10.5px] text-slate-300">{ "key": "value" }</pre>
+    </template>
+
+    <template v-else-if="isCustomComponent && def">
+      <div class="rounded-xl border border-indigo-100 bg-white p-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div class="mb-1.5 flex items-center justify-between gap-2 px-1">
+          <span class="truncate text-[10.5px] font-medium text-indigo-600">{{ textOf(def.title) || def.name }}</span>
+          <span class="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-medium text-indigo-500">沙箱</span>
+        </div>
+        <SandboxFrame
+          :component="def"
+          :override-props="nodeProps"
+          :min-height="60"
+          :max-height="420"
+          :title="label"
+        />
+        <div
+          v-if="node.children?.length"
+          class="mt-2 space-y-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/60 p-2"
+        >
+          <UiNodeRenderer
+            v-for="child in node.children"
+            :key="child.id"
+            :node="child"
+            :page="page"
+            :schemas="schemas"
+            :selected-id="selectedId"
+            @select="emit('select', $event)"
+          />
+        </div>
+      </div>
     </template>
 
     <template v-else>

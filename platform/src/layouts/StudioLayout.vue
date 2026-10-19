@@ -17,13 +17,15 @@ const appId = computed(() => (typeof route.params.appId === "string" ? route.par
 const inModel = computed(() => route.name === "app-model");
 const inPages = computed(() => route.name === "app-pages");
 const inLogic = computed(() => route.name === "app-logic");
+const inComponents = computed(() => route.name === "app-components");
 
-function openDesigner(kind: "model" | "pages" | "logic") {
+function openDesigner(kind: "model" | "pages" | "logic" | "components") {
   if (!appId.value) {
     ElMessage.info("请先进入一个应用");
     return;
   }
-  const suffix = kind === "model" ? "model" : kind === "pages" ? "pages" : "logic";
+  const suffix =
+    kind === "model" ? "model" : kind === "pages" ? "pages" : kind === "logic" ? "logic" : "components";
   router.push(`/apps/${appId.value}/${suffix}`);
 }
 const pageTitle = computed(() => (route.meta.title as string) || "应用工作台");
@@ -111,6 +113,18 @@ function saveSession() {
           </span>
           <span v-if="!appId" class="text-[9px] text-slate-600">选应用</span>
           <span v-else-if="inLogic" class="text-[9px] text-indigo-300">当前</span>
+        </button>
+        <button
+          class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[13px] transition"
+          :class="inComponents ? 'bg-white/10 text-white' : appId ? 'text-slate-400 hover:bg-white/5 hover:text-slate-200' : 'text-slate-600'"
+          @click="openDesigner('components')"
+        >
+          <span class="flex items-center gap-2.5">
+            <span class="grid h-5 w-5 place-items-center rounded bg-white/5 text-[11px]">◫</span>
+            自定义组件
+          </span>
+          <span v-if="!appId" class="text-[9px] text-slate-600">选应用</span>
+          <span v-else-if="inComponents" class="text-[9px] text-indigo-300">当前</span>
         </button>
       </nav>
 

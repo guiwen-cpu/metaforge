@@ -13,6 +13,7 @@ import {
   PAGE_KINDS,
   WIDGET_COMPONENTS,
   allNodes,
+  registerCustomComponents,
   appendNode,
   canAccept,
   cloneJson,
@@ -36,6 +37,7 @@ import {
   validateUiSchemas,
   widgetForField
 } from "@/lib/uiModel";
+import { componentGroupsOf, normalizeComponent } from "@/lib/componentModel";
 import type { DataEntity, DataField, DataSchema } from "@/types/dataModel";
 import type {
   ComponentDef,
@@ -108,12 +110,21 @@ const dataSchemas = computed<DataSchema[]>(() => {
   return Array.isArray(raw) ? (raw as DataSchema[]) : [];
 });
 
-const customComponentNames = computed<string[]>(() => {
+const customComponents = computed<ComponentDef[]>(() => {
   const raw = bundle.value?.artifacts?.components;
   if (!Array.isArray(raw)) return [];
   return raw
-    .map((item) => (item && typeof item === "object" ? String((item as Record<string, unknown>).name ?? "") : ""))
-    .filter(Boolean);
+    .filter((item): item is ComponentDef => !!item && typeof item === "object")
+    .map(normalizeComponent);
+});
+
+const customComponentNames = computed<string[]>(() =>
+  customComponents.value.map((item) => item.name).filter(Boolean)
+);
+
+const allComponents = computed<ComponentDef[]>(() => {
+  const seen = new Set(COMPONENTS.map((item) => item.name));
+  return [...COMPONENTS, ...customComponents.value.filter((item) => !seen.has(item.name))];
 });
 
 const entityOptions = computed(() =>
@@ -142,7 +153,7 @@ const selectedDef = computed<ComponentDef | null>(() =>
 const nodeProps = computed<Record<string, unknown>>(() => selectedNode.value?.props ?? {});
 
 const issues = computed<UiIssue[]>(() =>
-  validateUiSchemas(pages.value, dataSchemas.value, customComponentNames.value)
+  validateUiSchemas(pages.value, dataSchemas.value, customComponents.value)
 );
 const errorCount = computed(() => issues.value.filter((issue) => issue.level === "error").length);
 const warningCount = computed(() => issues.value.filter((issue) => issue.level === "warning").length);
@@ -157,10 +168,15 @@ const deviceWidth = computed(() => {
   return "100%";
 });
 
+const widgetComponents = computed<ComponentDef[]>(() =>
+  allComponents.value.filter((component) => component.kind === "field")
+);
+
 const paletteGroups = computed(() => {
+  const groups = componentGroupsOf(allComponents.value);
   const query = paletteQuery.value.trim().toLowerCase();
-  if (!query) return componentGroups;
-  return componentGroups
+  if (!query) return groups;
+  return groups
     .map((group) => ({
       label: group.label,
       items: group.items.filter(
@@ -220,6 +236,7 @@ function applyDraft(next: DraftView, preserve = true) {
   const raw = bundle.value.artifacts.uiSchemas;
   pages.value = Array.isArray(raw) ? cloneJson(raw as UISchema[]) : [];
   savedSnapshot.value = JSON.stringify(pages.value);
+  registerCustomComponents(customComponents.value);
 
   if (preserve && previousId && pages.value.some((page) => page.id === previousId)) {
     activePageId.value = previousId;
@@ -1311,7 +1328,7 @@ onMounted(load);
                             @update:model-value="setItemValue(item, 'widget', $event)"
                           >
                             <el-option
-                              v-for="widget in WIDGET_COMPONENTS"
+                              v-for="widget in widgetComponents"
                               :key="widget.name"
                               :label="textOf(widget.title)"
                               :value="widget.name"

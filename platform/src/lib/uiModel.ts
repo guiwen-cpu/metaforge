@@ -15,10 +15,25 @@ import { ulid } from "./ulid";
 
 export const registry = registryJson as unknown as ComponentRegistry;
 export const COMPONENTS: ComponentDef[] = registry.components;
+export const builtinComponentNames = new Set(COMPONENTS.map((component) => component.name));
 export const componentMap = new Map(COMPONENTS.map((component) => [component.name, component]));
+
+export function isBuiltinComponent(name: string): boolean {
+  return builtinComponentNames.has(name);
+}
 
 export function componentOf(name: string): ComponentDef | null {
   return componentMap.get(name) ?? null;
+}
+
+export function registerCustomComponents(list: ComponentDef[] | null | undefined): void {
+  for (const name of Array.from(componentMap.keys())) {
+    if (!builtinComponentNames.has(name)) componentMap.delete(name);
+  }
+  for (const component of list ?? []) {
+    if (!component?.name || builtinComponentNames.has(component.name)) continue;
+    componentMap.set(component.name, component);
+  }
 }
 
 export function textOf(value: unknown): string {
@@ -115,7 +130,9 @@ export function entityFields(schemas: DataSchema[], ref: unknown): DataField[] {
 }
 
 export function defaultProps(component: ComponentDef): Record<string, unknown> {
-  const props: Record<string, unknown> = {};
+  const props: Record<string, unknown> = cloneJson(
+    (component.defaultProps ?? {}) as Record<string, unknown>
+  );
   for (const prop of component.props ?? []) {
     if (prop.type === "entityRef" || prop.type === "dataSourceRef") continue;
     if (prop.type === "fieldList" || prop.type === "columnList" || prop.type === "searchFieldList") continue;
@@ -582,14 +599,21 @@ export function titleOfPage(page: UISchema): string {
 export function validateUiSchemas(
   pages: UISchema[],
   dataSchemas: DataSchema[],
-  customComponentNames: string[] = []
+  customComponents: Array<ComponentDef | string> = []
 ): UiIssue[] {
   const issues: UiIssue[] = [];
   const pageKeys = new Set<string>();
   const pageIds = new Set<string>();
   const routePaths = new Map<string, string>();
   const entityKeys = new Set(dataSchemas.flatMap((schema) => schema.entities.map((entity) => entity.key)));
-  const knownComponents = new Set([...COMPONENTS.map((component) => component.name), ...customComponentNames]);
+  const customDefs = customComponents.filter(
+    (item): item is ComponentDef => typeof item === "object" && item !== null
+  );
+  registerCustomComponents(customDefs);
+  const customNames = customComponents
+    .map((item) => (typeof item === "string" ? item : item.name))
+    .filter(Boolean);
+  const knownComponents = new Set([...COMPONENTS.map((component) => component.name), ...customNames]);
 
   const push = (level: UiIssue["level"], where: string, message: string) => {
     issues.push({ level, where, message });
@@ -647,7 +671,7 @@ export function validateUiSchemas(
 
       const def = componentOf(node.component);
       if (!def) {
-        if (customComponentNames.includes(node.component)) {
+        if (customNames.includes(node.component)) {
           push("warning", nodeWhere, `自定义组件 ${node.component} 需要确保运行时会注册`);
         } else {
           push("error", nodeWhere, `未知组件 ${node.component}`);

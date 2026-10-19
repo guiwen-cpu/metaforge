@@ -1,4 +1,4 @@
-﻿import type { ArtifactRef, DataSchema, SemanticDef } from "./dataModel";
+import type { ArtifactRef, DataSchema, SemanticDef } from "./dataModel";
 
 export type PageKind = "list" | "form" | "detail" | "dashboard" | "approval" | "report" | "custom" | "login" | "error";
 
@@ -72,6 +72,21 @@ export interface ComponentCapabilities {
   [key: string]: unknown;
 }
 
+export interface SandboxPolicy {
+  network?: boolean;
+  allowedHosts?: string[];
+  storage?: boolean;
+  dom?: boolean;
+  cookies?: boolean;
+  clipboard?: boolean;
+  navigation?: boolean;
+  allowedModules?: string[];
+  allowEval?: boolean;
+  memoryLimitMb?: number;
+  semantic?: SemanticDef;
+  [key: string]: unknown;
+}
+
 export interface ComponentDef {
   id: string;
   name: string;
@@ -80,15 +95,37 @@ export interface ComponentDef {
   kind: "layout" | "container" | "field" | "display" | "action" | "data" | "chart" | "advanced";
   group?: string;
   description?: string;
+  runtime?: "builtin" | "remote" | "sandbox";
   container?: boolean;
   acceptChildren?: string[];
+  canBeChildOf?: string[];
+  minChildren?: number;
+  maxChildren?: number;
   props?: ComponentPropDef[];
   slots?: ComponentSlotDef[];
   events?: ComponentEventDef[];
   actions?: Array<Record<string, unknown>>;
   capabilities?: ComponentCapabilities;
   data?: Record<string, unknown>;
+  fieldBindings?: Record<string, unknown>;
+  defaultProps?: Record<string, unknown>;
+  defaultStyle?: Record<string, unknown>;
+  responsive?: boolean;
+  deprecated?: boolean;
+  since?: string;
+  source?: string;
+  integrity?: string;
+  sandbox?: SandboxPolicy;
+  semantic?: SemanticDef;
+  "x-previewHtml"?: string;
+  "x-previewScript"?: string;
   [key: string]: unknown;
+}
+
+export interface ComponentIssue {
+  level: "error" | "warning";
+  where: string;
+  message: string;
 }
 
 export interface ComponentRegistry {
