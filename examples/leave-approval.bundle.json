@@ -1658,7 +1658,7 @@
                 "component": "x-card",
                 "props": {
                   "title": "我的请假申请",
-                  "border": true
+                  "bordered": true
                 },
                 "children": [
                   {

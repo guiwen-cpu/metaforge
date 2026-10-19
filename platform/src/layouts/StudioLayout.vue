@@ -13,6 +13,17 @@ const tenantDraft = ref(sessionStore.tenantId);
 const userDraft = ref(sessionStore.userId);
 
 const inApps = computed(() => route.path.startsWith("/apps") || route.path === "/");
+const appId = computed(() => (typeof route.params.appId === "string" ? route.params.appId : ""));
+const inModel = computed(() => route.name === "app-model");
+const inPages = computed(() => route.name === "app-pages");
+
+function openDesigner(kind: "model" | "pages") {
+  if (!appId.value) {
+    ElMessage.info("请先进入一个应用");
+    return;
+  }
+  router.push(kind === "model" ? `/apps/${appId.value}/model` : `/apps/${appId.value}/pages`);
+}
 const pageTitle = computed(() => (route.meta.title as string) || "应用工作台");
 
 function openSession() {
@@ -63,20 +74,30 @@ function saveSession() {
         <div class="px-3 pb-1 pt-5 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-600">
           设计器
         </div>
-        <div class="flex items-center justify-between rounded-lg px-3 py-2 text-[13px] text-slate-500">
+        <button
+          class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[13px] transition"
+          :class="inModel ? 'bg-white/10 text-white' : appId ? 'text-slate-400 hover:bg-white/5 hover:text-slate-200' : 'text-slate-600'"
+          @click="openDesigner('model')"
+        >
           <span class="flex items-center gap-2.5">
             <span class="grid h-5 w-5 place-items-center rounded bg-white/5 text-[11px]">◧</span>
             数据模型
           </span>
-          <span class="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-500">即将上线</span>
-        </div>
-        <div class="flex items-center justify-between rounded-lg px-3 py-2 text-[13px] text-slate-500">
+          <span v-if="!appId" class="text-[9px] text-slate-600">选应用</span>
+          <span v-else-if="inModel" class="text-[9px] text-indigo-300">当前</span>
+        </button>
+        <button
+          class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[13px] transition"
+          :class="inPages ? 'bg-white/10 text-white' : appId ? 'text-slate-400 hover:bg-white/5 hover:text-slate-200' : 'text-slate-600'"
+          @click="openDesigner('pages')"
+        >
           <span class="flex items-center gap-2.5">
             <span class="grid h-5 w-5 place-items-center rounded bg-white/5 text-[11px]">◇</span>
             页面设计器
           </span>
-          <span class="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-500">即将上线</span>
-        </div>
+          <span v-if="!appId" class="text-[9px] text-slate-600">选应用</span>
+          <span v-else-if="inPages" class="text-[9px] text-indigo-300">当前</span>
+        </button>
         <div class="flex items-center justify-between rounded-lg px-3 py-2 text-[13px] text-slate-500">
           <span class="flex items-center gap-2.5">
             <span class="grid h-5 w-5 place-items-center rounded bg-white/5 text-[11px]">⇄</span>

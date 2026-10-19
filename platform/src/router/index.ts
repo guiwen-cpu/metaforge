@@ -3,6 +3,7 @@ import StudioLayout from "@/layouts/StudioLayout.vue";
 import AppListPage from "@/pages/AppListPage.vue";
 import AppDetailPage from "@/pages/AppDetailPage.vue";
 import ModelDesignerPage from "@/pages/ModelDesignerPage.vue";
+import PageDesignerPage from "@/pages/PageDesignerPage.vue";
 import NotFoundView from "@/views/NotFoundView.vue";
 
 const router = createRouter({
@@ -24,6 +25,12 @@ const router = createRouter({
           name: "app-model",
           component: ModelDesignerPage,
           meta: { title: "数据模型" }
+        },
+        {
+          path: "apps/:appId/pages/:pageKey?",
+          name: "app-pages",
+          component: PageDesignerPage,
+          meta: { title: "页面设计器" }
         }
       ]
     },
