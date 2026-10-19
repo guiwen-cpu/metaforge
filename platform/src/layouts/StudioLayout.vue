@@ -13,6 +13,7 @@ const tenantDraft = ref(sessionStore.tenantId);
 const userDraft = ref(sessionStore.userId);
 
 const inApps = computed(() => route.path.startsWith("/apps") || route.path === "/");
+const pageTitle = computed(() => (route.meta.title as string) || "应用工作台");
 
 function openSession() {
   tenantDraft.value = sessionStore.tenantId;
@@ -97,7 +98,7 @@ function saveSession() {
         <div class="flex items-center gap-2 text-[13px] text-slate-400">
           <span>控制平面</span>
           <span class="text-slate-300">/</span>
-          <span class="font-medium text-slate-700">应用工作台</span>
+          <span class="font-medium text-slate-700">{{ pageTitle }}</span>
         </div>
 
         <button

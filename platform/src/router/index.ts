@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import StudioLayout from "@/layouts/StudioLayout.vue";
 import AppListPage from "@/pages/AppListPage.vue";
 import AppDetailPage from "@/pages/AppDetailPage.vue";
+import ModelDesignerPage from "@/pages/ModelDesignerPage.vue";
 import NotFoundView from "@/views/NotFoundView.vue";
 
 const router = createRouter({
@@ -11,8 +12,19 @@ const router = createRouter({
       path: "/",
       component: StudioLayout,
       children: [
-        { path: "", name: "apps", component: AppListPage },
-        { path: "apps/:appId", name: "app-detail", component: AppDetailPage }
+        { path: "", name: "apps", component: AppListPage, meta: { title: "应用工作台" } },
+        {
+          path: "apps/:appId",
+          name: "app-detail",
+          component: AppDetailPage,
+          meta: { title: "应用详情" }
+        },
+        {
+          path: "apps/:appId/model",
+          name: "app-model",
+          component: ModelDesignerPage,
+          meta: { title: "数据模型" }
+        }
       ]
     },
     { path: "/:pathMatch(.*)*", component: NotFoundView }

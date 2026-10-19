@@ -432,6 +432,7 @@ onMounted(loadAll);
         </div>
 
         <div class="flex items-center gap-2">
+          <el-button @click="router.push(`/apps/${app.id}/model`)">数据模型</el-button>
           <el-button @click="openEdit">编辑信息</el-button>
           <el-button type="primary" @click="openPublish">发布当前草稿</el-button>
         </div>
