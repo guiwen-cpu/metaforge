@@ -17,9 +17,16 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 command -v curl >/dev/null 2>&1 || fail "需要 curl"
 
-say "[1/6] web /healthz"
+say "[1/6] web 路由与健康检查"
 code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/healthz")
 [ "$code" = "200" ] || fail "web /healthz 返回 $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/")
+[ "$code" = "200" ] || fail "控制平面首页返回 $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/demo/")
+[ "$code" = "200" ] || fail "出码示例 /demo/ 返回 $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/demo/employee")
+[ "$code" = "200" ] || fail "示例应用深链接返回 $code"
+curl -sS "$BASE_URL/" | grep -q "MetaForge" || fail "控制平面首页缺少 MetaForge 标识"
 
 say "[2/6] 缺少租户头应被拒绝"
 code=$(curl -s -o /dev/null -w '%{http_code}' "$API")

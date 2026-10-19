@@ -10,8 +10,8 @@
   │ :${WEB_PORT}
   ▼
 web（nginx-unprivileged）
-  ├─ /      → Vite 构建产物（history fallback）
-  └─ /api/  → bff:8080
+  ├─ /       → 控制平面工作台（Vite 构建产物，history fallback）
+  ├─ /demo/  → 出码示例应用（构建时 base=/demo/）
                 ├─ PostgreSQL 16（元数据 + 业务数据）
                 └─ Redis 7（缓存 / 会话 / 分布式锁）
 ```
@@ -50,7 +50,7 @@ web（nginx-unprivileged）
 | `deploy/migrate/` | `00_role.sql`、`10_platform.sql`、`99_grants.sql`、`run.sh`（advisory lock + `ON_ERROR_STOP`） |
 | `deploy/release.sh` | 按环境发布：pull → migrate → up |
 | `deploy/smoke.sh` | 出码 CRUD 冒烟（CRUD + 租户隔离） |
-| `deploy/smoke-platform.sh` | 控制平面冒烟（草稿 / 发布 / 回滚 / 乐观锁 / 租户隔离） |
+| `deploy/smoke-platform.sh` | 控制平面冒烟（草稿 / 发布 / 去重 / diff / 回滚 / 恢复草稿 / 乐观锁 / 租户隔离） |
 
 ## 4. 本地一键启动
 
@@ -65,7 +65,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml --profile tools run
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 ```
 
-打开 <http://localhost:8080>。示例应用是 `leave_approval`（人员 / 请假单 / 附件）。
+打开 <http://localhost:8080> 进入控制平面工作台；出码示例应用在 <http://localhost:8080/demo/>（人员 / 请假单 / 附件）。
 
 Linux/macOS 上冒烟：
 
@@ -212,6 +212,6 @@ select count(*) from edu_employee; commit;    -- 0
 - 认证：无 JWT/SSO，`X-User-Id` 仅是占位；权限快照尚未在服务端强制执行。
 - Flowable 未接入 BFF；审批流页面与运行时尚未落地。
 - OSS STS 接口未实现，上传字段当前不可用。
-- 控制平面 P0（应用 / 草稿 / 发布 / 回滚）已完成；页面设计器、数据模型设计器、逻辑编排的 UI 尚未开始。
-- 前端仍是生成示例应用；演示会话写入 `localStorage`，不能用于生产鉴权。
+- 控制平面已完成应用 / 草稿 / 发布 / 内容去重 / diff / 回滚 / 恢复草稿；页面设计器、数据模型设计器、逻辑编排的 UI 尚未开始。
+- 控制平面工作台的租户 / 操作人写入 `localStorage`，不能用于生产鉴权；接入网关或 SSO 后应移除。
 - 示例库为空表；如需演示数据，另加 `deploy/seed/`（不要混入生产迁移）。

@@ -26,8 +26,8 @@
 - `registry/` —— FieldType 四向映射（19 个类型）、38 个内置组件契约
 - `ts/` —— TypeScript 协议绑定（204 个导出类型）
 - `java/` —— Java 协议绑定（Maven 工程，含随包发布的 Schema 资源副本）
- - `bff/` —— Spring Boot BFF：租户过滤器、RLS 事务切面、Actuator、统一错误
- - `deploy/` —— Docker Compose、镜像、迁移、冒烟与发布脚本（见 `deploy/README.md`）
+- `bff/` —— Spring Boot BFF：租户过滤器、RLS 事务切面、Actuator、统一错误
+- `deploy/` —— Docker Compose、镜像、迁移、冒烟与发布脚本（见 `deploy/README.md`）
 - `tools/` —— 校验器与出码引擎：`validate.mjs`、`gen-ts.mjs`、`gen-java.mjs`、`gen-entity.mjs`、`gen-api.mjs`、`gen-page.mjs`
   - `tools/dev/` —— 本地联调：`mock-bff.mjs`（内存 CRUD）与 `dev.mjs`（同时拉起 Mock 与示例前端）
   - `tools/archive/` —— 早期 bootstrap 与一次性修补脚本（仅追溯，不作为日常入口）
@@ -75,7 +75,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml --profile tools run
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 ```
 
-打开 http://localhost:8080 。真实 BFF 以 `metaforge_app` 连接数据库，租户来自 `X-Tenant-Id`，
+打开 http://localhost:8080 进入控制平面工作台；出码示例应用在 http://localhost:8080/demo/ 。
 RLS 在事务内生效。端到端校验：
 
 ```bash
@@ -94,7 +94,7 @@ staging 由 `main` 推送触发，prod 由 `v*` tag 触发；发布、回滚与�
 
 ## 本地运行示例前端（Mock BFF）
 
-当前仓库包含协议库、出码引擎和一份生成的示例前端；平台主应用尚未落地。
+控制平面工作台位于 `platform/`；`codegen/leave_approval/web` 是出码引擎生成的示例前端。
 不依赖 Docker 时，可以用 Mock BFF 把示例跑成可点击的 CRUD 页面：
 
 ```bash
@@ -108,7 +108,7 @@ npm run dev
 打开 http://localhost:5174 ，可以看到「人员 / 请假单 / 附件」三张表，支持分页、搜索、排序、
 新增、编辑、删除，以及乐观锁版本冲突提示。
 
-- `npm run mock`：只启动 Mock BFF；数据在内存中，重启即重置。
+- `npm run dev:studio`：只启动控制平面工作台（:5175），`/api` 代理到真实 BFF。
 - `npm run dev:web`：只启动前端，默认把 `/api` 代理到 `http://localhost:8080`。
 - 上传字段会调用 `/api/v1/platform/oss/sts`；Mock 返回 501，需接真实 BFF 的阿里云 STS 才能验证。
 - Mock 只用于本地联调，不实现租户、权限、Flowable 与事务语义，不是生产后端。
@@ -130,7 +130,7 @@ mvn -q -f bff/pom.xml -DskipTests package
 
 ## 已知边界
 
- - 平台主应用（设计器 / 工作台）、Flowable 运行时、OSS STS、JWT/SSO 尚未实现。
+- 页面设计器、数据模型设计器、逻辑编排 UI、Flowable 运行时、OSS STS、JWT/SSO 尚未实现。
  - `bff/` 已在 Docker 构建中编译通过；本机直接 `mvn` 需要 JDK 21 + Maven。
  - 生成前端使用演示会话（默认租户取 Bundle 的 `tenantId`），不能用于生产鉴权。
  - 校验器残留 warn：内联枚举与共享枚举取值不一致；流程监听器未限定 `taskKey`。

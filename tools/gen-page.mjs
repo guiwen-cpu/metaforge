@@ -634,7 +634,7 @@ ${routeBlock}      { path: ":pathMatch(.*)*", name: "NotFound", component: NotFo
 ];
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
   scrollBehavior: () => ({ top: 0 })
 });

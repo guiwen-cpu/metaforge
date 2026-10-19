@@ -12,6 +12,8 @@
     "gen:api": "node tools/gen-api.mjs examples/leave-approval.bundle.json",
     "gen:page": "node tools/gen-page.mjs examples/leave-approval.bundle.json",
     "mock": "node tools/dev/mock-bff.mjs",
+    "dev:studio": "npm --prefix platform run dev",
+    "build:studio": "npm --prefix platform run build",
     "dev:web": "npm --prefix codegen/leave_approval/web run dev",
     "dev": "node tools/dev/dev.mjs"
   }
