@@ -10,7 +10,7 @@ public final class AppViews {
   private AppViews() {
   }
 
-  /** 应用索引视图：不含 draft_bundle，避免列表接口被大字段拖垮。 */
+  /** 应用索引视图：不带 draft_bundle，避免列表接口被大字段拖垮。 */
   public record AppView(
       String id,
       String key,
@@ -57,19 +57,50 @@ public final class AppViews {
       OffsetDateTime createdAt) {
   }
 
+  /**
+   * 版本详情。contentChecksum 忽略 snapshot，用于判断「内容是否真的变了」；
+   * unchanged=true 表示发布请求命中了内容去重，返回的是当前版本。
+   */
   public record VersionDetail(
       String id,
       int versionNo,
       String status,
       String message,
       ChecksumView checksum,
+      String contentChecksum,
       String protocolVersion,
       String snapshotId,
       Integer rollbackOfVersion,
       Integer basedOnVersion,
       String createdBy,
       OffsetDateTime createdAt,
-      JsonNode bundle) {
+      JsonNode bundle,
+      boolean unchanged) {
+  }
+
+  public record ChecksumPair(String from, String to) {
+  }
+
+  public record DiffSummary(int added, int removed, int changed, int total) {
+  }
+
+  public record DiffEntry(
+      String path,
+      String kind,
+      String artifactKind,
+      String artifactKey,
+      JsonNode before,
+      JsonNode after) {
+  }
+
+  public record VersionDiffView(
+      int fromVersion,
+      int toVersion,
+      boolean identical,
+      ChecksumPair contentChecksum,
+      DiffSummary summary,
+      List<DiffEntry> changes,
+      boolean truncated) {
   }
 
   public record PageResult<T>(List<T> items, long total, int page, int size) {

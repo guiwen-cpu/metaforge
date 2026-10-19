@@ -1,6 +1,6 @@
-# MetaForge 控制平面（P0）
+# MetaForge 控制平面
 
-控制平面负责「应用」这一聚合根的生命周期：创建 → 编辑草稿 → 发布版本 → 回滚。
+控制平面负责「应用」这一聚合根的生命周期：创建 → 编辑草稿 → 发布版本 → 回滚 / 恢复。
 页面设计器、数据模型设计器后续都只读写同一份 AppBundle，不另建一套元数据。
 
 ## 1. 数据模型
@@ -28,9 +28,11 @@
 | `DELETE` | `/{appId}` | 软删除 |
 | `GET` | `/{appId}/draft` | 读取草稿与 revision |
 | `PUT` | `/{appId}/draft` | 保存草稿，可带 `revision` 做乐观锁 |
-| `POST` | `/{appId}/versions` | 发布；`bundle` 省略时取当前草稿 |
+| `POST` | `/{appId}/versions` | 发布；`bundle` 省略时取当前草稿；内容未变返回 `unchanged=true` |
 | `GET` | `/{appId}/versions` | 版本列表（倒序，不含 bundle） |
-| `GET` | `/{appId}/versions/{versionNo}` | 版本详情（含 bundle） |
+| `GET` | `/{appId}/versions/{versionNo}` | 版本详情（含 bundle 与 content_checksum） |
+| `GET` | `/{appId}/versions/{from}/diff/{to}` | 内容级版本对比（忽略 snapshot） |
+| `POST` | `/{appId}/versions/{versionNo}/restore-draft` | 把历史版本恢复成草稿 |
 | `POST` | `/{appId}/versions/{versionNo}/rollback` | 以历史内容发布新版本 |
 
 ### 请求/响应示例
@@ -53,7 +55,22 @@ curl -X POST http://localhost:8080/api/v1/platform/apps/$APP_ID/versions \
   -H 'X-Tenant-Id: tenant_demo_school' -H 'X-User-Id: alice' \
   -H 'Content-Type: application/json' -d '{"message":"首版上线"}'
 
-# 回滚到 v1：生成 v2，历史不动
+# 内容没变仍要留一条发布记录
+curl -X POST http://localhost:8080/api/v1/platform/apps/$APP_ID/versions \
+  -H 'X-Tenant-Id: tenant_demo_school' -H 'X-User-Id: alice' \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"补发说明","force":true}'
+
+# 对比 v1 与 v2
+curl http://localhost:8080/api/v1/platform/apps/$APP_ID/versions/1/diff/2 \
+  -H 'X-Tenant-Id: tenant_demo_school' -H 'X-User-Id: alice'
+
+# 把 v1 恢复成草稿继续编辑（不产生新版本）
+curl -X POST http://localhost:8080/api/v1/platform/apps/$APP_ID/versions/1/restore-draft \
+  -H 'X-Tenant-Id: tenant_demo_school' -H 'X-User-Id: alice' \
+  -H 'Content-Type: application/json' -d '{"revision":3}'
+
+# 回滚到 v1：生成新版本，历史不动
 curl -X POST http://localhost:8080/api/v1/platform/apps/$APP_ID/versions/1/rollback \
   -H 'X-Tenant-Id: tenant_demo_school' -H 'X-User-Id: alice' \
   -H 'Content-Type: application/json' -d '{"message":"v2 有问题，回滚到 v1"}'
@@ -65,7 +82,17 @@ curl -X POST http://localhost:8080/api/v1/platform/apps/$APP_ID/versions/1/rollb
 
 - 草稿允许不完整，设计器可随时保存；
 - 每次保存 `draft_revision + 1`；
-- 请求带 `revision` 时做乐观锁，不匹配返回 `409 draft_conflict`。
+- 请求带 `revision` 时做乐观锁，不匹配返回 `409 draft_conflict`；
+- 草稿不携带 `snapshot`：版本戳只属于已发布版本。
+
+### 内容摘要与去重
+
+- `checksum = sha256(canonical({ bundle: ... }))`，覆盖发布件全部字段（含 snapshot）；
+- `content_checksum = sha256(canonical(bundle 去掉 snapshot))`；
+- 发布时先算内容摘要：与当前版本一致且 `force` 不为 `true`，直接返回 `200`、
+  `unchanged=true` 和当前版本详情，不生成空版本；
+- `force=true` 强制生成新版本，用于补发说明或重建快照；
+- 回滚同样走内容摘要判断，因此「先回滚到 v1，再把 v1 恢复成草稿并发布」不会产生重复版本。
 
 ### 发布
 
@@ -77,8 +104,41 @@ curl -X POST http://localhost:8080/api/v1/platform/apps/$APP_ID/versions/1/rollb
    `publishedBy`、`basedOn`（父版本 snapshotId）、`rollbackOf`（仅回滚时）；
 3. **落库**：`version_no = max + 1`，同时把 `bundle.app` 的展示信息同步回应用索引。
 
-摘要：`checksum = sha256(canonical({ bundle: ... }))`，对象键按字典序重排后紧凑序列化，
-同一份内容在不同序列化顺序下得到相同摘要。
+### 版本对比
+
+`GET /versions/{from}/diff/{to}` 只比较内容（去掉 snapshot），返回：
+
+```json
+{
+  "from_version": 1,
+  "to_version": 2,
+  "identical": false,
+  "content_checksum": { "from": "…", "to": "…" },
+  "summary": { "added": 0, "removed": 0, "changed": 2, "total": 2 },
+  "changes": [
+    {
+      "path": "app.name",
+      "kind": "changed",
+      "before": "Smoke V1",
+      "after": "Smoke V2"
+    }
+  ],
+  "truncated": false
+}
+```
+
+- 数组优先按 `key`（其次 `id`、`name`）配对，再逐字段递归；
+- `artifact_kind` / `artifact_key` 帮助界面把差异归到具体 DataSchema / UISchema / LogicSchema；
+- 单边节点序列化超过 2000 字符时只回传 `_truncated` 与定位字段；
+- 最多返回 200 条变更，超出时 `truncated=true`。
+
+### 恢复草稿
+
+`POST /versions/{versionNo}/restore-draft` 把历史版本内容（去掉 snapshot）写回草稿：
+
+- 不产生新版本，不改变 `current_version`；
+- `draft_revision + 1`，可带 `revision` 做乐观锁；
+- 草稿里的 `bundle.app.key` 强制对齐应用 key，避免跨应用粘贴。
 
 ### 回滚
 
@@ -116,8 +176,6 @@ curl -X POST http://localhost:8080/api/v1/platform/apps/$APP_ID/versions/1/rollb
 
 ## 7. 尚未实现（P1）
 
-- 内容级去重（跳过 snapshot 的 content checksum）与「内容未变」提示；
-- 版本对比（diff）与结构化 `changeSummary`；
-- 把历史版本恢复为草稿（编辑旧版本而不直接上线）；
+- 结构化 `changeSummary` 的生成与持久化（当前 diff 实时计算）；
 - 应用级数据权限、成员与角色绑定；
 - 控制平面前端（应用工作台、设计器壳层）。

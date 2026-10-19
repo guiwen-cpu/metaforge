@@ -35,6 +35,23 @@ final class PublishSeal {
     return node;
   }
 
+  /** 版本内容 = 信封内的 bundle 去掉 snapshot；用于内容摘要与 diff，不受发布戳影响。 */
+  static JsonNode content(JsonNode envelope) {
+    JsonNode bundle = inner(envelope);
+    if (bundle == null || !bundle.isObject()) {
+      return null;
+    }
+    ObjectNode copy = ((ObjectNode) bundle).deepCopy();
+    copy.remove("snapshot");
+    return copy;
+  }
+
+  /** 内容级 SHA-256：同一份元数据重复发布时摘要一致。 */
+  static String contentChecksum(JsonNode envelope) {
+    JsonNode content = content(envelope);
+    return content == null ? null : JsonCanonical.sha256(content);
+  }
+
   static JsonNode envelope(JsonNode bundle) {
     if (bundle == null || bundle.isNull()) {
       return null;

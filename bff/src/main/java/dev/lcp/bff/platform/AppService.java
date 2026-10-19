@@ -1,8 +1,10 @@
 package dev.lcp.bff.platform;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.lcp.bff.platform.dto.AppRequests.CreateAppRequest;
 import dev.lcp.bff.platform.dto.AppRequests.PublishRequest;
+import dev.lcp.bff.platform.dto.AppRequests.RestoreDraftRequest;
 import dev.lcp.bff.platform.dto.AppRequests.RollbackRequest;
 import dev.lcp.bff.platform.dto.AppRequests.SaveDraftRequest;
 import dev.lcp.bff.platform.dto.AppRequests.UpdateAppRequest;
@@ -11,6 +13,7 @@ import dev.lcp.bff.platform.dto.AppViews.ChecksumView;
 import dev.lcp.bff.platform.dto.AppViews.DraftView;
 import dev.lcp.bff.platform.dto.AppViews.PageResult;
 import dev.lcp.bff.platform.dto.AppViews.VersionDetail;
+import dev.lcp.bff.platform.dto.AppViews.VersionDiffView;
 import dev.lcp.bff.platform.dto.AppViews.VersionSummary;
 import dev.lcp.bff.tenant.TenantContext;
 import java.sql.ResultSet;
@@ -280,8 +283,16 @@ public class AppService {
     JsonNode envelope = PublishSeal.envelope(payload);
     PublishSeal.validate(envelope, app.key());
 
-    int next = nextVersionNo(appId);
     VersionRow head = app.currentVersion() == null ? null : findVersion(appId, app.currentVersion());
+    String contentChecksum = PublishSeal.contentChecksum(envelope);
+    if (head != null
+        && !Boolean.TRUE.equals(req.force())
+        && contentChecksum != null
+        && contentChecksum.equals(head.contentChecksum())) {
+      return head.detail(true);
+    }
+
+    int next = nextVersionNo(appId);
     JsonNode stamped = PublishSeal.stamp(
         envelope, next, req.message().trim(), user(), null, head == null ? null : head.snapshotId());
     return insertVersion(app, next, stamped, head, null, req.message().trim());
@@ -323,6 +334,52 @@ public class AppService {
         payload.deepCopy(), next, req.message().trim(), user(), source.snapshotId(),
         head == null ? null : head.snapshotId());
     return insertVersion(app, next, stamped, head, source, req.message().trim());
+  }
+
+  /** 版本内容对比：忽略 snapshot，只比较真正会进入运行时的元数据。 */
+  public VersionDiffView diff(UUID appId, int fromVersionNo, int toVersionNo) {
+    requireApp(appId);
+    VersionRow from = findVersion(appId, fromVersionNo);
+    VersionRow to = findVersion(appId, toVersionNo);
+    return VersionDiff.compare(
+        from.versionNo(), JsonCanonical.parse(from.bundle()), from.contentChecksum(),
+        to.versionNo(), JsonCanonical.parse(to.bundle()), to.contentChecksum());
+  }
+
+  /** 把历史版本内容放回草稿：剥掉 snapshot，不产生新版本，编辑后可再发布。 */
+  @Transactional
+  public DraftView restoreDraft(UUID appId, int versionNo, RestoreDraftRequest req) {
+    AppRow app = lockApp(appId);
+    VersionRow source = findVersion(appId, versionNo);
+    JsonNode content = PublishSeal.content(JsonCanonical.parse(source.bundle()));
+    if (content == null || !content.isObject()) {
+      throw PlatformException.badRequest("bundle_required", "版本 " + versionNo + " 缺少可恢复的内容");
+    }
+    ObjectNode draft = ((ObjectNode) content).deepCopy();
+    if (draft.get("app") instanceof ObjectNode appMeta) {
+      appMeta.put("key", app.key());
+    }
+    MapSqlParameterSource params = new MapSqlParameterSource("tenant", tenant())
+        .addValue("id", appId)
+        .addValue("user", user())
+        .addValue("bundle", JsonCanonical.write(PublishSeal.envelope(draft)), Types.VARCHAR);
+    String sql = "update lcp_application"
+        + " set draft_bundle = cast(:bundle as jsonb), draft_revision = draft_revision + 1,"
+        + " draft_updated_at = now(), draft_updated_by = :user,"
+        + " updated_at = now(), updated_by = :user"
+        + " where tenant_id = :tenant and id = :id and deleted_at is null";
+    if (req.revision() != null) {
+      sql += " and draft_revision = :revision";
+      params.addValue("revision", req.revision());
+    }
+    int updated = jdbc.update(sql, params);
+    if (updated == 0) {
+      if (!exists(appId)) {
+        throw PlatformException.notFound("应用 " + appId + " 不存在");
+      }
+      throw PlatformException.conflict("draft_conflict", "草稿已被其他人修改，请刷新后重试");
+    }
+    return getDraft(appId);
   }
 
   // ------------------------------------------------------------ 内部
@@ -515,11 +572,19 @@ public class AppService {
           protocolVersion, snapshotId, rollbackOfVersion, basedOnVersion, createdBy, createdAt);
     }
 
+    String contentChecksum() {
+      return PublishSeal.contentChecksum(JsonCanonical.parse(bundle));
+    }
+
     VersionDetail detail() {
+      return detail(false);
+    }
+
+    VersionDetail detail(boolean unchanged) {
       return new VersionDetail(
           id.toString(), versionNo, status, message, new ChecksumView("sha256", checksum),
-          protocolVersion, snapshotId, rollbackOfVersion, basedOnVersion, createdBy, createdAt,
-          PublishSeal.inner(JsonCanonical.parse(bundle)));
+          contentChecksum(), protocolVersion, snapshotId, rollbackOfVersion, basedOnVersion,
+          createdBy, createdAt, PublishSeal.inner(JsonCanonical.parse(bundle)), unchanged);
     }
   }
 }

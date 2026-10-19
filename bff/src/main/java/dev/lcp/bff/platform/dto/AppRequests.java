@@ -46,12 +46,16 @@ public final class AppRequests {
   public record SaveDraftRequest(JsonNode bundle, Long revision) {
   }
 
-  /** bundle 省略时取当前草稿；message 必填，版本管理不能没有变更说明。 */
+  /**
+   * bundle 省略时取当前草稿；message 必填，版本管理不能没有变更说明。
+   * force=true 时即使内容与当前版本一致也生成新版本（用于补发说明、重建快照）。
+   */
   public record PublishRequest(
       @NotBlank(message = "message 不能为空")
       @Size(max = 500, message = "message 最多 500 字符")
       String message,
-      JsonNode bundle) {
+      JsonNode bundle,
+      Boolean force) {
   }
 
   /** 回滚 = 用历史内容发布一个新版本，必须说明原因。 */
@@ -59,5 +63,9 @@ public final class AppRequests {
       @NotBlank(message = "message 不能为空")
       @Size(max = 500, message = "message 最多 500 字符")
       String message) {
+  }
+
+  /** 把历史版本恢复成草稿；revision 非空时做乐观锁校验。 */
+  public record RestoreDraftRequest(Long revision) {
   }
 }

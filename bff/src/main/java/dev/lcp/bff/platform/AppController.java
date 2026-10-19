@@ -3,12 +3,14 @@ package dev.lcp.bff.platform;
 import dev.lcp.bff.platform.dto.AppRequests.CreateAppRequest;
 import dev.lcp.bff.platform.dto.AppRequests.PublishRequest;
 import dev.lcp.bff.platform.dto.AppRequests.RollbackRequest;
+import dev.lcp.bff.platform.dto.AppRequests.RestoreDraftRequest;
 import dev.lcp.bff.platform.dto.AppRequests.SaveDraftRequest;
 import dev.lcp.bff.platform.dto.AppRequests.UpdateAppRequest;
 import dev.lcp.bff.platform.dto.AppViews.AppView;
 import dev.lcp.bff.platform.dto.AppViews.DraftView;
 import dev.lcp.bff.platform.dto.AppViews.PageResult;
 import dev.lcp.bff.platform.dto.AppViews.VersionDetail;
+import dev.lcp.bff.platform.dto.AppViews.VersionDiffView;
 import dev.lcp.bff.platform.dto.AppViews.VersionSummary;
 import jakarta.validation.Valid;
 import java.net.URI;
@@ -88,10 +90,17 @@ public class AppController {
     return service.saveDraft(appId, body);
   }
 
+  /**
+   * 发布。内容与当前版本一致时返回 200 + unchanged=true，不生成空版本；
+   * 需要强制补发说明时传 force=true，此时返回 201。
+   */
   @PostMapping("/{appId}/versions")
   public ResponseEntity<VersionDetail> publish(
       @PathVariable("appId") UUID appId, @Valid @RequestBody PublishRequest body) {
     VersionDetail detail = service.publish(appId, body);
+    if (detail.unchanged()) {
+      return ResponseEntity.ok(detail);
+    }
     return ResponseEntity
         .created(URI.create("/api/v1/platform/apps/" + appId + "/versions/" + detail.versionNo()))
         .body(detail);
@@ -109,6 +118,23 @@ public class AppController {
   public VersionDetail getVersion(
       @PathVariable("appId") UUID appId, @PathVariable("versionNo") int versionNo) {
     return service.getVersion(appId, versionNo);
+  }
+
+  @GetMapping("/{appId}/versions/{fromVersionNo}/diff/{toVersionNo}")
+  public VersionDiffView diff(
+      @PathVariable("appId") UUID appId,
+      @PathVariable("fromVersionNo") int fromVersionNo,
+      @PathVariable("toVersionNo") int toVersionNo) {
+    return service.diff(appId, fromVersionNo, toVersionNo);
+  }
+
+  @PostMapping("/{appId}/versions/{versionNo}/restore-draft")
+  public DraftView restoreDraft(
+      @PathVariable("appId") UUID appId,
+      @PathVariable("versionNo") int versionNo,
+      @RequestBody(required = false) RestoreDraftRequest body) {
+    return service.restoreDraft(appId, versionNo,
+        body == null ? new RestoreDraftRequest(null) : body);
   }
 
   @PostMapping("/{appId}/versions/{versionNo}/rollback")

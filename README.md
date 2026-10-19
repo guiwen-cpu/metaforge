@@ -14,7 +14,7 @@
 | 出码 · 第二步：DataSchema → BFF CRUD + TS 客户端 + 权限清单 | 完成 |
 | 出码 · 第三步：DataSchema → Vue3 CRUD 页面 + OSS 直传 | 完成，前端已通过 typecheck / build |
 | Spring Boot BFF（租户上下文 + RLS 会话变量） | 完成，CRUD 与租户隔离已实测 |
-| 平台控制平面：应用 / 草稿 / 发布 / 回滚（见 `PLATFORM.md`） | 完成，12 步冒烟通过 |
+| 平台控制平面：应用 / 草稿 / 发布 / 内容去重 / diff / 回滚 / 恢复草稿（见 `PLATFORM.md`） | 完成，16 步冒烟通过 |
 | Docker Compose 部署骨架（web + bff + PG + Redis） | 完成，本地全栈已跑通 |
 | 可视化页面设计器、数据模型设计器 | 规划中（元数据与版本底座已就绪） |
 | 逻辑编排引擎、审批流页面、多端发布 | 规划中 |
