@@ -20,6 +20,7 @@
   <properties>
     <java.version>21</java.version>
     <build-helper.version>3.6.0</build-helper.version>
+    <flowable.version>7.0.1</flowable.version>
   </properties>
 
   <dependencies>
@@ -48,6 +49,11 @@
       <artifactId>spring-boot-starter-aop</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.flowable</groupId>
+      <artifactId>flowable-spring-boot-starter-process</artifactId>
+      <version>${flowable.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
       <scope>runtime</scope>
@@ -61,6 +67,18 @@
 
   <build>
     <finalName>bff</finalName>
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+      </resource>
+      <!-- 表达式注册表只有 schema/expression-registry.json 一份真源，构建时并入 classpath。 -->
+      <resource>
+        <directory>${project.basedir}/../schema</directory>
+        <includes>
+          <include>expression-registry.json</include>
+        </includes>
+      </resource>
+    </resources>
     <plugins>
       <plugin>
         <groupId>org.codehaus.mojo</groupId>

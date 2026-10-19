@@ -32,6 +32,7 @@ public class TenantTransactionAspect {
       throw new IllegalStateException("缺少租户上下文：请求未经 TenantFilter");
     }
     return transactionTemplate.execute(status -> {
+      jdbc.queryForObject("select set_config('search_path', 'public,flowable', true)", String.class);
       jdbc.queryForObject("select set_config('lcp.tenant_id', ?, true)", String.class, tenantId);
       try {
         return joinPoint.proceed();

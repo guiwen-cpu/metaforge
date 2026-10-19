@@ -7,6 +7,9 @@ set -eu
   echo "select pg_advisory_lock(918273645);"
   cat /migrations/00_role.sql
   cat /migrations/10_platform.sql
+  cat /migrations/20_runtime.sql
+  cat /migrations/21_notifications.sql
+  cat /migrations/22_action_runs.sql
   cat /sql/*.sql
   cat /migrations/99_grants.sql
   echo "select pg_advisory_unlock(918273645);"

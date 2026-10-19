@@ -1475,7 +1475,7 @@ export interface UiMenuItem {
 export type UiSemantic = CommonSemantic;
 
 /* ======================================================================== */
-/* logic.schema.json —— 56 个定义，命名空间前缀 Logic */
+/* logic.schema.json —— 58 个定义，命名空间前缀 Logic */
 /* ======================================================================== */
 
 /** @alias 该定义是 CommonId 的别名，不引入新结构。 */
@@ -1554,6 +1554,10 @@ export interface LogicAction {
   when?: LogicExpr | null;
   steps: LogicStep[];
   /**
+   * 动作结束后的回写与流程推进策略。variables 写流程变量，business 写业务实体；success / failure 分别声明成功与失败后的任务推进。
+   */
+  writeback?: LogicActionWriteback | null;
+  /**
    * 整个动作包裹在数据库事务内。含外部 HTTP 调用时开启会长时间持锁，L4 校验告警
    * @default false
    */
@@ -1568,6 +1572,51 @@ export interface LogicAction {
    */
   timeoutMs?: number | null;
   access?: LogicAccess | null;
+  semantic?: LogicSemantic | null;
+
+  /** 扩展键：匹配 ^x- 的额外属性，平台原样透传，不参与校验 */
+  [key: string]: unknown;
+}
+
+/**
+ * 动作结果回写。变量与业务字段的值支持 Value（字面量或表达式），可用 $ctx.result / $ctx.vars / $ctx.error 读取执行结果。
+ */
+export interface LogicActionWriteback {
+  /**
+   * 流程变量名到值的映射；仅在能解析到流程实例时写入。
+   */
+  variables?: Record<string, LogicValue> | null;
+  /**
+   * 业务实体字段名到值的映射；仅在能解析到业务单据与实体时写入。
+   */
+  business?: Record<string, LogicValue> | null;
+  /**
+   * 动作成功后的流程推进策略；缺省只回写，不自动办理任务。
+   */
+  success?: LogicActionAdvance | null;
+  /**
+   * 动作失败后的流程推进策略；缺省保留当前任务。
+   */
+  failure?: LogicActionAdvance | null;
+  semantic?: LogicSemantic | null;
+
+  /** 扩展键：匹配 ^x- 的额外属性，平台原样透传，不参与校验 */
+  [key: string]: unknown;
+}
+
+/**
+ * 按任务按钮 outcome 自动办理当前任务；仅在 context.taskId 可解析且任务归属当前用户时生效。
+ */
+export interface LogicActionAdvance {
+  /**
+   * 目标任务的按钮 outcome，如 approve / reject / return。
+   * @minLength 1
+   */
+  outcome: string;
+  /**
+   * 办理意见，需满足任务按钮的 comment_required 约束。
+   */
+  comment?: LogicValue | null;
   semantic?: LogicSemantic | null;
 
   /** 扩展键：匹配 ^x- 的额外属性，平台原样透传，不参与校验 */

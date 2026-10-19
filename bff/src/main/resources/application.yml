@@ -25,6 +25,16 @@ spring:
     property-naming-strategy: SNAKE_CASE
     time-zone: Asia/Shanghai
 
+flowable:
+  database-schema: flowable
+  database-schema-update: true
+  async-executor-activate: false
+  async-history-executor-activate: false
+  history-level: audit
+  check-process-definitions: false
+  process:
+    enable-safe-xml: true
+
 management:
   endpoints:
     web:

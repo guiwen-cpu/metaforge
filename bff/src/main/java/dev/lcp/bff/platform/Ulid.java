@@ -8,7 +8,7 @@ import java.security.SecureRandom;
  * <p>协议里的 Id（snapshotId）要求 ULID，不能复用数据库 uuid；这里保留一份平台侧实现，
  * 避免控制面反向依赖某个出码应用的生成代码。
  */
-final class Ulid {
+public final class Ulid {
 
   private static final char[] CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ".toCharArray();
   private static final SecureRandom RANDOM = new SecureRandom();
@@ -16,7 +16,7 @@ final class Ulid {
   private Ulid() {
   }
 
-  static String next() {
+  public static String next() {
     long time = System.currentTimeMillis();
     byte[] random = new byte[10];
     RANDOM.nextBytes(random);

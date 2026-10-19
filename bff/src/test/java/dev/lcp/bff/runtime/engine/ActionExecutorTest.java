@@ -1,0 +1,298 @@
+package dev.lcp.bff.runtime.engine;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.lcp.bff.runtime.PublishedBundleService;
+import dev.lcp.bff.runtime.PublishedBundleService.PublishedBundle;
+import dev.lcp.bff.runtime.dto.RuntimeRequests.ExecuteActionRequest;
+import dev.lcp.bff.runtime.dto.RuntimeViews.ActionExecutionResult;
+import dev.lcp.bff.tenant.TenantContext;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+class ActionExecutorTest {
+
+  private final ObjectMapper json = new ObjectMapper();
+  private final ExpressionEngine expressions =
+      new ExpressionEngine(new ExpressionCatalog(json), json, List.of());
+  private final ActionExecutor executor =
+      new ActionExecutor(new PublishedBundleService(null, null), expressions, json);
+
+  @BeforeEach
+  void setUp() {
+    TenantContext.set("tenant_demo_school", "alice");
+  }
+
+  @AfterEach
+  void tearDown() {
+    TenantContext.clear();
+  }
+
+  private JsonNode parse(String raw) {
+    try {
+      return json.readTree(raw);
+    } catch (Exception ex) {
+      throw new IllegalStateException(ex);
+    }
+  }
+
+  private PublishedBundle bundle(String actionsAndApis) {
+    JsonNode content = parse("""
+        {"artifacts": {"logicSchemas": [%s]}}
+        """.formatted(actionsAndApis));
+    return new PublishedBundle(UUID.randomUUID(), "demo", "演示应用", 1, content);
+  }
+
+  @Test
+  void executesAssignmentsBranchLoopCallActionAndEmit() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {
+              "key": "sub", "steps": [
+                {"id": "s1", "type": "assign", "target": "vars.subValue",
+                 "value": {"$tpl": ["sub-", {"$ref": "$ctx.params.code"}]}}
+              ]
+            },
+            {
+              "key": "main", "params": [
+                {"key": "code", "type": "string", "required": true}
+              ],
+              "steps": [
+                {"id": "a1", "type": "assign", "target": "state.count", "value": {"$lit": 1}},
+                {"id": "a2", "type": "assign", "target": "state.list.0.name",
+                 "value": {"$lit": "first"}},
+                {"id": "a3", "type": "assign", "target": "form.days",
+                 "value": {"$fn": "add", "$args": [{"$ref": "$form.base"}, {"$lit": 1}]}},
+                {"id": "a4", "type": "assign", "target": "vars.merged", "merge": true,
+                 "value": {"$lit": {"a": 1}}},
+                {"id": "a5", "type": "assign", "target": "vars.merged", "merge": true,
+                 "value": {"$lit": {"b": 2}}},
+                {"id": "b1", "type": "branch", "cases": [
+                  {"name": "matched", "when": {"$fn": "eq", "$args": [{"$ref": "$form.days"}, {"$lit": 3}]},
+                   "then": [{"id": "b1a", "type": "assign", "target": "state.path",
+                             "value": {"$lit": "ok"}}]},
+                  {"name": "fallback", "when": {"$lit": true},
+                   "then": [{"id": "b1b", "type": "assign", "target": "state.path",
+                             "value": {"$lit": "bad"}}]}
+                ]},
+                {"id": "l1", "type": "loop", "over": {"$ref": "$rows"},
+                 "itemName": "row", "indexName": "idx", "collect": "vars.picked",
+                 "steps": [{"id": "l1a", "type": "assign", "target": "vars.last",
+                            "value": {"$ref": "$ctx.vars.row.name"}}]},
+                {"id": "c1", "type": "callAction", "actionRef": {"key": "sub"},
+                 "params": {"code": {"$ref": "$ctx.params.code"}}, "assignTo": "state.sub"},
+                {"id": "e1", "type": "emit", "event": "demo:changed",
+                 "payload": {"count": {"$ref": "$page.state.count"}}}
+              ]
+            }
+          ]
+        }
+        """);
+
+    ExecuteActionRequest request = new ExecuteActionRequest(
+        Map.of("code", "A-1"),
+        Map.of(
+            "form", Map.of("base", 2),
+            "rows", List.of(Map.of("name", "x"), Map.of("name", "y"))),
+        Map.of());
+
+    ActionExecutionResult result = executor.execute(bundle, "main", request);
+
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.result().path("event").asText()).isEqualTo("demo:changed");
+    assertThat(result.vars().path("merged").path("a").asInt()).isEqualTo(1);
+    assertThat(result.vars().path("merged").path("b").asInt()).isEqualTo(2);
+    assertThat(result.vars().path("picked").size()).isEqualTo(2);
+    assertThat(result.vars().path("subValue").asText()).isEqualTo("sub-A-1");
+    assertThat(result.trace()).hasSize(9);
+    assertThat(result.trace().get(1).result().asText()).isEqualTo("first");
+    assertThat(result.trace().get(5).children().get(0).label()).isEqualTo("matched");
+    assertThat(result.trace().get(6).children()).hasSize(2);
+    assertThat(result.events()).hasSize(1);
+    assertThat(result.events().get(0).path("event").asText()).isEqualTo("demo:changed");
+  }
+
+  @Test
+  void mapsMockApiResponseAndWritesResultPath() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic",
+          "actions": [
+            {
+              "key": "load", "steps": [
+                {"id": "api", "type": "apiCall", "apiRef": {"key": "api_echo"},
+                 "resultPath": "all", "assignTo": "vars.items"}
+              ]
+            }
+          ],
+          "apis": [
+            {
+              "id": "api-1", "key": "api_echo", "name": "回显", "kind": "rest",
+              "method": "GET", "path": "/echo",
+              "mock": {"enabled": true, "data": {
+                "code": 0,
+                "data": {"items": [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}], "total": 2}
+              }},
+              "response": {
+                "successWhen": {"$fn": "eq", "$args": [{"$ref": "$res.body.code"}, {"$lit": 0}]},
+                "mapping": {
+                  "first": "$.data.items[0].name",
+                  "all": {"$ref": "$res.body.data.items"},
+                  "total": {"$ref": "$res.body.data.total"}
+                }
+              }
+            }
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(
+        bundle, "load", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.vars().path("items").size()).isEqualTo(2);
+    assertThat(result.vars().path("items").get(1).path("name").asText()).isEqualTo("B");
+    assertThat(result.trace().get(0).result().get(0).path("name").asText()).isEqualTo("A");
+    assertThat(result.trace().get(0).result().size()).isEqualTo(2);
+  }
+
+  @Test
+  void onErrorHandlesFailAndKeepsTrace() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {
+              "key": "guard", "steps": [
+                {"id": "f1", "type": "fail", "code": "RULE_BLOCKED", "message": "不满足规则",
+                 "onError": [
+                   {"id": "h1", "type": "assign", "target": "vars.recovered", "value": {"$lit": true}}
+                 ]}
+              ]
+            }
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(
+        bundle, "guard", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.vars().path("recovered").asBoolean()).isTrue();
+    assertThat(result.trace().get(0).status()).isEqualTo("failed");
+    assertThat(result.trace().get(0).message()).isEqualTo("不满足规则");
+  }
+
+  @Test
+  void rejectsInternalApisInsteadOfExecutingThem() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic",
+          "actions": [
+            {"key": "save", "steps": [
+              {"id": "api", "type": "apiCall", "apiRef": {"key": "api_internal"}}
+            ]}
+          ],
+          "apis": [
+            {"id": "api-1", "key": "api_internal", "name": "内部保存",
+             "kind": "internal", "method": "POST", "path": "/bff/entity/save"}
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(
+        bundle, "save", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+
+    assertThat(result.status()).isEqualTo("failed");
+    assertThat(result.error().code()).isEqualTo("UNSUPPORTED_API");
+    assertThat(result.trace().get(0).status()).isEqualTo("failed");
+  }
+
+  @Test
+  void evaluatesWritebackForSuccessfulAction() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {
+              "key": "submit", "steps": [
+                {"id": "s1", "type": "assign", "target": "vars.decision", "value": {"$lit": "approved"}},
+                {"id": "s2", "type": "assign", "target": "vars.score", "value": {"$lit": 88}}
+              ],
+              "writeback": {
+                "variables": {
+                  "decision": {"$ref": "$ctx.vars.decision"},
+                  "score": {"$ref": "$ctx.vars.score"}
+                },
+                "business": {
+                  "status": "approved",
+                  "score": {"$ref": "$ctx.vars.score"}
+                },
+                "success": {
+                  "outcome": "approve",
+                  "comment": {"$tpl": ["决策：", {"$ref": "$ctx.vars.decision"}]}
+                }
+              }
+            }
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(
+        bundle, "submit", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+
+    assertThat(result.status()).isEqualTo("completed");
+    JsonNode writeback = result.writeback();
+    assertThat(writeback.path("variables").path("decision").asText()).isEqualTo("approved");
+    assertThat(writeback.path("variables").path("score").asInt()).isEqualTo(88);
+    assertThat(writeback.path("business").path("status").asText()).isEqualTo("approved");
+    assertThat(writeback.path("business").path("score").asInt()).isEqualTo(88);
+    assertThat(writeback.path("advance").path("outcome").asText()).isEqualTo("approve");
+    assertThat(writeback.path("advance").path("comment").asText()).isEqualTo("决策：approved");
+    assertThat(writeback.has("failure")).isFalse();
+  }
+
+  @Test
+  void evaluatesFailureWritebackFromContextError() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {
+              "key": "transfer", "steps": [
+                {"id": "f1", "type": "fail", "code": "BALANCE_LOW", "message": "余额不足"}
+              ],
+              "writeback": {
+                "variables": {
+                  "lastError": {"$ref": "$ctx.error.code"},
+                  "lastMessage": {"$ref": "$ctx.error.message"}
+                },
+                "business": {"status": "rejected"},
+                "failure": {
+                  "outcome": "reject",
+                  "comment": {"$tpl": ["失败：", {"$ref": "$ctx.error.message"}]}
+                }
+              }
+            }
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(
+        bundle, "transfer", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+
+    assertThat(result.status()).isEqualTo("failed");
+    assertThat(result.error().code()).isEqualTo("BALANCE_LOW");
+    JsonNode writeback = result.writeback();
+    assertThat(writeback.path("variables").path("lastError").asText()).isEqualTo("BALANCE_LOW");
+    assertThat(writeback.path("variables").path("lastMessage").asText()).isEqualTo("余额不足");
+    assertThat(writeback.path("business").path("status").asText()).isEqualTo("rejected");
+    assertThat(writeback.path("advance").path("outcome").asText()).isEqualTo("reject");
+    assertThat(writeback.path("advance").path("comment").asText()).isEqualTo("失败：余额不足");
+    assertThat(writeback.has("success")).isFalse();
+  }
+}

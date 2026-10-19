@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-19
-> 分支：`dev` ｜ 最新提交：`547916f feat(studio): 自定义组件注册与 iframe 沙箱`
+> 分支：`dev` ｜ 最新提交：`f677226 docs: 固化任务收尾与进度更新规则`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -14,7 +14,13 @@
 | 租户 / 用户 | `tenant_demo_school` / `alice` |
 | 容器 | `metaforge-web` / `metaforge-bff` / `metaforge-postgres` / `metaforge-redis` |
 | 当前草稿 | `r8`：3 个页面、1 个自定义组件 `biz-card`、逻辑编排完整 |
-| 演示数据 | `/leave/requests` 页面底部已挂一个 `biz-card` 节点（自定义组件联调产物） |
+| 发布版本 | `v7`（内容等同 `v1`；`v2/v4/v6` 为冒烟临时版本，`v3/v5/v7` 为回滚快照） |
+| 演示数据 | 请假实例若干（已通过 / 已驳回 / 待审批）；冒烟实例 `ef3ea1e4-cbbe-11f1-ab05-eac30cd331c5` 含 3 条动作日志；`/leave/requests` 底部挂有 `biz-card` 联调节点 |
+| 审批入口 | `/apps/<appId>/approvals`；详情 `/approvals/:taskId`，实例 `/instances/:instanceId` |
+| 动作执行 | `POST /api/v1/runtime/apps/{appId}/actions/{actionKey}/execute` |
+| 动作日志 | `GET /api/v1/runtime/apps/{appId}/action-runs`（按 `processInstanceId` / `actionKey` / `status` 过滤）；详情 `GET .../action-runs/{id}` |
+| 失败重放 | `POST /api/v1/runtime/apps/{appId}/action-runs/{id}/replay` |
+| 站内通知 | `GET /notifications`、`GET /notifications/unread-count`；`POST /notifications/{id}/read`、`POST /notifications/read-all` |
 
 启动与重建：
 
@@ -33,6 +39,7 @@ cd platform; npm run typecheck; npm run build
 | `a318495` | 逻辑编排设计器 | 14 动作 / 87 步骤 / 11 API / 1 流程 / 3 规则实测 |
 | `547916f` | 自定义组件注册与 iframe 沙箱 | CDP：沙箱属性、CSP、页面设计器联动、r7/r8 保存 |
 | `bb628fb` | 接手上下文文档 | — |
+| 工作区（待提交） | Flowable 运行时 + 审批中心 + 逻辑执行器 + 动作回写/运行日志 | API 分支覆盖 + 失败重放 + 跨租户隔离 + CDP 动作日志面板 |
 
 ## 文档维护
 
@@ -74,7 +81,7 @@ cd platform; npm run typecheck; npm run build
 - `platform/src/pages/LogicDesignerPage.vue`
 - `platform/src/lib/logicModel.ts`、`platform/src/components/logic/*`
 - 动作、API、Flowable 流程、规则；23 种步骤、嵌套步骤、表达式、校验、JSON、草稿与发布。
-- 仅元数据，**没有运行时执行器**。
+- 设计器只编辑元数据；运行时执行器由 `ActionRunService` 读取发布态 `logicSchemas` 执行。
 
 ### 7. 自定义组件与沙箱（刚完成）
 - `platform/src/pages/ComponentDesignerPage.vue`
@@ -91,15 +98,35 @@ cd platform; npm run typecheck; npm run build
 - `deploy/.env`、`.env.staging.example`、`.env.prod.example`、`release.sh`、`smoke.sh`、`smoke-platform.sh`。
 - Nginx 同域托管设计器与 `/demo/` 示例应用。
 
+### 9. 运行时与审批中心
+- BFF `runtime` 模块：Flowable schema 初始化、发布时自动部署 BPMN、实例启动、待办/已办/我发起、任务详情/签收/完成/转办、历史时间线、业务表状态回写。
+- 运行时只读线上发布件：`/api/v1/runtime/apps/{appId}/flows|tasks|instances`；不读取草稿。
+- 字段视图由 DataSchema 生成，返回类型、值、`options`、`widget`；`enumRef` 从 `dataSchemas[].enums` 解析。
+- 已办只保留审批办理记录，自动完成的申请人提交节点不再混入。
+- 前端：`ApprovalCenterPage`、`ApprovalDetailPage`、`InstanceDetailPage`、`RuntimeFields`、`ProcessTimeline`、`api/runtime.ts`、`lib/runtime.ts`、`types/runtime.ts`。
+- 审批中心支持待办/已办/我发起、关键字过滤；详情支持字段编辑、审批意见、同意/驳回/退回/转办、签收、时间线、实例跳转。
+- 站内通知：`lcp_notification` 表 + `NotificationService`；任务分派、转办、退回、驳回、通过分别通知办理人或发起人，未读通知按业务对象去重。
+- 审批中心增加通知面板、未读角标、单条已读、全部已读；点击通知直达审批 / 实例详情。
+- 验证：typecheck / build 通过；API 覆盖同意、驳回、退回后重提、转办；CDP 跑通 Alice 发起 → Bob 审批 → Principal 院级审批 → 归档；通知链路覆盖分派 → 已读 → 退回 → 重提 → 通过，以及转办通知。
+
+### 10. 动作回写与运行日志（刚完成）
+- `ActionRunService` 把动作结果接回流程变量与业务字段，按 `writeback.variables/business` 求值并落库 `lcp_action_run`。
+- 成功/失败按 `writeback.success` / `writeback.failure` 推进任务；办理人不匹配时记录 `applied.advance.status=failed`，回写结果仍保留。
+- 运行日志支持按实例、动作、状态查询；详情返回原始入参/上下文/事件、trace、回写与推进结果；失败记录可重放并写入 `replayed_from`。
+- 前端 `ActionRunPanel.vue` 接入实例详情：状态、耗时、回写与推进结果、步骤轨迹、原始输入/结果、失败重放入口。
+- 修复已结束实例变量读取：改用 `HistoricVariableInstance`，避免 `HistoricProcessInstance.getProcessVariables()` 返回空。
+- 验证：成功动作写入 `smoke_decision=approved_smoke` / `smoke_score=88`，业务 `reason=writeback-ok` 并自动推进结束；失败动作写入 `smoke_failed=true` / `reason=writeback-failed`，重放保留失败并生成新日志；跨租户列表 0 条、详情 404；CDP 面板渲染与详情展开正常。
+
 ## 剩余路线图
 
-### 阶段 4 · 运行时与工作流（下一步）
-- [ ] 4.1 Flowable 运行时：发布时部署 BPMN（来自 `logicSchemas.flows`），流程实例启动/查询/挂起。
-- [ ] 4.2 任务 API：待办/已办、签收、完成、转办、加签、变量、历史。
-- [ ] 4.3 逻辑执行器：动作步骤运行（HTTP / DB / 分支 / 循环 / 表达式 / 延迟），API 编排执行。
-- [ ] 4.4 表达式引擎：基于 `schema/expression-registry.json` 的安全求值。
-- [ ] 4.5 审批页：审批中心（待办/已办/我发起）、详情（表单 + 时间线 + 审批动作）、人员选择。
-- [ ] 4.6 运行时事件与回调：流程状态回写业务表、消息/通知。
+### 阶段 4 · 运行时与工作流（进行中）
+- [x] 4.1 Flowable 运行时：发布时部署 BPMN（来自 `logicSchemas.flows`），实例启动/查询已通；挂起/激活未做。
+- [x] 4.2 任务 API：待办/已办/我发起、签收、完成、转办、变量、历史时间线已完成；加签未做。
+- [x] 4.3 逻辑执行器：动作步骤同步执行（assign / branch / loop / parallel 串行兼容 / callAction / transaction 顺序 / delay / log / emit / fail），REST 与 mock API 已接入，支持超时、重试、路径/查询/头/体、`successWhen`、响应映射、`resultPath` / `assignTo`；内部/数据库 API 与脚本类步骤明确失败。
+- [x] 4.4 表达式引擎：按注册表白名单求值 97 个函数、14 个取值根；支持 `$lit/$ref/$fn/$tpl/$if`、路径、`filter/map` 子作用域、`$now` 冻结；未知函数、错误元数、未知根均抛错。
+- [x] 4.5 审批页：审批中心（待办/已办/我发起）、详情（表单 + 时间线 + 审批动作）已完成；人员选择暂用演示目录，阶段 5 接入组织架构。
+- [x] 4.6 运行时事件与回调：流程状态回写已完成；站内通知（任务分派 / 转办 / 退回 / 驳回 / 通过）落库，支持未读数、单条已读、全部已读；审批中心增加通知面板与未读角标。邮件 / webhook 通道未接入。
+- [x] 4.7 动作回写与运行日志：动作结果可回写流程变量/业务字段并按成功/失败声明推进任务；运行日志持久化，支持实例/动作/状态查询、详情与失败重放；结束实例变量可从历史表读取。
 
 ### 阶段 5 · 权限体系
 - [ ] 用户、角色、组织架构（部门/岗位）。
@@ -139,11 +166,28 @@ cd platform; npm run typecheck; npm run build
 - **扩展键**：平台私有字段统一 `x-` 前缀（`x-previewHtml`、`x-previewScript`），随 Bundle 版本化。
 - **草稿并发**：控制平面用 `revision` 乐观锁，冲突时提示加载最新草稿。
 - **语义预留**：实体、页面、组件、流程均带 `semantic.intent`，为 AI 生成做准备。
+- **运行时只读发布件**：审批中心与任务 API 只认 `current_version`，草稿变更不影响线上实例。
+- **动作由流程声明驱动**：前端按 `Flow.taskForms[].buttons` 渲染动作，后端按同一份声明校验 `outcome` 与 `comment_required`。
+- **已办口径**：排除 `assignee.type=initiator` 的自动提交节点，避免与「我发起」重复。
+- **状态回写**：运行时服务在审批事务内把状态与当前节点写回业务表，业务表仍是 DataSchema 驱动的唯一业务真源。
+- **动作执行边界**：运行时只读发布件 `logicSchemas`；前端交互与校验步骤跳过，脚本类步骤明确失败，不做静默降级。
+- **动作回写两段式**：动作只产出 `writeback` 声明，`ActionRunService` 统一求值并执行变量/业务回写；任务推进仅在声明 outcome 且办理人匹配时发生，回写与推进各自记录 applied 结果。
+- **动作日志与重放**：每次执行落一行 `lcp_action_run`，保存原始入参/上下文/事件与 trace；重放复用原始输入并写 `replayed_from`，不撤销上一次副作用。
+- **API 单点收口**：动作不内联 URL，只引用 Api 工件；REST 直连，内部/数据库等待连接器与密钥库。
+- **表达式安全**：白名单函数 + 注册取值根，叠加步数、调用层级、动作超时与延迟上限。
+- **通知首版只做站内信**：通知与审批动作同事务写入，按「租户 + 用户 + 类型 + 业务对象」对未读去重；邮件 / webhook 需要连接器与密钥库，暂不阻塞审批。
+- **通知触发点跟随业务事务**：任务分派、转办、退回、驳回、通过由 `ProcessRuntimeService` 显式触发，不在 Flowable 监听器里直接写库。
 
 ## 已知边界
 
 - 三个设计器只负责元数据编辑、校验与发布，不含运行时执行。
-- 逻辑编排的 Flowable BPMN 目前只是资产映射，未部署到引擎。
+- 动作执行器已支持同步 REST / mock 与分支、循环、子动作；`parallel` 仍顺序执行，`transaction` 未包数据库事务。
+- 内部 / 数据库 / GraphQL / SOAP API 尚未接连接器，调用时明确返回 `UNSUPPORTED_API`，不执行裸 SQL；带密钥库的鉴权方式同样未开放。
+- `validate` 与前端交互步骤在服务端记为 skipped；`code` / `custom` / `startFlow` / `completeTask` 明确报未接入。
+- 动作日志按租户隔离并可按实例/动作/状态查询，暂无跨应用全局检索与保留期策略；重放不撤销已发生的业务/流程副作用。
+- 演示办理人目录为静态配置（`bob` / `principal`），未接组织架构。
+- 审批动作未做按钮级权限校验，任务归属由 Flowable `assignee` 控制。
+- 通知仅覆盖任务分派、转办、退回、驳回、通过；邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口未接入。
 - 自定义组件只有设计器内联沙箱预览；发布态远程组件加载未实现。
 - OSS STS 临时凭证服务未实现，生成代码里只有直传骨架。
 - 生成前端使用演示会话，不能用于生产鉴权。
@@ -151,12 +195,13 @@ cd platform; npm run typecheck; npm run build
 
 ## 下一步（建议直接开工）
 
-阶段 4 第一刀：**Flowable 运行时 + 审批中心 API**
+阶段 4 已完成，建议先提交本阶段改动，再按以下顺序推进：
 
-1. BFF 增加 `runtime` 模块：流程定义部署、实例启动、任务查询/完成、历史查询。
-2. 发布动作挂钩：`logicSchemas.flows` → 自动部署 BPMN，记录 deploymentId / processDefinitionKey。
-3. 新增审批中心页面与审批详情页，接任务 API，跑通「请假提交 → 待办 → 审批 → 归档」闭环。
-4. 用 `leave_approval` 演示应用做端到端验证，补 CDP 冒烟脚本。
+1. 阶段 5 权限体系：组织架构、菜单/按钮/字段权限、行级数据权限、JWT/SSO 替换演示会话头。
+2. 补连接器注册表与租户密钥库，再开放 internal / database / GraphQL / SOAP 与 bearer/apiKey 鉴权。
+3. 扩展通知：邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口。
+4. 阶段 6 发布态运行时渲染器与自定义组件远程加载。
+5. 工作区阶段 4 改动尚未提交；按收尾流程执行 `git diff --check` 后再决定提交。
 
 ## 恢复上下文的顺序
 

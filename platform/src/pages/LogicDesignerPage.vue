@@ -34,6 +34,7 @@ import {
 } from "@/lib/logicModel";
 import type {
   ActionParam,
+  ActionWriteback,
   LogicAction,
   LogicApi,
   LogicFlow,
@@ -1537,6 +1538,22 @@ function flowListenerCount(flow: LogicFlow): number {
                         <button class="text-[9.5px] text-slate-400 hover:text-rose-600" @click="removeParam(index)">移除参数</button>
                       </div>
                     </div>
+                  </div>
+
+                  <div class="rounded-lg border border-slate-200 bg-slate-50/40 p-2">
+                    <p class="text-[10.5px] font-medium text-slate-500">结果回写 writeback</p>
+                    <div class="mt-1.5">
+                      <JsonField
+                        :model-value="selectedAction.writeback"
+                        :rows="7"
+                        placeholder="{&quot;variables&quot;:{&quot;approvalStatus&quot;:{&quot;$ref&quot;:&quot;$ctx.result.status&quot;}},&quot;success&quot;:{&quot;outcome&quot;:&quot;approve&quot;}}"
+                        @update:model-value="selectedAction.writeback = $event as ActionWriteback | undefined"
+                      />
+                    </div>
+                    <p class="mt-1.5 text-[9.5px] leading-relaxed text-slate-400">
+                      variables 写流程变量，business 写业务字段；success / failure 声明自动办理的任务 outcome。可用
+                      <span class="font-mono">$ctx.result</span>、<span class="font-mono">$ctx.vars</span>、<span class="font-mono">$ctx.error</span>。
+                    </p>
                   </div>
 
                   <div>

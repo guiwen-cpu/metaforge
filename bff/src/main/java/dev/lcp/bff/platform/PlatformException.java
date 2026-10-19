@@ -37,4 +37,8 @@ public class PlatformException extends RuntimeException {
   public static PlatformException conflict(String code, String message) {
     return new PlatformException(HttpStatus.CONFLICT, code, message);
   }
+
+  public static PlatformException forbidden(String message) {
+    return new PlatformException(HttpStatus.FORBIDDEN, "forbidden", message);
+  }
 }

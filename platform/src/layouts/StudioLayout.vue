@@ -12,12 +12,18 @@ const sessionOpen = ref(false);
 const tenantDraft = ref(sessionStore.tenantId);
 const userDraft = ref(sessionStore.userId);
 
-const inApps = computed(() => route.path.startsWith("/apps") || route.path === "/");
+const inApps = computed(() => route.name === "apps" || route.name === "app-detail");
 const appId = computed(() => (typeof route.params.appId === "string" ? route.params.appId : ""));
 const inModel = computed(() => route.name === "app-model");
 const inPages = computed(() => route.name === "app-pages");
 const inLogic = computed(() => route.name === "app-logic");
 const inComponents = computed(() => route.name === "app-components");
+const inApprovals = computed(
+  () =>
+    route.name === "app-approvals" ||
+    route.name === "app-approval-detail" ||
+    route.name === "app-instance-detail"
+);
 
 function openDesigner(kind: "model" | "pages" | "logic" | "components") {
   if (!appId.value) {
@@ -29,6 +35,14 @@ function openDesigner(kind: "model" | "pages" | "logic" | "components") {
   router.push(`/apps/${appId.value}/${suffix}`);
 }
 const pageTitle = computed(() => (route.meta.title as string) || "应用工作台");
+
+function openApprovals() {
+  if (!appId.value) {
+    ElMessage.info("请先进入一个应用");
+    return;
+  }
+  router.push(`/apps/${appId.value}/approvals`);
+}
 
 function openSession() {
   tenantDraft.value = sessionStore.tenantId;
@@ -125,6 +139,22 @@ function saveSession() {
           </span>
           <span v-if="!appId" class="text-[9px] text-slate-600">选应用</span>
           <span v-else-if="inComponents" class="text-[9px] text-indigo-300">当前</span>
+        </button>
+
+        <div class="px-3 pb-1 pt-5 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-600">
+          运行时
+        </div>
+        <button
+          class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[13px] transition"
+          :class="inApprovals ? 'bg-white/10 text-white' : appId ? 'text-slate-400 hover:bg-white/5 hover:text-slate-200' : 'text-slate-600'"
+          @click="openApprovals"
+        >
+          <span class="flex items-center gap-2.5">
+            <span class="grid h-5 w-5 place-items-center rounded bg-white/5 text-[11px]">◉</span>
+            审批中心
+          </span>
+          <span v-if="!appId" class="text-[9px] text-slate-600">选应用</span>
+          <span v-else-if="inApprovals" class="text-[9px] text-indigo-300">当前</span>
         </button>
       </nav>
 

@@ -80,11 +80,28 @@ export interface LogicAction {
   trigger?: ActionTrigger | string;
   params?: ActionParam[];
   when?: unknown;
+  writeback?: ActionWriteback;
   steps: LogicStep[];
   transaction?: boolean;
   idempotent?: boolean;
   timeoutMs?: number;
   access?: unknown;
+  semantic?: LogicSemantic;
+  [key: string]: unknown;
+}
+
+export interface ActionAdvance {
+  outcome: string;
+  comment?: unknown;
+  semantic?: LogicSemantic;
+  [key: string]: unknown;
+}
+
+export interface ActionWriteback {
+  variables?: Record<string, unknown>;
+  business?: Record<string, unknown>;
+  success?: ActionAdvance;
+  failure?: ActionAdvance;
   semantic?: LogicSemantic;
   [key: string]: unknown;
 }

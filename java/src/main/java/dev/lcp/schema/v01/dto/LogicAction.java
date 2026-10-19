@@ -128,6 +128,20 @@ public class LogicAction {
     }
 
     /**
+     * 动作结束后的回写与流程推进策略。variables 写流程变量，business 写业务实体；success / failure 分别声明成功与失败后的任务推进。
+     */
+    @JsonProperty("writeback")
+    private LogicActionWriteback writeback;
+
+    public LogicActionWriteback getWriteback() {
+        return writeback;
+    }
+
+    public void setWriteback(LogicActionWriteback writeback) {
+        this.writeback = writeback;
+    }
+
+    /**
      * 整个动作包裹在数据库事务内。含外部 HTTP 调用时开启会长时间持锁，L4 校验告警
      * @default false
      */

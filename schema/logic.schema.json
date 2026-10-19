@@ -161,6 +161,10 @@
             "$ref": "#/$defs/Step"
           }
         },
+        "writeback": {
+          "$ref": "#/$defs/ActionWriteback",
+          "description": "动作结束后的回写与流程推进策略。variables 写流程变量，business 写业务实体；success / failure 分别声明成功与失败后的任务推进。"
+        },
         "transaction": {
           "type": "boolean",
           "default": false,
@@ -187,6 +191,66 @@
         "key",
         "name",
         "steps"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "ActionWriteback": {
+      "type": "object",
+      "description": "动作结果回写。变量与业务字段的值支持 Value（字面量或表达式），可用 $ctx.result / $ctx.vars / $ctx.error 读取执行结果。",
+      "properties": {
+        "variables": {
+          "type": "object",
+          "description": "流程变量名到值的映射；仅在能解析到流程实例时写入。",
+          "additionalProperties": {
+            "$ref": "#/$defs/Value"
+          }
+        },
+        "business": {
+          "type": "object",
+          "description": "业务实体字段名到值的映射；仅在能解析到业务单据与实体时写入。",
+          "additionalProperties": {
+            "$ref": "#/$defs/Value"
+          }
+        },
+        "success": {
+          "$ref": "#/$defs/ActionAdvance",
+          "description": "动作成功后的流程推进策略；缺省只回写，不自动办理任务。"
+        },
+        "failure": {
+          "$ref": "#/$defs/ActionAdvance",
+          "description": "动作失败后的流程推进策略；缺省保留当前任务。"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "ActionAdvance": {
+      "type": "object",
+      "description": "按任务按钮 outcome 自动办理当前任务；仅在 context.taskId 可解析且任务归属当前用户时生效。",
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "minLength": 1,
+          "description": "目标任务的按钮 outcome，如 approve / reject / return。"
+        },
+        "comment": {
+          "$ref": "#/$defs/Value",
+          "description": "办理意见，需满足任务按钮的 comment_required 约束。"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "outcome"
       ],
       "additionalProperties": false,
       "patternProperties": {

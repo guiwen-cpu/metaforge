@@ -15,6 +15,7 @@ import dev.lcp.bff.platform.dto.AppViews.PageResult;
 import dev.lcp.bff.platform.dto.AppViews.VersionDetail;
 import dev.lcp.bff.platform.dto.AppViews.VersionDiffView;
 import dev.lcp.bff.platform.dto.AppViews.VersionSummary;
+import dev.lcp.bff.runtime.FlowDeploymentService;
 import dev.lcp.bff.tenant.TenantContext;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -108,9 +109,11 @@ public class AppService {
       rs.getObject("created_at", OffsetDateTime.class));
 
   private final NamedParameterJdbcTemplate jdbc;
+  private final FlowDeploymentService flowDeployments;
 
-  public AppService(NamedParameterJdbcTemplate jdbc) {
+  public AppService(NamedParameterJdbcTemplate jdbc, FlowDeploymentService flowDeployments) {
     this.jdbc = jdbc;
+    this.flowDeployments = flowDeployments;
   }
 
   // ------------------------------------------------------------ 应用
@@ -412,6 +415,7 @@ public class AppService {
            :protocol, :snapshot, :basedOn, :rollbackOf, :user)
         """, params);
     markPublished(app, versionNo, stamped);
+    flowDeployments.deployVersion(app.id(), app.key(), versionNo, PublishSeal.inner(stamped));
     return findVersion(app.id(), versionNo).detail();
   }
 
