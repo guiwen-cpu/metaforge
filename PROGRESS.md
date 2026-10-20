@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-20
-> 分支：`dev` ｜ 最新提交：`b457c8e docs: 同步字段改名修复提交号`
+> 分支：`dev` ｜ 最新提交：`20e3eb9 feat(auth): 接入 OIDC / CAS 统一身份登录`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -61,7 +61,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `644b473` | 身份与权限：JWT / 组织架构 / 行级与字段权限 | 四账号登录 + 403 越权 + 字段白名单 + CDP 登录/退出 |
 | `d35afe5` | 认证安全：密码策略 / 登录锁定 / 认证审计 | typecheck / build + 弱密码 400 + 锁定与重置 + 审计 403 + CDP 改密 |
 | `1565955` | 运行时菜单与页面权限 | 四账号导航过滤 + 页面 200/403 + CDP 菜单切换与动态路由 |
-| 本次提交 | 统一身份登录（OIDC / CAS） | OIDC 端到端 + 票据/state 重放 + 未绑定 403 + CDP 登录 |
+| `20e3eb9` | 统一身份登录（OIDC / CAS） | OIDC 端到端 + 票据/state 重放 + 未绑定 403 + CDP 登录 |
 
 ## 文档维护
 
