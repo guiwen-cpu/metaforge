@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`2ae386c feat(miniapp): 接入受控 apiCall 运行时调用`
+> 分支：`dev` ｜ 最新提交：本提交（`feat(miniapp): 接入微信登录`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -29,6 +29,8 @@
 | 认证安全 API | `GET /api/v1/auth/password-policy`、`POST /api/v1/auth/password`、`GET /api/v1/platform/identity/auth-audits`（管理员，支持 `eventType` / `username` / `success` / `limit`） |
 | 统一身份 API | `GET /api/v1/auth/sso/config`、`GET /api/v1/auth/sso/start?redirect=/...`、`GET /api/v1/auth/sso/callback`、`POST /api/v1/auth/sso/exchange` |
 | SSO 配置 | `LCP_SSO_ENABLED`、`LCP_SSO_MODE`（`oidc` / `cas`）及 `LCP_SSO_*`；本地默认关闭，staging/prod 通过环境变量注入 |
+| 微信登录 API | `GET /api/v1/auth/wechat/config`、`POST /api/v1/auth/wechat/login`（`{code,tenant?}`）；配置只返回 `enabled/app_id/tenant/display_name` |
+| 微信登录配置 | `LCP_WECHAT_ENABLED`、`LCP_WECHAT_APP_ID`、`LCP_WECHAT_APP_SECRET`、`LCP_WECHAT_TENANT`、`LCP_WECHAT_LINK_BY`、`LCP_WECHAT_AUTO_CREATE`；默认关闭 |
 | 连接器 API | `GET/POST /api/v1/platform/connections`；`PATCH/DELETE /api/v1/platform/connections/{id}` |
 | 连接器审计 | `GET /api/v1/platform/connections/{id}/audits`（`create` / `update` / `delete`，请求头与凭据脱敏） |
 | 密钥 API | `GET/POST /api/v1/platform/secrets`；`PATCH/DELETE /api/v1/platform/secrets/{id}`（密钥只写不读） |
@@ -79,7 +81,9 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `f5bcd54` | 连接器扩展（GraphQL / SOAP / database / OAuth2 / 签名 / 审计） | typecheck / build / BFF 测试 + 审计落库与脱敏 + 私网 HTTP 链路冒烟 |
 | `4d28ed6` | 出码模板 JWT 会话与组织权限 | 生成工程 typecheck / build + 登录、刷新恢复、退出登录 CDP 实测 |
 | `2ae386c` | 小程序受控 apiCall | typecheck + H5 / mp-weixin 构建 + 受控调用与 ACL 冒烟 |
-| 本提交 | 小程序附件上传与附件列表 | typecheck + H5 / mp-weixin 构建 + 上传/列表/下载/软删/类型与页面校验冒烟 |
+| `ad477be` | 小程序附件上传与附件列表 | typecheck + H5 / mp-weixin 构建 + 上传/列表/下载/软删/类型与页面校验冒烟 |
+| `cd4bd8e` | 小程序审批时间线 | typecheck + H5 实测待办/已办时间线与审批意见 |
+| 本提交 | 小程序微信登录 | BFF 编译 + typecheck + H5/mp-weixin 构建 + 假微信服务成功/未绑定/关闭降级 |
 
 ## 文档维护
 
@@ -265,6 +269,11 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 小程序页面渲染器补上 `type=flow, kind=instance` 数据源：按路由 `taskId` 拉取任务详情并填充 `$process` 根，审批页可正常加载 表单 / 变量 / 附件 / 时间线；实体单条数据源在 `kind=approval` 下也会随任务加载。
 - 空态区分“未发起流程”“暂无流转记录”“加载失败”；404 / 403 直接展示服务端消息。
 - 验证：typecheck 通过；H5 实测 bob 打开待办详情，时间线展示“发起请假 / 申请人提交 / 部门负责人审批（进行中）”；已办实例展示审批意见 `cleanup stage5 smoke` 与耗时 4 分钟。
+### 24. 小程序微信登录（刚完成）
+- BFF 新增 `GET /api/v1/auth/wechat/config` 与 `POST /api/v1/auth/wechat/login`：服务端用 `jscode2session` 换取 `openid`（有 `unionid` 时优先），再复用 `loginExternal` 的租户绑定与账号映射；审计方法记为 `wechat_miniapp`。
+- 配置接口只返回启用状态、AppID、租户与显示名，AppSecret 不进入响应；请求租户必须与 `LCP_WECHAT_TENANT` 一致。微信接口默认仅允许 HTTPS，本地假服务需显式 `LCP_WECHAT_ALLOW_INSECURE_HTTP=true`。
+- 小程序登录页支持 `uni.login({provider:"weixin"})` 一键登录；配置未启用时保留账号密码入口并明确提示，不阻塞 H5 构建。
+- 验证：BFF 镜像编译、`miniapp` typecheck 与 H5 / mp-weixin 构建通过；假 `jscode2session` 覆盖成功登录与 `/auth/me`、错误 code 400、未绑定 403、租户不匹配 403、关闭后 400，配置响应不含 secret。
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -292,6 +301,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 6.4 运行时动作补齐：`kind=internal` 实体 save/get/patch 与流程终止、`startFlow` / `completeTask`、注册入口 `calcWorkdays`、服务端 `validate` 已接入；请假“新建 → 提交 → 撤回”端到端通过。
 - [x] 6.5 自定义组件远程模块加载：`runtime=remote` 的 https 模块按 `{version}` 锁定版本，加载前校验 SRI，模块 `meta` 与契约不一致时拒绝渲染；设计器按真实模块内容生成 integrity。
 - [x] 6.6 运行时附件：页面级 ACL 上传 / 列表 / 受控下载 / 软删除，本地卷存储与类型白名单；小程序上传控件与附件列表已接入。
+- [x] 6.7 小程序微信登录：`jscode2session`、外部身份绑定、配置脱敏与登录页一键登录；未配置时账号密码降级。
 
 ### 阶段 7 · 出码引擎完整化
 - [ ] Bundle → 完整可运行工程（前端 + BFF + 迁移脚本）。
@@ -382,10 +392,11 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 ## 下一步（建议直接开工）
 
-阶段 4、阶段 5 与阶段 6.1 / 6.2 / 6.3 / 6.4 已完成，按以下顺序推进：
+阶段 4、阶段 5 与阶段 6.1–6.7 已完成，按以下顺序推进：
 
-1. 小程序能力深化：微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
-2. 运行时深化：真实数据库事务、`custom` 代码钩子与其余内部 API 分派，接入真实节假日服务。
+1. 小程序真机联调与体验版发布文档（下一项）。
+2. 运行时深化：真实数据库事务、并发安全、`custom` / `code` 钩子、其余内部 API 与真实节假日服务。
+3. 阶段 7 出码引擎完整化，随后阶段 8 集成与阶段 9 市场。
 
 ## 恢复上下文的顺序
 

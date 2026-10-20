@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from "vue";
 import { onLoad } from "@dcloudio/uni-app";
-import { login } from "@/api/auth";
+import { login, loginWithWechat, wechatConfig } from "@/api/auth";
 import { errorMessage } from "@/api/request";
 import { DEFAULT_APP_ID, DEFAULT_TENANT } from "@/lib/config";
 import { getSession } from "@/lib/session";
@@ -13,7 +13,12 @@ const form = reactive({
 });
 const appId = ref(DEFAULT_APP_ID);
 const loading = ref(false);
+const wechatLoading = ref(false);
 const error = ref("");
+const wechatChecked = ref(false);
+const wechatEnabled = ref(false);
+const wechatName = ref("微信登录");
+const wechatTenant = ref("");
 
 function launch(app?: string): void {
   const target = app || appId.value || DEFAULT_APP_ID;
@@ -27,6 +32,19 @@ function fillDemo(username: string, password: string): void {
   form.tenant = DEFAULT_TENANT;
   form.username = username;
   form.password = password;
+}
+
+async function loadWechatConfig(): Promise<void> {
+  try {
+    const config = await wechatConfig();
+    wechatEnabled.value = config.enabled;
+    wechatName.value = config.displayName || "微信登录";
+    wechatTenant.value = config.tenant || "";
+  } catch {
+    wechatEnabled.value = false;
+  } finally {
+    wechatChecked.value = true;
+  }
 }
 
 async function submit(): Promise<void> {
@@ -53,13 +71,50 @@ async function submit(): Promise<void> {
   }
 }
 
+function requestWechatCode(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    uni.login({
+      provider: "weixin",
+      success: (result) => {
+        if (result.code) resolve(result.code);
+        else reject(new Error("微信未返回登录 code"));
+      },
+      fail: (failure) => reject(new Error(failure.errMsg || "微信登录失败"))
+    });
+  });
+}
+
+async function submitWechat(): Promise<void> {
+  if (wechatLoading.value || loading.value) return;
+  error.value = "";
+  if (!wechatEnabled.value) {
+    error.value = "微信登录未配置，请使用账号密码登录";
+    return;
+  }
+  wechatLoading.value = true;
+  try {
+    const code = await requestWechatCode();
+    const tenant = (wechatTenant.value || form.tenant).trim();
+    await loginWithWechat({ code, tenant, appId: appId.value });
+    uni.showToast({ title: "登录成功", icon: "success", duration: 900 });
+    setTimeout(() => launch(), 350);
+  } catch (cause) {
+    error.value = errorMessage(cause);
+  } finally {
+    wechatLoading.value = false;
+  }
+}
+
 onLoad((options?: Record<string, string>) => {
   if (options?.appId) appId.value = options.appId;
   if (getSession()) {
     launch(appId.value);
+    return;
   }
+  void loadWechatConfig();
 });
 </script>
+
 
 <template>
   <view class="login-page">
@@ -76,6 +131,17 @@ onLoad((options?: Record<string, string>) => {
         <text class="login-card__desc">使用租户账号进入已发布应用。</text>
       </view>
 
+      <view v-if="wechatChecked && wechatEnabled" class="login-wechat-block">
+        <button class="login-wechat" :disabled="loading || wechatLoading" @click="submitWechat">
+          {{ wechatLoading ? "正在校验微信身份…" : wechatName }}
+        </button>
+        <view class="login-divider"><text>或使用账号密码</text></view>
+      </view>
+      <!-- #ifdef MP-WEIXIN -->
+      <view v-else-if="wechatChecked" class="login-config-hint">
+        微信登录未配置，当前可使用账号密码登录。
+      </view>
+      <!-- #endif -->
       <view class="login-field">
         <text class="login-label">租户</text>
         <input
@@ -131,6 +197,50 @@ onLoad((options?: Record<string, string>) => {
 </template>
 
 <style scoped>
+.login-wechat-block {
+  margin-top: 6rpx;
+}
+.login-wechat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 88rpx;
+  border: 1rpx solid #16a34a;
+  border-radius: 18rpx;
+  background: #16a34a;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+.login-wechat[disabled] {
+  opacity: 0.55;
+}
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin: 26rpx 0 4rpx;
+  color: #94a3b8;
+  font-size: 21rpx;
+}
+.login-divider::before,
+.login-divider::after {
+  flex: 1;
+  height: 1rpx;
+  background: #e2e8f0;
+  content: "";
+}
+.login-config-hint {
+  margin-top: 22rpx;
+  padding: 16rpx 18rpx;
+  border: 1rpx solid #e2e8f0;
+  border-radius: 12rpx;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 21rpx;
+  line-height: 1.5;
+}
 .login-page {
   min-height: 100vh;
   padding: calc(56rpx + env(safe-area-inset-top)) 36rpx 60rpx;

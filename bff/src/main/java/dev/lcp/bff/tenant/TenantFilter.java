@@ -56,7 +56,8 @@ public class TenantFilter extends OncePerRequestFilter {
     String uri = request.getRequestURI();
     boolean login = "/api/v1/auth/login".equals(uri);
     boolean sso = uri.startsWith("/api/v1/auth/sso/");
-    if (login || sso) {
+    boolean wechat = uri.startsWith("/api/v1/auth/wechat/");
+    if (login || sso || wechat) {
       // 登录与 SSO 端点由各自票据校验；浏览器可能携带过期 Bearer，不能在此拦截。
       TenantContext.clear();
       try {

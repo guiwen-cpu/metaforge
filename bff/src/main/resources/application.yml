@@ -96,6 +96,17 @@ lcp:
     auto-create: ${LCP_SSO_AUTO_CREATE:false}
     state-ttl-minutes: ${LCP_SSO_STATE_TTL_MINUTES:10}
     ticket-ttl-seconds: ${LCP_SSO_TICKET_TTL_SECONDS:60}
+  wechat:
+    enabled: ${LCP_WECHAT_ENABLED:false}
+    app-id: ${LCP_WECHAT_APP_ID:}
+    app-secret: ${LCP_WECHAT_APP_SECRET:}
+    tenant: ${LCP_WECHAT_TENANT:}
+    display-name: ${LCP_WECHAT_DISPLAY_NAME:微信登录}
+    link-by: ${LCP_WECHAT_LINK_BY:username}
+    auto-create: ${LCP_WECHAT_AUTO_CREATE:false}
+    # 仅本地假服务联调时覆盖；生产保持默认微信官方域名。
+    api-base: ${LCP_WECHAT_API_BASE:https://api.weixin.qq.com}
+    allow-insecure-http: ${LCP_WECHAT_ALLOW_INSECURE_HTTP:false}
   secrets:
     # Base64 编码的 32 字节主密钥；仅在读写密钥时校验，可为空。
     master-key: ${LCP_SECRET_MASTER_KEY:}
