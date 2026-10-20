@@ -93,10 +93,23 @@ setStsProvider(async () => {
 服务端 `../api/permissions.json` 才是授权事实来源，前端不做任何替代校验。
 未在 permissions 中出现的实体按「不限制」处理，避免配置缺失导致页面不可用。
 
+## 登录与会话
+
+生成项目不再自动创建演示会话。`/login` 会调用平台身份接口取得 JWT，后续请求统一带
+`Authorization: Bearer <token>`；页面刷新时通过 `GET /api/v1/auth/me` 恢复用户、角色与部门。
+
+- `POST /api/v1/auth/login`：`{ tenant, username, password }` → `{ token, expires_at, user }`
+- `GET /api/v1/auth/me`：返回当前用户与 `role_keys` / `dept_id` / `dept_name`
+- 路由守卫：未登录访问业务页面跳转 `/login?redirect=<原地址>`；令牌失效自动清空并回登录页
+- 会话键：`lcp.token` / `lcp.tenant` / `lcp.user`；退出登录只清本地令牌
+
+默认租户来自 Bundle 的 `tenantId`，登录页仍可修改；生产多租户部署应固定租户或从域名推导。
+
+
 ## 生成边界
 
 - 本步骤只生成**实体驱动的标准 CRUD 页面**；`uiSchemas` 里的自由布局由后续「页面设计器渲染器」消费。
-- 登录是占位会话（`demo-user` / `student`），接入平台 SSO 后替换 `stores/session.ts`。
+- 登录走平台 JWT 身份接口，角色与部门来自服务端；接入 SSO 时可替换 `stores/session.ts` 的登录入口。
 - `GENERATED.txt` 是产物清单：下一轮只删除「上一轮清单里有、这一轮不再产出」的文件，`node_modules`、
   手写扩展组件不会被误删。
 - 生成器本身不执行依赖安装；首次使用请先 `npm install`，再跑 `npm run typecheck` / `npm run build`。

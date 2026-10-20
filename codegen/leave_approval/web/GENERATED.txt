@@ -28,6 +28,7 @@ src/pages/LeaveRequest/index.vue
 src/router/index.ts
 src/stores/session.ts
 src/styles/index.css
+src/views/Login.vue
 src/views/NotFound.vue
 tailwind.config.js
 tsconfig.json

@@ -77,6 +77,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `16507a3` | H5 应用壳与移动端适配 | typecheck / build / 容器重建 + 深链登录回跳、非法路径回退、发起页、底部导航与桌面回归 CDP 实测 |
 | `3bee549` | uni-app 小程序运行时壳 | typecheck + H5 / mp-weixin 构建 + H5 390×844 登录、列表、搜索、分页、详情与表单回填 CDP 实测 |
 | `f5bcd54` | 连接器扩展（GraphQL / SOAP / database / OAuth2 / 签名 / 审计） | typecheck / build / BFF 测试 + 审计落库与脱敏 + 私网 HTTP 链路冒烟 |
+| `PENDING` | 出码模板 JWT 会话与组织权限 | 生成工程 typecheck / build + 登录、刷新恢复、退出登录 CDP 实测 |
 
 ## 文档维护
 
@@ -95,6 +96,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 ### 2. 出码引擎（部分）
 - `tools/gen-*.mjs`：DataSchema → PG DDL、TS/Java 实体、BFF CRUD、TS 客户端、Vue3 CRUD 页面（含 OSS 直传代码）。
 - 示例产物：`codegen/leave_approval/`。
+- 生成前端已接入平台 JWT：登录页、路由守卫、`/auth/me` 会话恢复、角色 / 部门展示与退出登录。
 - **未完成**：Bundle 整体 → 可运行工程导出、CLI、压缩包与版本对比。
 
 ### 3. BFF 与控制平面
@@ -237,6 +239,12 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 前端：连接器页支持 database / soap / oauth2 / signature 配置、审计弹窗与「其他配置 JSON」；`baseUrl` 对 REST / GraphQL / SOAP 改为可选（可由 API 自带地址）。
 - 验证：`node tools/validate.mjs` 通过；`npm run typecheck` / `npm run build` 通过；BFF 测试覆盖 URL 策略、XML 安全解析、SOAP Fault、GraphQL 与连接器分派；审计冒烟产生 `create` / `update` / `delete` 三条记录，快照请求头值为 `***`。
 
+### 20. 出码模板 JWT 会话与组织权限（刚完成）
+- `tools/gen-page.mjs` 新增 `src/views/Login.vue`：租户 / 用户名 / 密码登录，错误信息来自 BFF，提交期间禁用按钮。
+- `stores/session.ts` 移除 `ensureDemoSession` 与 `demo-user`，改为 `POST /api/v1/auth/login` + `GET /api/v1/auth/me`；保存 JWT、租户与用户快照，角色取 `role_keys`，部门取 `dept_id` / `dept_name`。
+- 路由守卫：未登录访问业务页跳转 `/login?redirect=<原地址>`；已登录访问登录页回到目标页；刷新时用 Bearer 令牌恢复会话，令牌失效自动清空并回登录页。
+- 布局：显示真实姓名、部门与角色，退出登录回到 `/login`；不再自动创建演示会话。
+- 验证：生成工程 `typecheck` / `build` 通过；CDP 实测未登录深链跳转、`alice` 登录、跨刷新恢复（角色 `student`、部门 `计算机系`）、列表数据与退出登录回登录页。
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -348,16 +356,15 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 通知已覆盖站内信、webhook / email outbox、`Rule.kind=notification` 与 SLA 提醒；`autoApprove` / `autoReject` 仍未实现，通知规则暂无实例规则做端到端实测，outbox 暂无管理界面与保留期策略。
 - 自定义组件已支持内联沙箱与 `runtime=remote` 远程模块；远程模块需自行保证可跨域访问，且模块必须自包含（blob import 不解析相对依赖）。设计器仍以内联预览为主，远程模块在工作台无网络时回退为明确错误态。
 - OSS STS 临时凭证服务未实现，生成代码里只有直传骨架。
-- 生成前端示例仍使用演示会话；控制平面已切 JWT，但出码模板未同步。
+- 生成前端已使用平台 JWT；SSO 登录仍需按项目替换 `stores/session.ts` 的登录入口，生成器暂不产出 IdP 回调页。
 - 校验器残留警告：内联枚举与共享枚举取值不一致；流程监听器未限定 `taskKey`。
 
 ## 下一步（建议直接开工）
 
 阶段 4、阶段 5 与阶段 6.1 / 6.2 / 6.3 / 6.4 已完成，按以下顺序推进：
 
-1. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
-2. 小程序能力深化：补 `apiCall`、附件上传、审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
-3. 运行时深化：真实数据库事务、`custom` 代码钩子与其余内部 API 分派，接入真实节假日服务。
+1. 小程序能力深化：补 `apiCall`、附件上传、审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
+2. 运行时深化：真实数据库事务、`custom` 代码钩子与其余内部 API 分派，接入真实节假日服务。
 
 ## 恢复上下文的顺序
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { APP_KEY, resourceRoutes } from "@/generated/schema";
 import { useSession } from "@/stores/session";
@@ -10,14 +10,14 @@ const router = useRouter();
 
 const activePath = computed(() => "/" + String(route.path).split("/").filter(Boolean)[0]);
 const tenantLabel = computed(() => session.tenantId || "未设置租户");
-
-onMounted(() => {
-  session.ensureDemoSession();
+const identityLabel = computed(() => {
+  const values = [session.user?.deptName, session.roles.join(" / ")].filter(Boolean);
+  return values.join(" · ") || "无角色";
 });
 
 function signOut() {
   session.signOut();
-  void router.push("/");
+  void router.push("/login");
 }
 </script>
 
@@ -50,7 +50,7 @@ function signOut() {
         <div class="flex items-center gap-3">
           <div class="text-right leading-tight">
             <div class="text-sm font-medium text-slate-800">{{ session.user?.name ?? "未登录" }}</div>
-            <div class="text-[11px] text-slate-400">{{ session.roles.join(" / ") || "无角色" }}</div>
+            <div class="text-[11px] text-slate-400">{{ identityLabel }}</div>
           </div>
           <el-button size="small" plain @click="signOut">退出</el-button>
         </div>

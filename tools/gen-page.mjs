@@ -618,12 +618,20 @@ ${routeLines},
 `;
   return `import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import AppLayout from "@/layouts/AppLayout.vue";
+import Login from "@/views/Login.vue";
 import NotFound from "@/views/NotFound.vue";
+import { useSession } from "@/stores/session";
 
 /** Vite 的 glob 键与 routeOf() 产出的相对路径一一对应，改页面目录时两边一起改。 */
 const pages = import.meta.glob("../pages/*/index.vue");
 
 const routes: RouteRecordRaw[] = [
+  {
+    path: "/login",
+    name: "Login",
+    component: Login,
+    meta: { title: "登录", public: true }
+  },
   {
     path: "/",
     component: AppLayout,
@@ -639,6 +647,21 @@ const router = createRouter({
   scrollBehavior: () => ({ top: 0 })
 });
 
+router.beforeEach(async (to) => {
+  const session = useSession();
+  await session.restore();
+  const isPublic = (to.meta as { public?: boolean }).public === true;
+  if (to.name === "Login" && session.isAuthenticated) {
+    const redirect = typeof to.query.redirect === "string" ? to.query.redirect : "/";
+    return redirect.startsWith("/") ? redirect : "/";
+  }
+  if (isPublic) return true;
+  if (!session.isAuthenticated) {
+    return { name: "Login", query: { redirect: to.fullPath } };
+  }
+  return true;
+});
+
 router.afterEach((to) => {
   const title = typeof to.meta.title === "string" ? to.meta.title : "";
   document.title = title ? title + " · MetaForge" : "MetaForge";
@@ -650,7 +673,7 @@ export default router;
 
 function layoutVueOf(entry, routes) {
   return `<script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { APP_KEY, resourceRoutes } from "@/generated/schema";
 import { useSession } from "@/stores/session";
@@ -661,14 +684,14 @@ const router = useRouter();
 
 const activePath = computed(() => "/" + String(route.path).split("/").filter(Boolean)[0]);
 const tenantLabel = computed(() => session.tenantId || "未设置租户");
-
-onMounted(() => {
-  session.ensureDemoSession();
+const identityLabel = computed(() => {
+  const values = [session.user?.deptName, session.roles.join(" / ")].filter(Boolean);
+  return values.join(" · ") || "无角色";
 });
 
 function signOut() {
   session.signOut();
-  void router.push("/");
+  void router.push("/login");
 }
 </script>
 
@@ -701,7 +724,7 @@ function signOut() {
         <div class="flex items-center gap-3">
           <div class="text-right leading-tight">
             <div class="text-sm font-medium text-slate-800">{{ session.user?.name ?? "未登录" }}</div>
-            <div class="text-[11px] text-slate-400">{{ session.roles.join(" / ") || "无角色" }}</div>
+            <div class="text-[11px] text-slate-400">{{ identityLabel }}</div>
           </div>
           <el-button size="small" plain @click="signOut">退出</el-button>
         </div>
@@ -1184,17 +1207,112 @@ export function tagStyleOf(column: ColumnSpec, value: unknown): Record<string, s
 `;
 }
 
+function loginVueOf(entry) {
+  const appName = JSON.stringify(entry.bundle?.app?.name ?? entry.key);
+  return `<script setup lang="ts">
+import { reactive, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { ApiError } from "@/lib/http";
+import { useSession } from "@/stores/session";
+
+const APP_NAME = ${appName};
+const session = useSession();
+const route = useRoute();
+const router = useRouter();
+
+const form = reactive({
+  tenant: session.tenantId,
+  username: "",
+  password: ""
+});
+const submitting = ref(false);
+const error = ref("");
+
+async function submit() {
+  error.value = "";
+  if (!form.tenant.trim() || !form.username.trim() || !form.password) {
+    error.value = "请填写租户、用户名与密码";
+    return;
+  }
+  submitting.value = true;
+  try {
+    await session.login(form.tenant.trim(), form.username.trim(), form.password);
+    const redirect = typeof route.query.redirect === "string" && route.query.redirect.startsWith("/")
+      ? route.query.redirect
+      : "/";
+    await router.replace(redirect);
+  } catch (cause) {
+    error.value = cause instanceof ApiError ? cause.message : "登录失败，请稍后重试";
+  } finally {
+    submitting.value = false;
+  }
+}
+</script>
+
+<template>
+  <div class="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-10">
+    <div class="w-full max-w-[420px]">
+      <div class="mb-6 flex items-center gap-3 text-white">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-sm font-semibold text-slate-900">MF</div>
+        <div class="leading-tight">
+          <div class="text-base font-semibold">{{ APP_NAME }}</div>
+          <div class="text-[11px] uppercase tracking-[0.2em] text-slate-400">MetaForge</div>
+        </div>
+      </div>
+      <div class="rounded-2xl bg-white p-7 shadow-2xl shadow-slate-950/40">
+        <h1 class="text-xl font-semibold text-slate-900">登录</h1>
+        <p class="mt-1 text-[12px] leading-relaxed text-slate-500">使用平台身份中心账号登录；角色与部门权限由服务端下发。</p>
+        <el-alert v-if="error" type="error" :closable="false" show-icon class="mt-4" :title="error" />
+        <el-form label-position="top" class="mt-5" @submit.prevent="submit">
+          <el-form-item label="租户">
+            <el-input v-model="form.tenant" autocomplete="organization" placeholder="tenant_demo_school" />
+          </el-form-item>
+          <el-form-item label="用户名">
+            <el-input v-model="form.username" autocomplete="username" placeholder="请输入用户名" />
+          </el-form-item>
+          <el-form-item label="密码">
+            <el-input v-model="form.password" type="password" show-password autocomplete="current-password" placeholder="请输入密码" />
+          </el-form-item>
+          <el-button type="primary" native-type="submit" :loading="submitting" class="mt-1 !w-full">登录</el-button>
+        </el-form>
+        <p class="mt-4 text-[11px] leading-relaxed text-slate-400">没有账号或忘记密码，请联系租户管理员。连续失败会触发临时锁定。</p>
+      </div>
+    </div>
+  </div>
+</template>
+`;
+}
+
 function sessionTsOf(entry) {
   const defaultTenant = JSON.stringify(entry.bundle?.tenantId ?? "demo");
   return `import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
+import { request } from "@/lib/http";
 
 export interface SessionUser {
   id: string;
+  username: string;
   name: string;
   roles: string[];
   deptId?: string;
+  deptName?: string;
   avatar?: string;
+}
+
+interface IdentityUser {
+  id: string;
+  username: string;
+  display_name: string;
+  dept_id?: string | null;
+  dept_name?: string | null;
+  role_keys?: string[];
+  roles?: Array<{ role_key: string }>;
+}
+
+interface LoginResponse {
+  token: string;
+  expires_at: string;
+  user: IdentityUser;
 }
 
 const TOKEN_KEY = "lcp.token";
@@ -1214,13 +1332,26 @@ function readUser(): SessionUser | null {
   }
 }
 
+function toSessionUser(profile: IdentityUser): SessionUser {
+  const roles = profile.role_keys ?? profile.roles?.map((role) => role.role_key) ?? [];
+  return {
+    id: profile.id,
+    username: profile.username,
+    name: profile.display_name,
+    roles,
+    deptId: profile.dept_id ?? undefined,
+    deptName: profile.dept_name ?? undefined
+  };
+}
+
 export const useSession = defineStore("session", () => {
   const token = ref<string>(localStorage.getItem(TOKEN_KEY) ?? "");
   const tenantId = ref<string>(localStorage.getItem(TENANT_KEY) || DEFAULT_TENANT);
   const user = ref<SessionUser | null>(readUser());
+  const restored = ref(false);
 
   const roles = computed<string[]>(() => user.value?.roles ?? []);
-  const isAuthenticated = computed<boolean>(() => user.value !== null);
+  const isAuthenticated = computed<boolean>(() => token.value !== "" && user.value !== null);
 
   function signIn(next: { token?: string; tenantId?: string; user: SessionUser }): void {
     if (next.token !== undefined) token.value = next.token;
@@ -1233,16 +1364,33 @@ export const useSession = defineStore("session", () => {
     user.value = null;
   }
 
-  /** 生成项目的占位会话：接入平台后换成 SSO / JWT 回调，不要在生产保留自动登录。 */
-  function ensureDemoSession(): void {
-    if (user.value) return;
-    signIn({
-      user: {
-        id: "demo-user",
-        name: "演示用户",
-        roles: ["student"]
-      }
+  async function login(tenant: string, username: string, password: string): Promise<void> {
+    const result = await request<LoginResponse>({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      data: { tenant, username, password }
     });
+    signIn({ token: result.token, tenantId: tenant, user: toSessionUser(result.user) });
+    restored.value = true;
+  }
+
+  /** 页面刷新后用 Bearer 令牌恢复会话；令牌失效时清空本地状态并回到登录页。 */
+  async function restore(): Promise<boolean> {
+    if (restored.value) return isAuthenticated.value;
+    if (!token.value) {
+      restored.value = true;
+      return false;
+    }
+    try {
+      const profile = await request<IdentityUser>({ url: "/api/v1/auth/me" });
+      user.value = toSessionUser(profile);
+      return true;
+    } catch {
+      signOut();
+      return false;
+    } finally {
+      restored.value = true;
+    }
   }
 
   watch(
@@ -1254,14 +1402,13 @@ export const useSession = defineStore("session", () => {
       if (user.value) localStorage.setItem(USER_KEY, JSON.stringify(user.value));
       else localStorage.removeItem(USER_KEY);
     },
-    { deep: true }
+    { deep: true, flush: "sync" }
   );
 
-  return { token, tenantId, user, roles, isAuthenticated, signIn, signOut, ensureDemoSession };
+  return { token, tenantId, user, roles, isAuthenticated, restored, signIn, signOut, login, restore };
 });
 `;
 }
-
 function accessTsOf() {
   return `import { RESOURCE_PERMISSIONS, UNLISTED_RESOURCES_ARE_OPEN, type Action } from "@/generated/permissions";
 import { useSession } from "@/stores/session";
@@ -2749,10 +2896,23 @@ ${uploadTable}
 服务端 \`../api/permissions.json\` 才是授权事实来源，前端不做任何替代校验。
 未在 permissions 中出现的实体按「不限制」处理，避免配置缺失导致页面不可用。
 
+## 登录与会话
+
+生成项目不再自动创建演示会话。\`/login\` 会调用平台身份接口取得 JWT，后续请求统一带
+\`Authorization: Bearer <token>\`；页面刷新时通过 \`GET /api/v1/auth/me\` 恢复用户、角色与部门。
+
+- \`POST /api/v1/auth/login\`：\`{ tenant, username, password }\` → \`{ token, expires_at, user }\`
+- \`GET /api/v1/auth/me\`：返回当前用户与 \`role_keys\` / \`dept_id\` / \`dept_name\`
+- 路由守卫：未登录访问业务页面跳转 \`/login?redirect=<原地址>\`；令牌失效自动清空并回登录页
+- 会话键：\`lcp.token\` / \`lcp.tenant\` / \`lcp.user\`；退出登录只清本地令牌
+
+默认租户来自 Bundle 的 \`tenantId\`，登录页仍可修改；生产多租户部署应固定租户或从域名推导。
+
+
 ## 生成边界
 
 - 本步骤只生成**实体驱动的标准 CRUD 页面**；\`uiSchemas\` 里的自由布局由后续「页面设计器渲染器」消费。
-- 登录是占位会话（\`demo-user\` / \`student\`），接入平台 SSO 后替换 \`stores/session.ts\`。
+- 登录走平台 JWT 身份接口，角色与部门来自服务端；接入 SSO 时可替换 \`stores/session.ts\` 的登录入口。
 - \`GENERATED.txt\` 是产物清单：下一轮只删除「上一轮清单里有、这一轮不再产出」的文件，\`node_modules\`、
   手写扩展组件不会被误删。
 - 生成器本身不执行依赖安装；首次使用请先 \`npm install\`，再跑 \`npm run typecheck\` / \`npm run build\`。
@@ -2800,6 +2960,7 @@ function buildFiles(entry) {
   files.set("src/App.vue", appVueOf());
   files.set("src/styles/index.css", stylesOf());
   files.set("src/views/NotFound.vue", notFoundVueOf());
+  files.set("src/views/Login.vue", loginVueOf(entry));
   files.set("src/router/index.ts", routerOf(entry, routes));
   files.set("src/layouts/AppLayout.vue", layoutVueOf(entry, routes));
   files.set("src/generated/schema.ts", schemaTsOf(entry, resources, routes));

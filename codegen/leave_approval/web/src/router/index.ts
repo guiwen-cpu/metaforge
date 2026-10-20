@@ -1,11 +1,19 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import AppLayout from "@/layouts/AppLayout.vue";
+import Login from "@/views/Login.vue";
 import NotFound from "@/views/NotFound.vue";
+import { useSession } from "@/stores/session";
 
 /** Vite 的 glob 键与 routeOf() 产出的相对路径一一对应，改页面目录时两边一起改。 */
 const pages = import.meta.glob("../pages/*/index.vue");
 
 const routes: RouteRecordRaw[] = [
+  {
+    path: "/login",
+    name: "Login",
+    component: Login,
+    meta: { title: "登录", public: true }
+  },
   {
     path: "/",
     component: AppLayout,
@@ -38,6 +46,21 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
   scrollBehavior: () => ({ top: 0 })
+});
+
+router.beforeEach(async (to) => {
+  const session = useSession();
+  await session.restore();
+  const isPublic = (to.meta as { public?: boolean }).public === true;
+  if (to.name === "Login" && session.isAuthenticated) {
+    const redirect = typeof to.query.redirect === "string" ? to.query.redirect : "/";
+    return redirect.startsWith("/") ? redirect : "/";
+  }
+  if (isPublic) return true;
+  if (!session.isAuthenticated) {
+    return { name: "Login", query: { redirect: to.fullPath } };
+  }
+  return true;
 });
 
 router.afterEach((to) => {

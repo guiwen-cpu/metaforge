@@ -134,9 +134,9 @@ mvn -q -f bff/pom.xml -DskipTests package
 
 ## 已知边界
 
-- 三个设计器目前负责元数据编辑、校验与发布，不含运行时执行；Flowable 运行时、审批流页面、多端发布、OSS STS、JWT/SSO 尚未实现。
+- 三个设计器负责元数据编辑、校验与发布；Flowable 运行时、审批流页面、多端发布与 JWT/SSO 已实现，OSS STS 仍为直传骨架。
  - `bff/` 已在 Docker 构建中编译通过；本机直接 `mvn` 需要 JDK 21 + Maven。
- - 生成前端使用演示会话（默认租户取 Bundle 的 `tenantId`），不能用于生产鉴权。
+ - 生成前端使用平台 JWT 登录与 `/auth/me` 会话恢复，默认租户取 Bundle 的 `tenantId`；SSO 入口需按项目替换。
  - 校验器残留 warn：内联枚举与共享枚举取值不一致；流程监听器未限定 `taskKey`。
 
 协议细节见 `PROTOCOL.md`。
