@@ -173,6 +173,41 @@ export function createStarterSchema(appKey: string, appName: string, ordinal = 1
   };
 }
 
+/**
+ * 字段 key 改名后同步元数据内的引用：标题字段、主键、索引列、关系端点与 refField。
+ * 物理列的改名仍交给出码/DDL 按版本 diff 处理，这里只保证草稿自洽。
+ */
+export function remapFieldKey(
+  schema: DataSchema,
+  entity: DataEntity,
+  from: string,
+  to: string
+): void {
+  if (!from || !to || from === to) return;
+  if (entity.titleField === from) entity.titleField = to;
+  if (entity.storage?.primaryKey === from) entity.storage.primaryKey = to;
+  for (const index of entity.indexes ?? []) {
+    index.fields = index.fields.map((key) => (key === from ? to : key));
+  }
+  for (const candidate of schema.entities) {
+    for (const relation of candidate.relations ?? []) {
+      const source = resolveEntityByRef(relation.from?.entityRef, schema.entities);
+      const target = resolveEntityByRef(relation.to?.entityRef, schema.entities);
+      if (source?.id === entity.id && relation.from?.fieldKey === from) {
+        relation.from.fieldKey = to;
+      }
+      if (target?.id === entity.id && relation.to?.fieldKey === from) {
+        relation.to.fieldKey = to;
+      }
+    }
+    for (const field of candidate.fields) {
+      if (field.refField !== from || !field.refEntity) continue;
+      const target = resolveEntityByRef(field.refEntity, schema.entities);
+      if (target?.id === entity.id) field.refField = to;
+    }
+  }
+}
+
 export function entityRef(entity: DataEntity): ArtifactRef {
   return { kind: "entity", id: entity.id };
 }

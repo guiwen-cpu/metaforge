@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-20
-> 分支：`dev` ｜ 最新提交：`644b473 feat(auth): 接入 JWT 与组织权限`
+> 分支：`dev` ｜ 最新提交：`37d3c51 fix(designer): 字段改名同步标题字段等引用`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -83,6 +83,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - `platform/src/pages/ModelDesignerPage.vue`
 - `platform/src/lib/dataModel.ts`、`platform/src/types/dataModel.ts`
 - 实体、字段、关系、存储策略、语义描述、校验、草稿与发布。
+- 字段 key 改名时同步标题字段、主键、索引列、关系端点与 `refField`（`remapFieldKey`），避免改名后留下悬空引用挡住发布。
 
 ### 5. 页面设计器
 - `platform/src/pages/PageDesignerPage.vue`

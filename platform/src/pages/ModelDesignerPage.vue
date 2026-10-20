@@ -19,6 +19,7 @@ import {
   findEntity,
   findField,
   relationTypeLabel,
+  remapFieldKey,
   resolveEntityByRef,
   resolveEntityId,
   sanitizeKey,
@@ -630,8 +631,12 @@ function submitField() {
     field.length = 64;
   }
 
+  const previous = fieldIndex.value < 0 ? null : entity.fields[fieldIndex.value];
   if (fieldIndex.value < 0) entity.fields.push(field);
   else entity.fields.splice(fieldIndex.value, 1, field);
+  if (previous && previous.key !== field.key && activeSchema.value) {
+    remapFieldKey(activeSchema.value, entity, previous.key, field.key);
+  }
   fieldOpen.value = false;
   ElMessage.success(fieldIndex.value < 0 ? "字段已添加" : "字段已更新");
 }
