@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -51,6 +52,18 @@ public class AuthService {
   }
 
   public record LoginResult(String token, Instant expiresAt, UserView user) {
+  }
+
+  /** 外部 IdP 规范化后的身份；linkBy / autoCreate 决定首次登录如何落到本地账号。 */
+  public record ExternalIdentity(
+      String tenant,
+      String provider,
+      String subject,
+      String username,
+      String email,
+      String displayName,
+      String linkBy,
+      boolean autoCreate) {
   }
 
   public PasswordPolicy.PolicyView passwordPolicy() {
@@ -119,6 +132,33 @@ public class AuthService {
       throw AuthException.badRequest("password_change_failed", "当前密码不正确");
     }
     return result.profile();
+  }
+
+  public LoginResult loginExternal(
+      ExternalIdentity external, String authMethod, String ip, String userAgent) {
+    String tenant = trim(external == null ? null : external.tenant());
+    String provider = trim(external == null ? null : external.provider());
+    String subject = trim(external == null ? null : external.subject());
+    if (tenant == null || provider == null || subject == null) {
+      throw AuthException.badRequest("sso_identity_invalid",
+          "统一身份缺少租户、提供方或用户标识");
+    }
+    ExternalIdentity normalized = new ExternalIdentity(
+        tenant, provider, subject,
+        limit(trim(external.username()), 128),
+        limit(trim(external.email()), 256),
+        limit(trim(external.displayName()), 128),
+        external.linkBy(), external.autoCreate());
+    Attempt attempt = inTenant(
+        tenant, "anonymous",
+        () -> attemptExternal(normalized, authMethod, ip, userAgent));
+    if (!attempt.success() || attempt.profile() == null) {
+      throw AuthException.forbidden("统一身份未绑定本地账号或账号不可用");
+    }
+    UserView profile = attempt.profile();
+    String token = jwt.issue(tenant, profile.id(), profile.displayName());
+    Claims claims = jwt.verify(token);
+    return new LoginResult(token, claims.expiresAt(), profile);
   }
 
   public UserView me() {
@@ -198,16 +238,149 @@ public class AuthService {
     return new Attempt(true, profile);
   }
 
+  private Attempt attemptExternal(
+      ExternalIdentity external, String authMethod, String ip, String userAgent) {
+    Map<String, Object> account = boundAccount(external);
+    if (account == null && linkable(external.linkBy())) {
+      account = linkableAccount(external);
+      if (account != null) {
+        bind(external, str(account.get("id")));
+      }
+    }
+    if (account == null && external.autoCreate()) {
+      account = createExternalAccount(external);
+    }
+    if (account == null) {
+      audit(external.tenant(), null, external.username(), "login_failure", false,
+          "sso_user_not_found", ip, userAgent, authMethod);
+      return new Attempt(false, null);
+    }
+    String userId = str(account.get("id"));
+    String username = str(account.get("username"));
+    if (!"active".equals(str(account.get("status")))) {
+      audit(external.tenant(), userId, username, "login_failure", false,
+          "user_disabled", ip, userAgent, authMethod);
+      return new Attempt(false, null);
+    }
+    jdbc.update("""
+        update lcp_user
+           set last_login_at = now(),
+               last_login_ip = :ip,
+               updated_at = now()
+         where tenant_id = :tenant and id = :user
+        """, params(external.tenant()).addValue("user", userId).addValue("ip", limit(ip, 128)));
+    UserView profile = identity.profile(userId);
+    if (profile == null) {
+      audit(external.tenant(), userId, username, "login_failure", false,
+          "profile_missing", ip, userAgent, authMethod);
+      return new Attempt(false, null);
+    }
+    audit(external.tenant(), userId, username, "login_success", true, null,
+        ip, userAgent, authMethod);
+    return new Attempt(true, profile);
+  }
+
+  private Map<String, Object> boundAccount(ExternalIdentity external) {
+    List<Map<String, Object>> rows = jdbc.queryForList("""
+        select id, username, display_name, status
+          from lcp_user
+         where tenant_id = :tenant and sso_provider = :provider and sso_subject = :subject
+        """, params(external.tenant()).addValue("provider", external.provider())
+        .addValue("subject", external.subject()));
+    return rows.isEmpty() ? null : rows.get(0);
+  }
+
+  private Map<String, Object> linkableAccount(ExternalIdentity external) {
+    boolean byEmail = "email".equals(external.linkBy());
+    String value = byEmail ? external.email() : external.username();
+    if (value == null || value.isBlank()) {
+      return null;
+    }
+    String column = byEmail ? "email" : "username";
+    List<Map<String, Object>> rows = jdbc.queryForList("""
+        select id, username, display_name, status
+          from lcp_user
+         where tenant_id = :tenant
+           and lower(%s) = lower(:value)
+           and (sso_subject is null or (sso_provider = :provider and sso_subject = :subject))
+        """.formatted(column), params(external.tenant()).addValue("value", value)
+        .addValue("provider", external.provider()).addValue("subject", external.subject()));
+    return rows.isEmpty() ? null : rows.get(0);
+  }
+
+  private void bind(ExternalIdentity external, String userId) {
+    jdbc.update("""
+        update lcp_user
+           set sso_provider = :provider,
+               sso_subject = :subject,
+               updated_at = now()
+         where tenant_id = :tenant and id = :user
+           and (sso_subject is null or (sso_provider = :provider and sso_subject = :subject))
+        """, params(external.tenant()).addValue("user", userId)
+        .addValue("provider", external.provider()).addValue("subject", external.subject()));
+  }
+
+  private Map<String, Object> createExternalAccount(ExternalIdentity external) {
+    String base = external.username();
+    if (base == null || base.isBlank()) {
+      base = "sso_" + external.subject().replaceAll("[^A-Za-z0-9_-]", "_");
+    }
+    String displayName = external.displayName() == null || external.displayName().isBlank()
+        ? base : external.displayName();
+    for (int attempt = 0; attempt < 3; attempt++) {
+      String username = attempt == 0 ? base : base + "_" + UUID.randomUUID().toString().substring(0, 6);
+      String userId = "sso_" + UUID.randomUUID();
+      try {
+        jdbc.update("""
+            insert into lcp_user
+              (id, tenant_id, username, display_name, email, password_hash,
+               status, sso_provider, sso_subject)
+            values
+              (:id, :tenant, :username, :display, :email, '!',
+               'active', :provider, :subject)
+            """, params(external.tenant()).addValue("id", userId)
+            .addValue("username", limit(username, 128))
+            .addValue("display", limit(displayName, 128))
+            .addValue("email", external.email())
+            .addValue("provider", external.provider())
+            .addValue("subject", external.subject()));
+        return accountById(external.tenant(), userId);
+      } catch (DuplicateKeyException ex) {
+        // 用户名竞争时追加随机后缀重试。
+      }
+    }
+    return null;
+  }
+
+  private Map<String, Object> accountById(String tenant, String userId) {
+    List<Map<String, Object>> rows = jdbc.queryForList("""
+        select id, username, display_name, status
+          from lcp_user
+         where tenant_id = :tenant and id = :user
+        """, params(tenant).addValue("user", userId));
+    return rows.isEmpty() ? null : rows.get(0);
+  }
+
+  private static boolean linkable(String linkBy) {
+    return "username".equals(linkBy) || "email".equals(linkBy);
+  }
+
   private void audit(
       String tenant, String userId, String username, String event, boolean success,
       String reason, String ip, String userAgent) {
+    audit(tenant, userId, username, event, success, reason, ip, userAgent, "password");
+  }
+
+  private void audit(
+      String tenant, String userId, String username, String event, boolean success,
+      String reason, String ip, String userAgent, String authMethod) {
     jdbc.update("""
         insert into lcp_auth_audit
           (id, tenant_id, user_id, username, event_type, success, reason,
            auth_method, ip, user_agent)
         values
           (:id, :tenant, :user, :username, :event, :success, :reason,
-           'password', :ip, :agent)
+           :method, :ip, :agent)
         """, new MapSqlParameterSource("id", UUID.randomUUID())
         .addValue("tenant", tenant)
         .addValue("user", userId)
@@ -215,6 +388,7 @@ public class AuthService {
         .addValue("event", event)
         .addValue("success", success)
         .addValue("reason", reason)
+        .addValue("method", authMethod == null || authMethod.isBlank() ? "password" : authMethod)
         .addValue("ip", limit(ip, 128))
         .addValue("agent", limit(userAgent, 512)));
   }

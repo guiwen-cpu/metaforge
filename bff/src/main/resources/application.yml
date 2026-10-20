@@ -63,6 +63,35 @@ lcp:
     lockout:
       max-failed-attempts: ${LCP_AUTH_MAX_FAILED_ATTEMPTS:5}
       minutes: ${LCP_AUTH_LOCK_MINUTES:15}
+  sso:
+    enabled: ${LCP_SSO_ENABLED:false}
+    mode: ${LCP_SSO_MODE:oidc}
+    provider: ${LCP_SSO_PROVIDER:sso}
+    display-name: ${LCP_SSO_DISPLAY_NAME:统一身份登录}
+    tenant: ${LCP_SSO_TENANT:}
+    client-id: ${LCP_SSO_CLIENT_ID:}
+    client-secret: ${LCP_SSO_CLIENT_SECRET:}
+    authorize-url: ${LCP_SSO_AUTHORIZE_URL:}
+    token-url: ${LCP_SSO_TOKEN_URL:}
+    userinfo-url: ${LCP_SSO_USERINFO_URL:}
+    jwks-url: ${LCP_SSO_JWKS_URL:}
+    issuer: ${LCP_SSO_ISSUER:}
+    scopes: ${LCP_SSO_SCOPES:openid profile email}
+    subject-claim: ${LCP_SSO_SUBJECT_CLAIM:sub}
+    username-claim: ${LCP_SSO_USERNAME_CLAIM:preferred_username}
+    email-claim: ${LCP_SSO_EMAIL_CLAIM:email}
+    name-claim: ${LCP_SSO_NAME_CLAIM:name}
+    redirect-uri: ${LCP_SSO_REDIRECT_URI:}
+    frontend-base-url: ${LCP_SSO_FRONTEND_BASE_URL:}
+    frontend-callback: ${LCP_SSO_FRONTEND_CALLBACK:/sso/callback}
+    cas-server-url: ${LCP_SSO_CAS_SERVER_URL:}
+    cas-validate-path: ${LCP_SSO_CAS_VALIDATE_PATH:/p3/serviceValidate}
+    cas-attributes: ${LCP_SSO_CAS_ATTRIBUTES:true}
+    allow-insecure-http: ${LCP_SSO_ALLOW_INSECURE_HTTP:false}
+    link-by: ${LCP_SSO_LINK_BY:username}
+    auto-create: ${LCP_SSO_AUTO_CREATE:false}
+    state-ttl-minutes: ${LCP_SSO_STATE_TTL_MINUTES:10}
+    ticket-ttl-seconds: ${LCP_SSO_TICKET_TTL_SECONDS:60}
   identity:
     # 仅开发环境：跳过组织管理员校验；生产设为 false。
     allow-all: ${LCP_IDENTITY_ALLOW_ALL:false}

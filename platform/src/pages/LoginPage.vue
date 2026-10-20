@@ -3,9 +3,11 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { authApi } from "@/api/identity";
+import { profileFromUser, safeStudioRedirect } from "@/lib/identityProfile";
 import { errorMessage } from "@/lib/http";
+import { session } from "@/lib/session";
 import { useSessionStore } from "@/stores/session";
-import type { IdentityUser } from "@/types/identity";
+import type { SsoConfig } from "@/types/identity";
 
 const route = useRoute();
 const router = useRouter();
@@ -17,6 +19,8 @@ const form = reactive({
   password: "alice123"
 });
 const loading = ref(false);
+const ssoLoading = ref(false);
+const sso = ref<SsoConfig | null>(null);
 const error = ref("");
 
 const accounts = [
@@ -36,21 +40,6 @@ function useAccount(account: (typeof accounts)[number]) {
   error.value = "";
 }
 
-function profileOf(user: IdentityUser) {
-  const keys = user.role_keys?.length
-    ? user.role_keys
-    : (user.roles ?? []).map((role) => role.role_key);
-  return {
-    id: user.id,
-    username: user.username,
-    displayName: user.display_name || user.username,
-    deptId: user.dept_id ?? null,
-    deptName: user.dept_name ?? null,
-    positionName: user.position_name ?? null,
-    roleKeys: [...new Set(keys)]
-  };
-}
-
 async function submit() {
   if (!canSubmit.value || loading.value) return;
   loading.value = true;
@@ -65,11 +54,10 @@ async function submit() {
       result.token,
       result.expires_at,
       form.tenant.trim(),
-      profileOf(result.user)
+      profileFromUser(result.user)
     );
     ElMessage.success(`欢迎，${result.user.display_name || result.user.username}`);
-    const target = typeof route.query.redirect === "string" ? route.query.redirect : "/";
-    router.replace(target.startsWith("/") && !target.startsWith("//") ? target : "/");
+    router.replace(safeStudioRedirect(route.query.redirect));
   } catch (ex) {
     error.value = errorMessage(ex);
   } finally {
@@ -77,10 +65,29 @@ async function submit() {
   }
 }
 
-onMounted(() => {
-  if (sessionStore.isAuthenticated) {
-    router.replace("/");
+function startSso() {
+  if (!sso.value?.enabled) return;
+  const target = safeStudioRedirect(route.query.redirect);
+  window.location.assign(`${sso.value.start_url}?redirect=${encodeURIComponent(target)}`);
+}
+
+async function loadSso() {
+  ssoLoading.value = true;
+  try {
+    sso.value = await authApi.ssoConfig();
+  } catch {
+    sso.value = null;
+  } finally {
+    ssoLoading.value = false;
   }
+}
+
+onMounted(() => {
+  if (session.isAuthenticated()) {
+    router.replace("/");
+    return;
+  }
+  void loadSso();
 });
 </script>
 
@@ -151,6 +158,25 @@ onMounted(() => {
         <p class="mt-1.5 text-[13px] text-slate-500">
           使用租户内账号登录，登录态用于所有设计与运行时请求。
         </p>
+
+        <div v-if="sso?.enabled" class="mt-7">
+          <el-button
+            class="w-full"
+            size="large"
+            :loading="ssoLoading"
+            @click="startSso"
+          >
+            通过 {{ sso.display_name }} 登录
+          </el-button>
+          <p class="mt-2 text-center text-[11px] text-slate-400">
+            将跳转到组织身份提供方完成认证
+          </p>
+          <div class="my-6 flex items-center gap-3">
+            <span class="h-px flex-1 bg-slate-200" />
+            <span class="text-[11px] text-slate-400">或使用账号密码</span>
+            <span class="h-px flex-1 bg-slate-200" />
+          </div>
+        </div>
 
         <el-form class="mt-7" label-position="top" @submit.prevent="submit">
           <el-form-item label="租户">

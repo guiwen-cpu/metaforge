@@ -8,12 +8,24 @@ import type {
   LoginResponse,
   PasswordPolicy,
   PositionPayload,
+  SsoConfig,
+  SsoExchangeResult,
   UserPayload
 } from "@/types/identity";
 
 export const authApi = {
   async login(tenant: string, username: string, password: string): Promise<LoginResponse> {
     const { data } = await http.post<LoginResponse>("/auth/login", { tenant, username, password });
+    return data;
+  },
+
+  async ssoConfig(): Promise<SsoConfig> {
+    const { data } = await http.get<SsoConfig>("/auth/sso/config");
+    return data;
+  },
+
+  async ssoExchange(ticket: string): Promise<SsoExchangeResult> {
+    const { data } = await http.post<SsoExchangeResult>("/auth/sso/exchange", { ticket });
     return data;
   },
 

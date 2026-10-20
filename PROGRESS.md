@@ -24,6 +24,8 @@
 | 登录入口 | `http://localhost:8080/login`；账号 `alice/alice123`、`bob/bob123`、`principal/principal123`、`hr/hr123` |
 | 身份 API | `POST /api/v1/auth/login`、`GET /api/v1/auth/me`、`GET /api/v1/platform/identity/overview?appId=<id>` |
 | 认证安全 API | `GET /api/v1/auth/password-policy`、`POST /api/v1/auth/password`、`GET /api/v1/platform/identity/auth-audits`（管理员，支持 `eventType` / `username` / `success` / `limit`） |
+| 统一身份 API | `GET /api/v1/auth/sso/config`、`GET /api/v1/auth/sso/start?redirect=/...`、`GET /api/v1/auth/sso/callback`、`POST /api/v1/auth/sso/exchange` |
+| SSO 配置 | `LCP_SSO_ENABLED`、`LCP_SSO_MODE`（`oidc` / `cas`）及 `LCP_SSO_*`；本地默认关闭，staging/prod 通过环境变量注入 |
 | 登录保护 | 连续失败 5 次锁定 15 分钟；密码 8–128 位，须含小写字母与数字，禁止空白及登录名/显示名 |
 | 权限模式 | 开发：`LCP_AUTH_DEV_HEADERS=true`、`LCP_IDENTITY_ALLOW_ALL=true`；staging/prod 覆盖层已置 `false` |
 | 运行时导航 | `GET /api/v1/runtime/apps/{appId}/navigation`（发布态菜单 + 可访问页面 + 默认路由） |
@@ -59,6 +61,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `644b473` | 身份与权限：JWT / 组织架构 / 行级与字段权限 | 四账号登录 + 403 越权 + 字段白名单 + CDP 登录/退出 |
 | `d35afe5` | 认证安全：密码策略 / 登录锁定 / 认证审计 | typecheck / build + 弱密码 400 + 锁定与重置 + 审计 403 + CDP 改密 |
 | `1565955` | 运行时菜单与页面权限 | 四账号导航过滤 + 页面 200/403 + CDP 菜单切换与动态路由 |
+| 本次提交 | 统一身份登录（OIDC / CAS） | OIDC 端到端 + 票据/state 重放 + 未绑定 403 + CDP 登录 |
 
 ## 文档维护
 
@@ -162,6 +165,14 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 表达式 `in` / `notIn` 支持左侧数组：`in($user.roleKeys, [...])` 按交集判断，修复角色菜单 `visible` 与按钮权限同一类写法。
 - 验证：四账号导航过滤符合预期（Alice 仅本人 / 发起，Bob 增加审批与考勤，HR 无平台管理，Principal 全量）；Alice 访问审批页 403、Bob 200；CDP 从 `/leave/requests` 切到 `/leave/requests/new` 与 `/leave/approval`，标题与页面 key 正确。
 
+### 14. 统一身份登录（刚完成）
+- `SsoController` 提供配置、发起、回调与一次性票据兑换四个端点；OIDC 使用授权码 + PKCE，CAS 使用 3.0 `serviceValidate`。
+- OIDC 校验 ID Token 的 RS256/384/512 签名、JWKS、issuer、audience、exp 与 nonce；CAS XML 禁止 DOCTYPE 与外部实体，避免 XXE。
+- state 与前端兑换 ticket 存 Redis 并 `getAndDelete` 一次性消费；state 10 分钟、ticket 60 秒。前端票据只经 URL fragment 传递，兑换前立即清理地址栏。
+- 外部身份按 `tenant_id + sso_provider + sso_subject` 绑定；首次登录可按 username / email 关联本地用户，默认不自动建号。审计区分 `sso_oidc` / `sso_cas`。
+- 登录页在 SSO 启用时显示组织登录入口；已登录访问 `/login` 直接回到工作台。Nginx 使用 `Host $http_host` 与 `X-Forwarded-Host`，保留回调端口。
+- 验证：typecheck / build、BFF/Web 镜像构建通过；假 OIDC 服务覆盖绑定登录、`/auth/me`、ticket/state 重放、未知 state、未绑定 403；CDP 完成按钮登录并确认租户与角色会话。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（进行中）
@@ -179,7 +190,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 5.3 行级数据权限：本人 / 部门 / 部门子树 / 全校 / 自定义条件。
 - [x] 5.4 JWT 登录与 Bearer 会话，替换演示会话头；请求头仅保留开发兜底。
 - [x] 5.5 菜单权限：发布态导航按 `roles` / `visible` / ACL 过滤；运行预览按菜单 `page_key` 打开只读页面，直接页面访问受 403 保护。
-- [ ] 5.6 SSO（OIDC / CAS）接入。
+- [x] 5.6 SSO（OIDC / CAS）接入：OIDC 授权码 + PKCE 与 CAS 3 `serviceValidate` 已实现；一次性 state/ticket、外部身份绑定、登录审计与前端回调完成。
 - [x] 5.7 密码策略、登录锁定与认证审计：策略校验、失败锁定、自助改密与管理员审计查询已完成。
 
 ### 阶段 6 · 多端发布与运行时
@@ -234,6 +245,9 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - **运行时导航只读发布件**：菜单、默认路由与页面访问均基于 `current_version`；`defaultRoute` 失效时回退首个可见菜单，避免上线后指向越权页面。
 - **角色与 ACL 取并集**：页面 `roles` 与显式 `page` ACL 任一命中即可访问；菜单 ACL 仅在该 key 存在授权声明时才作为额外门槛，避免稀疏授权误伤正常入口。
 - **数组版 `in`**：`in` / `notIn` 左侧为数组时按交集判断，统一支持 `$user.roleKeys` 用于菜单、按钮与权限表达式。
+- **SSO 票据一次性且不进入查询串**：OIDC state 与本地 exchange ticket 均存 Redis 并原子取出；回调只把 ticket 放在 fragment，避免 JWT 或 ticket 出现在服务端日志、Referer 与浏览历史。
+- **外部身份以稳定 subject 绑定**：优先使用 `tenant_id + sso_provider + sso_subject`，首次登录才允许按 username / email 关联；默认不自动建号，避免 IdP 用户无边界地进入本地租户。
+- **SSO 出站默认要求 HTTPS**：`LCP_SSO_ALLOW_INSECURE_HTTP` 只用于本地假 IdP；生产回调地址由反向代理的 `X-Forwarded-Host` 还原，保留对外端口。
 
 ## 已知边界
 
@@ -244,7 +258,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 动作日志按租户隔离并可按实例/动作/状态查询，暂无跨应用全局检索与保留期策略；重放不撤销已发生的业务/流程副作用。
 - 办理人解析优先查组织架构（部门负责人 / 角色成员），静态目录仅在 `LCP_RUNTIME_FALLBACK_DIRECTORY=true` 时兜底。
 - 提交 / 审批 / 动作执行已做按钮级授权；加签尚未实现，任务归属仍由 Flowable `assignee` 控制。
-- SSO 未接入，控制平面登录仍是账号密码 + JWT；已有 JWT 在改密后不会服务端撤销，需等待过期或前端主动退出。
+- SSO 已接入 OIDC / CAS，但未实现 SLO、刷新令牌、IdP 组同步与解绑管理界面；CAS 仅完成协议实现，尚未对真实 IdP 做链路测试。已有 JWT 在改密后不会服务端撤销，需等待过期或前端主动退出。
 - 认证审计暂无分页与保留期策略，`limit` 上限内一次返回。
 - 运行预览当前只渲染发布页面布局；数据绑定、表单动作与交互渲染留待阶段 6，菜单中的外部链接直接新开窗口。
 - 通知仅覆盖任务分派、转办、退回、驳回、通过；邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口未接入。
@@ -255,13 +269,12 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 ## 下一步（建议直接开工）
 
-阶段 4 与阶段 5 主体已完成，按以下顺序推进：
+阶段 4 与阶段 5 已完成，按以下顺序推进：
 
-1. 阶段 5 收尾：SSO（OIDC / CAS）。
-2. 补连接器注册表与租户密钥库，再开放 internal / database / GraphQL / SOAP 与 bearer/apiKey 鉴权。
-3. 扩展通知：邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口。
-4. 阶段 6 发布态运行时渲染器：在现有只读布局上接数据查询、表单动作与组件交互，再做自定义组件远程加载。
-5. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
+1. 补连接器注册表与租户密钥库，再开放 internal / database / GraphQL / SOAP 与 bearer/apiKey 鉴权。
+2. 扩展通知：邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口。
+3. 阶段 6 发布态运行时渲染器：在现有只读布局上接数据查询、表单动作与组件交互，再做自定义组件远程加载。
+4. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
 
 ## 恢复上下文的顺序
 

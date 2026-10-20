@@ -55,6 +55,17 @@ public class TenantFilter extends OncePerRequestFilter {
       throws ServletException, IOException {
     String uri = request.getRequestURI();
     boolean login = "/api/v1/auth/login".equals(uri);
+    boolean sso = uri.startsWith("/api/v1/auth/sso/");
+    if (login || sso) {
+      // 登录与 SSO 端点由各自票据校验；浏览器可能携带过期 Bearer，不能在此拦截。
+      TenantContext.clear();
+      try {
+        chain.doFilter(request, response);
+      } finally {
+        TenantContext.clear();
+      }
+      return;
+    }
     String authorization = request.getHeader("Authorization");
     String token = bearer(authorization);
 
@@ -66,9 +77,6 @@ public class TenantFilter extends OncePerRequestFilter {
         unauthorized(response, ex.getMessage());
         return;
       }
-    } else if (login) {
-      String tenant = trimToNull(request.getHeader(tenantHeader));
-      TenantContext.set(tenant, "anonymous");
     } else if (devHeaders) {
       String tenant = trimToNull(request.getHeader(tenantHeader));
       if (tenant == null) {

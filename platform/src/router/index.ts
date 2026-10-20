@@ -11,6 +11,7 @@ import ApprovalCenterPage from "@/pages/ApprovalCenterPage.vue";
 import ApprovalDetailPage from "@/pages/ApprovalDetailPage.vue";
 import InstanceDetailPage from "@/pages/InstanceDetailPage.vue";
 import LoginPage from "@/pages/LoginPage.vue";
+import SsoCallbackPage from "@/pages/SsoCallbackPage.vue";
 import IdentityPage from "@/pages/IdentityPage.vue";
 import NotFoundView from "@/views/NotFoundView.vue";
 import { session } from "@/lib/session";
@@ -90,6 +91,12 @@ const router = createRouter({
       name: "login",
       component: LoginPage,
       meta: { title: "登录", public: true }
+    },
+    {
+      path: "/sso/callback",
+      name: "sso-callback",
+      component: SsoCallbackPage,
+      meta: { title: "统一身份登录", public: true }
     },
     { path: "/:pathMatch(.*)*", component: NotFoundView }
   ],

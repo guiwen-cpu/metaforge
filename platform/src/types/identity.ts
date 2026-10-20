@@ -95,6 +95,22 @@ export interface LoginResponse {
   user: IdentityUser;
 }
 
+export interface SsoConfig {
+  enabled: boolean;
+  mode: string;
+  provider: string;
+  display_name: string;
+  start_url: string;
+}
+
+export interface SsoExchangeResult {
+  token: string;
+  expires_at: string;
+  tenant: string;
+  user: IdentityUser;
+  redirect: string;
+}
+
 export interface DepartmentPayload {
   id?: string;
   key?: string;
