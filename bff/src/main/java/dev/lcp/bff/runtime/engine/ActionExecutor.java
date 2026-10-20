@@ -73,6 +73,7 @@ public class ActionExecutor {
   private final RuntimeActionGateway gateway;
   private final RuntimeTransactionRunner transactionRunner;
   private final RuntimeCustomHandlerRegistry customHandlers;
+  private final RuntimeCodeEntryRegistry codeEntries;
 
   public ActionExecutor(
       dev.lcp.bff.runtime.PublishedBundleService bundles,
@@ -93,6 +94,7 @@ public class ActionExecutor {
     this.gateway = gateway;
     this.transactionRunner = transactionRunner;
     this.customHandlers = customHandlers;
+    this.codeEntries = new RuntimeCodeEntryRegistry(Map.of("calcWorkdays", this::calcWorkdays));
   }
 
   public ActionExecutionResult execute(UUID appId, String actionKey, ExecuteActionRequest request) {
@@ -953,11 +955,12 @@ public class ActionExecutor {
 
   private JsonNode code(JsonNode step, ExpressionEngine.Scope scope) {
     String entry = step.path("entry").asText("");
-    if ("calcWorkdays".equals(entry)) {
-      return calcWorkdays(step, scope);
+    RuntimeCodeEntry handler = codeEntries.find(entry);
+    if (handler == null) {
+      throw new BusinessFailure("UNSUPPORTED_STEP",
+          "代码步骤 entry=" + entry + " 未注册，服务端不执行任意脚本", List.of(), true);
     }
-    throw new BusinessFailure("UNSUPPORTED_STEP",
-        "代码步骤 entry=" + entry + " 未注册，服务端不执行任意脚本", List.of(), true);
+    return handler.execute(step, scope);
   }
 
   private JsonNode calcWorkdays(JsonNode step, ExpressionEngine.Scope scope) {

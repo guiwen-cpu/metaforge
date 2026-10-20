@@ -725,6 +725,35 @@ class ActionExecutorTest {
     assertThat(result.error().message()).contains("bundle.run");
   }
 
+  @Test
+  void rejectsUnregisteredCodeEntry() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "main", "steps": [
+              {"id": "c1", "type": "code", "entry": "runArbitrary", "inputs": []}
+            ]}
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(
+        bundle, "main", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+
+    assertThat(result.status()).isEqualTo("failed");
+    assertThat(result.error().code()).isEqualTo("UNSUPPORTED_STEP");
+    assertThat(result.error().message()).contains("runArbitrary");
+  }
+
+  @Test
+  void codeEntryRegistryKeepsOnlyRegisteredEntries() {
+    RuntimeCodeEntryRegistry registry = new RuntimeCodeEntryRegistry(
+        Map.of("calcWorkdays", (step, scope) -> json.nullNode()));
+
+    assertThat(registry.keys()).containsExactly("calcWorkdays");
+    assertThat(registry.find("calcWorkdays")).isNotNull();
+    assertThat(registry.find("missing")).isNull();
+  }
   private static final class EchoCustomHandler implements RuntimeCustomHandler {
 
     @Override
