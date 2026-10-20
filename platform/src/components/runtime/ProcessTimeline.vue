@@ -30,6 +30,9 @@ defineProps<{ items: TimelineItem[] }>();
       <p v-if="item.assignee" class="mt-1 text-[11.5px] text-slate-500">
         办理人 {{ item.assignee }}
       </p>
+      <p v-if="item.comment" class="mt-1 rounded-md bg-slate-50 px-2 py-1 text-[11.5px] leading-relaxed text-slate-600">
+        {{ item.comment }}
+      </p>
       <p class="mt-1 text-[11px] leading-relaxed text-slate-400">
         {{ formatDateTime(item.start_time) }}
         <template v-if="item.end_time">

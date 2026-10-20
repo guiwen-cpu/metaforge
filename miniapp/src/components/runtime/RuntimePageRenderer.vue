@@ -38,7 +38,8 @@ const props = defineProps<{
 }>();
 
 const state = reactive<Record<string, unknown>>({});
-const data = reactive<Record<string, MiniDataSourceState>>({});
+const data = reactive<Record<string, MiniDataSourceState>>({})
+const processContext = reactive<Record<string, unknown>>({});
 const sortState = reactive<Record<string, DataSourceSort[] | null>>({});
 const ready = ref(false);
 const loadError = ref("");
@@ -78,6 +79,7 @@ function rootsFor(scope: RuntimeScope = {}, params: Record<string, unknown> = {}
       query: routeQuery.value
     },
     data,
+    process: processContext,
     form: scope.form ?? (state.form as Record<string, unknown> | undefined) ?? {},
     row: scope.row ?? {},
     rows: scope.rows ?? [],
@@ -546,7 +548,89 @@ async function refreshDataSource(id: string, options: { silent?: boolean } = {})
     await refreshComputed();
     return;
   }
-  if (config.type !== "entity") {
+  if (config.type === "flow") {
+    const taskId = String(routeParams.value.taskId ?? "");
+    if (!taskId) {
+      data[id] = {
+        id,
+        rows: [],
+        total: 0,
+        page: 1,
+        size: 1,
+        item: null,
+        loading: false,
+        error: "缺少任务标识",
+        value: null
+      };
+      return;
+    }
+    const previous = data[id];
+    data[id] = {
+      id,
+      rows: previous?.rows ?? [],
+      total: previous?.total ?? 0,
+      page: 1,
+      size: 1,
+      item: previous?.item ?? null,
+      loading: true,
+      error: null,
+      value: previous?.value ?? null
+    };
+    try {
+      const detail = await runtimeApi.task(props.appId, taskId);
+      const item: Record<string, unknown> = {
+        ...detail,
+        taskId: detail.task_id,
+        processInstanceId: detail.process_instance_id,
+        businessKey: detail.business_key,
+        businessTitle: detail.business_title,
+        flowKey: detail.flow_key,
+        flowName: detail.flow_name,
+        applicantId: detail.applicant_id,
+        canAct: detail.can_act,
+        finished: detail.finished,
+        editableFields: detail.editable_fields,
+        readonlyFields: detail.readonly_fields
+      };
+      data[id] = {
+        id,
+        rows: [item],
+        total: 1,
+        page: 1,
+        size: 1,
+        item,
+        loading: false,
+        error: null,
+        value: item
+      };
+      Object.assign(processContext, {
+        taskId: detail.task_id,
+        processInstanceId: detail.process_instance_id,
+        processDefinitionId: detail.process_definition_id,
+        businessKey: detail.business_key,
+        businessTitle: detail.business_title,
+        flowKey: detail.flow_key,
+        flowName: detail.flow_name,
+        applicantId: detail.applicant_id,
+        status: detail.status,
+        finished: detail.finished,
+        canAct: detail.can_act,
+        business: detail.business ?? {},
+        variables: detail.variables ?? {},
+        timeline: detail.timeline ?? []
+      });
+    } catch (cause) {
+      const message = errorMessage(cause);
+      data[id] = {
+        ...(data[id] ?? { id, rows: [], total: 0, page: 1, size: 1, item: null }),
+        id,
+        loading: false,
+        error: message
+      };
+      if (!options.silent) notify(message, "error");
+    }
+    return;
+  }  if (config.type !== "entity") {
     data[id] = {
       id,
       rows: [],
@@ -637,7 +721,10 @@ async function refreshDataSource(id: string, options: { silent?: boolean } = {})
 
 async function refreshAll(): Promise<void> {
   const ids = Array.from(dataSourceConfigs.value.keys()).filter(
-    (id) => dataSourceConfigs.value.get(id)?.type === "entity"
+    (id) => {
+      const type = dataSourceConfigs.value.get(id)?.type;
+      return type === "entity" || type === "flow";
+    }
   );
   await Promise.all(ids.map((id) => refreshDataSource(id, { silent: true })));
 }
@@ -664,6 +751,7 @@ function resetState(): void {
 
 function initDataSources(): void {
   for (const key of Object.keys(data)) delete data[key];
+  for (const key of Object.keys(processContext)) delete processContext[key];
   for (const [id, config] of dataSourceConfigs.value) {
     if (config.type === "static") {
       const raw = config.data;
@@ -703,6 +791,7 @@ async function bootstrap(): Promise<void> {
   try {
     const singleImmediate = Array.from(dataSourceConfigs.value.entries())
       .filter(([, config]) => {
+        if (config.type === "flow") return true;
         return config.type === "entity" && config.immediate === true
           && (config.mode === "one" || config.mode === "count");
       })
@@ -710,7 +799,9 @@ async function bootstrap(): Promise<void> {
     await Promise.all(singleImmediate.map((id) => refreshDataSource(id, { silent: true })));
     await refreshComputed();
 
-    if (props.view.page.kind === "form" && routeParams.value.id) {
+    const editing = props.view.page.kind === "form" && routeParams.value.id;
+    const approving = props.view.page.kind === "approval" && routeParams.value.taskId;
+    if (editing || approving) {
       const editIds = Array.from(dataSourceConfigs.value.entries())
         .filter(([, config]) => config.type === "entity" && config.mode === "one" && config.immediate !== true)
         .map(([id]) => id);
@@ -719,7 +810,7 @@ async function bootstrap(): Promise<void> {
       const form = state.form;
       if (editSource?.item && form && typeof form === "object") {
         Object.assign(form, editSource.item);
-        state.editId = routeParams.value.id;
+        state.editId = editing ? routeParams.value.id : undefined;
       }
     }
 

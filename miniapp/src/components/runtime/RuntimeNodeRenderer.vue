@@ -12,6 +12,7 @@ import {
   displayValue,
   entityOf,
   enumOf,
+  formatDateTime,
   fieldOf as findField,
   fieldOptions,
   parseJsonProp,
@@ -20,7 +21,7 @@ import {
   propText
 } from "@/lib/runtimeModel";
 import type { DataField, EnumValueDef, UploadHints } from "@/types/dataModel";
-import type { AttachmentView } from "@/types/runtime";
+import type { AttachmentView, TimelineItem } from "@/types/runtime";
 import type { UINode } from "@/types/uiModel";
 
 defineOptions({ name: "RuntimeNodeRenderer" });
@@ -553,6 +554,82 @@ function chooseFormOption(item: Record<string, unknown>, option: EnumValueDef): 
   setFormValue(item, option.value);
 }
 
+/* --------------------------------------------------------------- timeline */
+
+interface TimelineState {
+  loading: boolean;
+  error: string;
+  items: TimelineItem[];
+}
+
+const timelineState = reactive<Record<string, TimelineState>>({});
+
+function timelineStateOf(): TimelineState {
+  if (!timelineState[props.node.id]) {
+    timelineState[props.node.id] = { loading: false, error: "", items: [] };
+  }
+  return timelineState[props.node.id];
+}
+
+function timelineInstanceId(): string {
+  const raw = parseJsonProp(nodeProps.value.processInstanceId);
+  if (raw === undefined || raw === null || raw === "") return "";
+  const value = api.evaluate(raw, scope.value);
+  return value === null || value === undefined ? "" : String(value);
+}
+
+async function loadTimeline(): Promise<void> {
+  if (props.node.component !== "x-approval-timeline") return;
+  const state = timelineStateOf();
+  const id = timelineInstanceId();
+  if (!id) {
+    state.items = [];
+    state.error = "";
+    state.loading = false;
+    return;
+  }
+  state.loading = true;
+  state.error = "";
+  try {
+    const instance = await runtimeApi.instance(api.appId, id);
+    state.items = instance.timeline ?? [];
+  } catch (error) {
+    state.items = [];
+    state.error = errorMessage(error);
+  } finally {
+    state.loading = false;
+  }
+}
+
+function timelineItems(): TimelineItem[] {
+  const items = [...timelineStateOf().items];
+  return textProp("order") === "desc" ? items.reverse() : items;
+}
+
+function timelineTitle(item: TimelineItem): string {
+  return item.name || item.activity_id;
+}
+
+function timelineDuration(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || !Number.isFinite(Number(ms))) return "";
+  const total = Math.max(0, Math.round(Number(ms) / 1000));
+  if (total < 60) return `${total} 秒`;
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+}
+
+function timelineTime(item: TimelineItem): string {
+  const parts: string[] = [];
+  if (item.start_time) parts.push(formatDateTime(item.start_time));
+  if (item.end_time) parts.push(formatDateTime(item.end_time));
+  let text = parts.join(" → ");
+  const duration = timelineDuration(item.duration_ms);
+  if (duration) text = text ? `${text} · ${duration}` : duration;
+  return text;
+}
 /* -------------------------------------------------------------- attachment */
 
 type AttachmentKind = "image" | "video" | "document" | "other";
@@ -960,12 +1037,18 @@ async function removeAttachmentEntry(entry: AttachmentView): Promise<void> {
 
 onMounted(() => {
   if (props.node.component === "x-attachment-list") void loadAttachmentList();
+  if (props.node.component === "x-approval-timeline") void loadTimeline();
 });
 
 watch(
   () => [attachmentBizType(), attachmentBizId()],
   () => {
     if (props.node.component === "x-attachment-list") void loadAttachmentList();
+  }
+);watch(
+  () => timelineInstanceId(),
+  () => {
+    if (props.node.component === "x-approval-timeline") void loadTimeline();
   }
 );
 async function submitForm(): Promise<void> {
@@ -1391,9 +1474,39 @@ const customTitle = computed(() => String(nodeProps.value.title ?? props.node.co
       <view v-if="descriptionItems.length === 0" class="x-table__empty">暂无详情字段</view>
     </view>
 
-    <view v-else-if="node.component === 'x-approval-timeline'" class="x-placeholder">
-      <text class="x-placeholder__title">审批时间线</text>
-      <text class="x-placeholder__body">小程序暂未接入流程时间线，请到 H5 或桌面端查看。</text>
+    <view v-else-if="node.component === 'x-approval-timeline'" class="x-timeline">
+      <text v-if="timelineStateOf().loading" class="x-attachment__hint">加载中…</text>
+      <text v-else-if="timelineStateOf().error" class="x-form__help x-form__help--error">
+        {{ timelineStateOf().error }}
+      </text>
+      <view v-else-if="!timelineInstanceId()" class="x-table__empty">
+        该单据尚未发起审批流程
+      </view>
+      <view v-else-if="timelineStateOf().items.length === 0" class="x-table__empty">
+        暂无流转记录
+      </view>
+      <view v-else class="x-timeline__list">
+        <view
+          v-for="item in timelineItems()"
+          :key="`${item.activity_id}-${item.start_time}`"
+          class="x-timeline__item"
+        >
+          <view class="x-timeline__dot" :class="item.status === 'active' ? 'x-timeline__dot--active' : ''" />
+          <view class="x-timeline__body">
+            <view class="x-timeline__head">
+              <text class="x-timeline__name">{{ timelineTitle(item) }}</text>
+              <text v-if="item.status === 'active'" class="x-timeline__badge">进行中</text>
+            </view>
+            <text v-if="boolProp('showAssignee', true) && item.assignee" class="x-timeline__meta">
+              办理人 {{ item.assignee }}
+            </text>
+            <text v-if="item.comment && boolProp('showComment', true)" class="x-timeline__comment">
+              {{ item.comment }}
+            </text>
+            <text v-if="timelineTime(item)" class="x-timeline__time">{{ timelineTime(item) }}</text>
+          </view>
+        </view>
+      </view>
     </view>
 
     <view v-else-if="node.component === 'x-attachment-list'" class="x-attachment">
@@ -1964,4 +2077,74 @@ const customTitle = computed(() => String(nodeProps.value.title ?? props.node.co
   color: #64748b;
   font-size: 22rpx;
   font-weight: 600;
+}
+.x-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+.x-timeline__list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+  padding-left: 6rpx;
+}
+.x-timeline__item {
+  position: relative;
+  display: flex;
+  gap: 16rpx;
+  padding-left: 4rpx;
+}
+.x-timeline__dot {
+  width: 14rpx;
+  height: 14rpx;
+  margin-top: 12rpx;
+  border-radius: 999rpx;
+  background: #34d399;
+  box-shadow: 0 0 0 6rpx #ecfdf5;
+  flex-shrink: 0;
+}
+.x-timeline__dot--active {
+  background: #6366f1;
+  box-shadow: 0 0 0 6rpx #eef2ff;
+}
+.x-timeline__body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6rpx;
+}
+.x-timeline__head {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+.x-timeline__name {
+  color: #0f172a;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+.x-timeline__badge {
+  padding: 2rpx 10rpx;
+  border-radius: 999rpx;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 20rpx;
+}
+.x-timeline__meta {
+  color: #475569;
+  font-size: 22rpx;
+}
+.x-timeline__comment {
+  padding: 8rpx 12rpx;
+  border-radius: 8rpx;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 23rpx;
+  line-height: 1.5;
+}
+.x-timeline__time {
+  color: #94a3b8;
+  font-size: 21rpx;
 }</style>

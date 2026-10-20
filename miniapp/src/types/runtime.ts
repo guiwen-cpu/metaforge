@@ -165,6 +165,7 @@ export interface TimelineItem {
   end_time?: string | null;
   duration_ms?: number | null;
   status: string;
+  comment?: string | null;
 }
 
 export interface TaskSummary {

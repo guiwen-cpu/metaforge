@@ -40,6 +40,7 @@ import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricActivityInstance;
+import org.flowable.engine.task.Comment;
 import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.repository.ProcessDefinition;
 import org.flowable.engine.runtime.ProcessInstance;
@@ -1004,6 +1005,12 @@ public class ProcessRuntimeService {
 
   private List<TimelineItem> timeline(String processInstanceId) {
     List<TimelineItem> out = new ArrayList<>();
+    Map<String, String> comments = new LinkedHashMap<>();
+    for (Comment comment : taskService.getProcessInstanceComments(processInstanceId)) {
+      if (comment.getTaskId() != null && comment.getFullMessage() != null) {
+        comments.put(comment.getTaskId(), comment.getFullMessage());
+      }
+    }
     List<HistoricActivityInstance> activities = historyService.createHistoricActivityInstanceQuery()
         .processInstanceId(processInstanceId)
         .orderByHistoricActivityInstanceStartTime().asc()
@@ -1012,10 +1019,11 @@ public class ProcessRuntimeService {
       if ("sequenceFlow".equals(activity.getActivityType())) {
         continue;
       }
+      String comment = activity.getTaskId() == null ? null : comments.get(activity.getTaskId());
       out.add(new TimelineItem(activity.getActivityId(), activity.getActivityName(),
           activity.getActivityType(), activity.getAssignee(), at(activity.getStartTime()),
           at(activity.getEndTime()), activity.getDurationInMillis(),
-          activity.getEndTime() == null ? "active" : "completed"));
+          activity.getEndTime() == null ? "active" : "completed", comment));
     }
     return out;
   }

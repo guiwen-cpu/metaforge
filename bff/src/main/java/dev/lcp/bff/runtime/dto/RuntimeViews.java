@@ -58,7 +58,8 @@ public final class RuntimeViews {
       OffsetDateTime startTime,
       OffsetDateTime endTime,
       Long durationMs,
-      String status) {
+      String status,
+      String comment) {
   }
 
   public record TaskSummary(

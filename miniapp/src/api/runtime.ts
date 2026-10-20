@@ -9,6 +9,8 @@ import type {
   RuntimeNavigation,
   RuntimePageView,
   RuntimeApiInvokePayload,
+  InstanceView,
+  TaskDetail,
   AttachmentView
 } from "@/types/runtime";
 
@@ -51,6 +53,18 @@ export const runtimeApi = {
       path: `${base(appId)}/actions/${encodeURIComponent(actionKey)}/execute`,
       method: "POST",
       data: payload
+    });
+  },
+
+  task(appId: string, taskId: string): Promise<TaskDetail> {
+    return request<TaskDetail>({
+      path: `${base(appId)}/tasks/${encodeURIComponent(taskId)}`
+    });
+  },
+
+  instance(appId: string, instanceId: string): Promise<InstanceView> {
+    return request<InstanceView>({
+      path: `${base(appId)}/instances/${encodeURIComponent(instanceId)}`
     });
   },
 

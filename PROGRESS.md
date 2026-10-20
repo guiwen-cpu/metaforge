@@ -259,6 +259,12 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 小程序 `x-upload` 接入 `chooseImage` / `chooseVideo` / `chooseFile`（微信回退 `chooseMessageFile`），按控件 `uploadHints` 校验数量、大小与扩展名，上传后回填附件对象数组并支持预览/移除；`x-attachment-list` 按 `bizType + bizId` 加载、分组、预览与可选删除。
 - 容器卷改为 `/app/data/attachments` 并由镜像预创建为 `app` 用户所有，避免命名卷以 root 拥有导致写入失败。
 - 验证：`miniapp` typecheck 与 H5 / mp-weixin 构建通过；`alice` 上传 200、列表命中、下载 200、软删除后列表为空；`.exe` 返回 400 `file_type_not_allowed`，未知页面返回 404；数据库中仅登记元数据。
+### 23. 小程序审批时间线（刚完成）
+- BFF `TimelineItem` 增加 `comment`：按 `taskId` 关联 Flowable 流程实例审批意见，桌面与小程序共用同一响应。
+- 小程序新增 `GET /tasks/{taskId}` / `GET /instances/{instanceId}` 客户端方法；`x-approval-timeline` 按 `processInstanceId` 表达式加载实例，渲染节点名称、办理人、开始/结束时间、耗时与进行中状态，支持 `showComment` / `showAssignee` / `order`。
+- 小程序页面渲染器补上 `type=flow, kind=instance` 数据源：按路由 `taskId` 拉取任务详情并填充 `$process` 根，审批页可正常加载 表单 / 变量 / 附件 / 时间线；实体单条数据源在 `kind=approval` 下也会随任务加载。
+- 空态区分“未发起流程”“暂无流转记录”“加载失败”；404 / 403 直接展示服务端消息。
+- 验证：typecheck 通过；H5 实测 bob 打开待办详情，时间线展示“发起请假 / 申请人提交 / 部门负责人审批（进行中）”；已办实例展示审批意见 `cleanup stage5 smoke` 与耗时 4 分钟。
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -365,7 +371,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 认证审计暂无分页与保留期策略，`limit` 上限内一次返回。
 - 发布态渲染器已接入实体数据源、搜索/分页/排序、行操作、详情与流程时间线；菜单中的外部链接仍直接新开窗口。
 - H5 应用壳复用同一 SPA 与 JWT 会话，尚未独立部署 / PWA，无离线缓存；窄屏表格采用横向滑动，暂未卡片化重排。
-- 小程序端已执行交互步骤中的 `apiCall`（受页面引用链与 ACL 约束）；`x-upload` / `x-attachment-list` 已接入运行时附件接口（页面 ACL、类型白名单、大小上限、软删除）；审批时间线仍为明确占位。
+- 小程序端已执行交互步骤中的 `apiCall`（受页面引用链与 ACL 约束）；`x-upload` / `x-attachment-list` 已接入运行时附件接口（页面 ACL、类型白名单、大小上限、软删除）；审批时间线已接入流程实例接口。审批办理页的 `x-process-form` / `x-approval-actions` 仍为占位，小程序暂不能直接完成审批。
 - 微信小程序构建需用微信开发者工具导入 `miniapp/dist/build/mp-weixin`；尚未配置 AppID、真机域名与体验版上传。非 H5 默认 API 为 `http://127.0.0.1:8080/api/v1`，真机联调需设置 `VITE_API_BASE_URL` 并使用可访问的局域网地址或 HTTPS 域名。
 - “新建请假 → 提交 → 撤回”已跑通：`startFlow`、`completeTask`、内部实体读写与流程终止可用；节假日 API 仅对占位地址降级为空日历并记警告，接入真实服务前工作日不扣除法定节假日。`transaction` 仍是顺序执行，未包真实数据库事务。
 - 通知已覆盖站内信、webhook / email outbox、`Rule.kind=notification` 与 SLA 提醒；`autoApprove` / `autoReject` 仍未实现，通知规则暂无实例规则做端到端实测，outbox 暂无管理界面与保留期策略。
@@ -378,7 +384,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4、阶段 5 与阶段 6.1 / 6.2 / 6.3 / 6.4 已完成，按以下顺序推进：
 
-1. 小程序能力深化：审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
+1. 小程序能力深化：微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
 2. 运行时深化：真实数据库事务、`custom` 代码钩子与其余内部 API 分派，接入真实节假日服务。
 
 ## 恢复上下文的顺序
