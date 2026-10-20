@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`3ce8342`（`feat(runtime): 接入 findStale 与 findOverlap 内部 API`）
+> 分支：`dev` ｜ 最新提交：`b87a62a`（`feat(runtime): 接入真实节假日服务`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -36,6 +36,7 @@
 | 密钥 API | `GET/POST /api/v1/platform/secrets`；`PATCH/DELETE /api/v1/platform/secrets/{id}`（密钥只写不读） |
 | 连接器配置 | `LCP_SECRET_MASTER_KEY`、`LCP_CONNECTOR_ALLOW_PRIVATE_NETWORKS`、`LCP_CONNECTOR_ALLOW_INSECURE_HTTP`；本地冒烟临时开启私网与 HTTP |
 | 节假日服务 | 默认 `https://timor.tech/api/holiday/year/{year}`；`LCP_HOLIDAY_ENABLED`、`LCP_HOLIDAY_URL_TEMPLATE`、`LCP_HOLIDAY_TIMEOUT_MS`、`LCP_HOLIDAY_CACHE_TTL_SECONDS`；Redis 键 `lcp:holiday:v1:<year>` |
+| 独立出码工程 | `codegen/leave_approval/docker-compose.yml`：Web `http://localhost:8091`、API `http://localhost:8090`、PostgreSQL `5433`；租户 `tenant_demo_school`、密码 `demo123`，账号为 Bundle 角色键与 `admin` |
 | 登录保护 | 连续失败 5 次锁定 15 分钟；密码 8–128 位，须含小写字母与数字，禁止空白及登录名/显示名 |
 | 权限模式 | 开发：`LCP_AUTH_DEV_HEADERS=true`、`LCP_IDENTITY_ALLOW_ALL=true`；staging/prod 覆盖层已置 `false` |
 | 运行时导航 | `GET /api/v1/runtime/apps/{appId}/navigation`（发布态菜单 + 可访问页面 + 默认路由） |
@@ -91,7 +92,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `dcedacf` | 运行时 custom 注册式处理器 | BFF 单测 + 真实发布件 API 执行 `platform.uuid` / `platform.now` |
 | `54ae546` | 运行时 code 白名单入口 | BFF 单测 + 真实发布件 API 执行 `calcWorkdays` 与未注册入口 |
 | `3ce8342` | 运行时 findStale / findOverlap 内部 API | BFF 47 个测试 + 临时发布件真实 API 冒烟 |
-| 本提交 | 真实节假日服务 | BFF 测试 + 真实页面 API + 请假工作日计算 + Redis 缓存 |
+| `b87a62a` | 真实节假日服务 | BFF 测试 + 真实页面 API + 请假工作日计算 + Redis 缓存 |
+| 本提交 | 出码完整可运行工程 | 独立 server 编译 + Compose 端到端 CRUD + RLS 租户隔离 |
 
 ## 文档维护
 
@@ -107,11 +109,12 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - `tools/validate.mjs`：L1~L4 校验流水线。
 - `ts/` + `java/`：TS / Java 双端类型绑定。
 
-### 2. 出码引擎（部分）
+### 2. 出码引擎
 - `tools/gen-*.mjs`：DataSchema → PG DDL、TS/Java 实体、BFF CRUD、TS 客户端、Vue3 CRUD 页面（含 OSS 直传代码）。
 - 示例产物：`codegen/leave_approval/`。
 - 生成前端已接入平台 JWT：登录页、路由守卫、`/auth/me` 会话恢复、角色 / 部门展示与退出登录。
-- **未完成**：Bundle 整体 → 可运行工程导出、CLI、压缩包与版本对比。
+- `tools/gen-project.mjs`：补齐独立 Spring Boot 启动类、演示身份、HMAC 令牌、请求级租户事务与强制 RLS，并生成 Docker Compose、Web/Nginx 与运行说明。
+- **未完成**：统一 CLI 参数化、增量导出、压缩包与版本对比。
 
 ### 3. BFF 与控制平面
 - `bff/`：租户过滤器、RLS 事务切面、统一异常、Actuator。
@@ -323,6 +326,13 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 发布件中的占位节假日 API 改由同一服务返回 `{code:0,data:[...]}`，不再直接返回空数组。
 - 验证：BFF 测试通过；真实页面 API `page_leave_form/apis/api_holiday_list/invoke?year=2026` 返回 39 条节假日/调休，Redis `lcp:holiday:v1:2026` TTL 约 7 天；真实 `leave_submit` 以 `2026-10-01` 至 `10-10` 计算得到 3 个工作日（10-08、10-09、10-10 调休），临时草稿与动作日志已清理。
 
+### 32. 出码完整可运行工程（已完成）
+- 新增 `tools/gen-project.mjs`：在 `codegen/<app>/` 下生成独立 Spring Boot `server/`、`docker-compose.yml`、`Dockerfile.web`、`nginx.conf`、`.dockerignore`、`RUN.md` 与 `sql/95_force_rls.sql`。
+- `server` 自动扫描生成 CRUD，提供 `LcpPrincipal` 请求作用域实现、HMAC 演示令牌、`/api/v1/auth/login` 与 `/api/v1/auth/me`；每个 Controller 调用包进事务并设置 `lcp.tenant_id`。
+- 独立工程账号由 Bundle 角色键生成（另含 `admin`），密码默认 `demo123`；开发头 `X-Tenant-Id` / `X-User-Id` 仅作本地兜底。
+- 迁移沿用 `sql/00_extensions.sql`、逐表 DDL 与 `90_rls.sql`，新增 `95_force_rls.sql` 强制表 owner 也受 RLS 约束；Compose 将 `sql/` 挂到 `docker-entrypoint-initdb.d`，按文件非事务执行 `create index concurrently`。
+- 验证：`mvn -f server/pom.xml package` 通过；`docker compose up -d --build` 后 admin 登录、员工与请假单创建/查询成功；`tenant_other` 查询返回 `total=0`，`tenant_demo_school` 返回 `total=1`，RLS 生效；Web `/healthz` 返回 200。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -354,7 +364,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 6.8 小程序真机与体验版发布：AppID、合法域名、HTTPS、局域网调试、体验版/正式发布文档与排障清单。
 
 ### 阶段 7 · 出码引擎完整化
-- [ ] Bundle → 完整可运行工程（前端 + BFF + 迁移脚本）。
+- [x] Bundle → 完整可运行工程（前端 + BFF + 迁移脚本）。
 - [ ] 出码 CLI、参数化、增量导出。
 - [ ] 导出包与在线版本的 diff。
 

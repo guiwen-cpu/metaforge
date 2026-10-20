@@ -1,0 +1,33 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/leave_approval}
+    username: ${SPRING_DATASOURCE_USERNAME:leave_approval}
+    password: ${SPRING_DATASOURCE_PASSWORD:leave_approval-local-pass}
+    hikari:
+      maximum-pool-size: 10
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+lcp:
+  demo:
+    tenant: tenant_demo_school
+    password: demo123
+    token-secret: ${LCP_DEMO_TOKEN_SECRET:leave_approval-demo-token-secret-change-me}
+    token-ttl-hours: ${LCP_DEMO_TOKEN_TTL_HOURS:12}
+    dev-headers: ${LCP_DEMO_DEV_HEADERS:true}
