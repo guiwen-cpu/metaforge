@@ -7,6 +7,7 @@ import PageDesignerPage from "@/pages/PageDesignerPage.vue";
 import LogicDesignerPage from "@/pages/LogicDesignerPage.vue";
 import ComponentDesignerPage from "@/pages/ComponentDesignerPage.vue";
 import RuntimeShellPage from "@/pages/RuntimeShellPage.vue";
+import RuntimeMobilePage from "@/pages/RuntimeMobilePage.vue";
 import ApprovalCenterPage from "@/pages/ApprovalCenterPage.vue";
 import ApprovalDetailPage from "@/pages/ApprovalDetailPage.vue";
 import InstanceDetailPage from "@/pages/InstanceDetailPage.vue";
@@ -98,6 +99,12 @@ const router = createRouter({
       name: "login",
       component: LoginPage,
       meta: { title: "登录", public: true }
+    },
+    {
+      path: "/m/apps/:appId/:pathMatch(.*)*",
+      name: "app-runtime-h5",
+      component: RuntimeMobilePage,
+      meta: { title: "移动应用" }
     },
     {
       path: "/sso/callback",

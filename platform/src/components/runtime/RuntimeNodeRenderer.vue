@@ -652,12 +652,13 @@ const attachmentBizId = computed(() => {
       class="rounded-lg border border-slate-100 bg-slate-50/60 p-3"
     >
       <div
-        class="grid gap-3"
-        :style="{ gridTemplateColumns: `repeat(${searchColumns}, minmax(0, 1fr))` }"
+        class="runtime-search-grid grid gap-3"
+        :style="{ '--runtime-search-columns': String(searchColumns) }"
       >
         <div
           v-for="(item, index) in searchFields"
           :key="`${String(item.field ?? index)}`"
+          class="runtime-search-field"
           :style="{ gridColumn: `span ${columnSpan(item)}` }"
         >
           <label class="mb-1 block text-[11.5px] text-slate-600">{{ searchLabel(item) }}</label>
@@ -734,7 +735,7 @@ const attachmentBizId = computed(() => {
         </div>
       </div>
     </div>
-    <div v-else-if="node.component === 'x-table'" class="min-w-0">
+    <div v-else-if="node.component === 'x-table'" class="runtime-table-wrap min-w-0">
       <el-table
         v-loading="tableLoading"
         :data="tableRows"
@@ -1054,3 +1055,28 @@ const attachmentBizId = computed(() => {
     </div>
   </template>
 </template>
+
+<style scoped>
+.runtime-search-grid {
+  grid-template-columns: repeat(var(--runtime-search-columns, 4), minmax(0, 1fr));
+}
+
+@media (max-width: 640px) {
+  .runtime-search-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .runtime-search-field {
+    grid-column: span 1 !important;
+  }
+
+  .runtime-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .runtime-table-wrap :deep(.el-table) {
+    min-width: 680px;
+  }
+}
+</style>

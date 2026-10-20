@@ -5,6 +5,13 @@ import { ElMessage } from "element-plus";
 import { platformApi } from "@/api/platform";
 import { runtimeApi } from "@/api/runtime";
 import { errorMessage } from "@/lib/http";
+import {
+  buildRoutePath,
+  collectFirstPath,
+  hasUnresolvedParams,
+  matchRoute,
+  resolvePageLink
+} from "@/lib/runtimeNavigation";
 import { registerCustomComponents } from "@/lib/uiModel";
 import RuntimePageRenderer from "@/components/runtime/RuntimePageRenderer.vue";
 import type { RuntimeNavigatePayload } from "@/lib/runtimeContext";
@@ -12,7 +19,6 @@ import type { AppView } from "@/types/platform";
 import type {
   RuntimeMenuItem,
   RuntimeNavigation,
-  RuntimePageLink,
   RuntimePageView
 } from "@/types/runtime";
 
@@ -40,95 +46,13 @@ const menus = computed(() => navigation.value?.menus ?? []);
 const selectedTitle = computed(() => page.value?.title ?? selectedPath.value);
 const routeQuery = computed<Record<string, unknown>>(() => ({ ...route.query }));
 const routeParams = computed<Record<string, string>>(() => {
-  const link = resolvePage(selectedPath.value);
+  const link = resolvePageLink(navigation.value, selectedPath.value);
   return matchRoute(link?.path, selectedPath.value) ?? {};
 });
 
-function collectFirstPath(items: RuntimeMenuItem[]): string {
-  for (const item of items) {
-    if (item.path) return item.path;
-    const child = collectFirstPath(item.children ?? []);
-    if (child) return child;
-  }
-  return "";
-}
-
-function findMenu(items: RuntimeMenuItem[], path: string): RuntimeMenuItem | null {
-  for (const item of items) {
-    if (item.path === path) return item;
-    const child = findMenu(item.children ?? [], path);
-    if (child) return child;
-  }
-  return null;
-}
-
-function matchRoute(
-  pattern: string | null | undefined,
-  path: string
-): Record<string, string> | null {
-  if (!pattern) return null;
-  const patternParts = pattern.split("/").filter(Boolean);
-  const pathParts = path.split("/").filter(Boolean);
-  const params: Record<string, string> = {};
-  let index = 0;
-  for (const part of patternParts) {
-    const optional = part.endsWith("?");
-    const token = optional ? part.slice(0, -1) : part;
-    if (token.startsWith(":")) {
-      if (index < pathParts.length) {
-        try {
-          params[token.slice(1)] = decodeURIComponent(pathParts[index]);
-        } catch {
-          params[token.slice(1)] = pathParts[index];
-        }
-        index++;
-        continue;
-      }
-      if (optional) continue;
-      return null;
-    }
-    if (pathParts[index] !== token) return null;
-    index++;
-  }
-  return index === pathParts.length ? params : null;
-}
-
-function routeMatches(pattern: string | null | undefined, path: string): boolean {
-  return matchRoute(pattern, path) !== null;
-}
-
-function resolvePage(path: string): RuntimePageLink | null {
-  const menu = findMenu(menus.value, path);
-  if (menu?.page_key) {
-    return pageLinks.value.find((item) => item.key === menu.page_key) ?? null;
-  }
-  return (
-    pageLinks.value.find((item) => item.path === path) ??
-    pageLinks.value.find((item) => routeMatches(item.path, path)) ??
-    null
-  );
-}
-
-function buildPath(link: RuntimePageLink, params: Record<string, unknown>): string {
-  const pattern = link.path ?? "";
-  const parts = pattern
-    .split("/")
-    .filter(Boolean)
-    .map((part) => {
-      const optional = part.endsWith("?");
-      const token = optional ? part.slice(0, -1) : part;
-      if (!token.startsWith(":")) return part;
-      const raw = params[token.slice(1)];
-      if (raw === undefined || raw === null || raw === "") return optional ? "" : token;
-      return encodeURIComponent(String(raw));
-    })
-    .filter(Boolean);
-  return `/${parts.join("/")}`;
-}
-
 async function loadPage(path: string) {
   const seq = ++pageSeq;
-  const link = resolvePage(path);
+  const link = resolvePageLink(navigation.value, path);
   if (!link) {
     page.value = null;
     const fallback = navigation.value?.default_route ?? "";
@@ -201,17 +125,21 @@ async function navigateRuntime(payload: RuntimeNavigatePayload): Promise<void> {
     const link = pageLinks.value.find((item) => item.key === key)
       ?? pageLinks.value.find((item) => item.path === refPath);
     if (link) {
-      target = buildPath(link, payload.params ?? {});
+      target = buildRoutePath(link, payload.params ?? {});
     } else {
       target = refPath;
     }
   }
   if (!target) return;
-  if (/:([A-Za-z_][A-Za-z0-9_]*)\??\/?$/.test(target)) {
+  if (hasUnresolvedParams(target)) {
     ElMessage.warning("目标路由缺少必要参数，已取消跳转");
     return;
   }
   await router.push({ query: { ...route.query, path: target } });
+}
+
+function openMobile(): void {
+  void router.push(`/m/apps/${appId.value}${selectedPath.value}`);
 }
 
 watch(selectedPath, (path) => {
@@ -248,6 +176,7 @@ onMounted(loadNavigation);
         <el-tag v-for="role in roleKeys" :key="role" size="small" effect="plain">
           {{ role }}
         </el-tag>
+        <el-button size="small" @click="openMobile">H5 预览</el-button>
         <el-button size="small" @click="router.push(`/apps/${appId}/approvals`)">审批中心</el-button>
         <el-button size="small" @click="router.push(`/apps/${appId}/pages`)">页面设计器</el-button>
       </div>
