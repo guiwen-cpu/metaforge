@@ -53,13 +53,18 @@ export interface EnumValueDef {
 }
 
 export interface UploadHints {
-  maxSizeMb?: number;
+  provider?: string;
   accept?: string[];
-  multiple?: boolean;
+  maxSize?: number;
+  maxSizeMb?: number;
   maxCount?: number;
+  multiple?: boolean;
+  preview?: boolean;
+  compressImage?: boolean;
   pathTemplate?: string;
   [key: string]: unknown;
 }
+
 
 export interface UiHints {
   widget?: string;

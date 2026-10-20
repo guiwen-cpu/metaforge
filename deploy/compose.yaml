@@ -104,6 +104,8 @@ services:
       LCP_CONNECTOR_ALLOW_PRIVATE_NETWORKS: ${LCP_CONNECTOR_ALLOW_PRIVATE_NETWORKS:-true}
       LCP_CONNECTOR_ALLOW_INSECURE_HTTP: ${LCP_CONNECTOR_ALLOW_INSECURE_HTTP:-true}
       LCP_IDENTITY_ALLOW_ALL: ${LCP_IDENTITY_ALLOW_ALL:-true}
+      # 附件落本地持久卷；生产可切换到 OSS provider。
+      LCP_ATTACHMENT_DIR: /app/data/attachments
       TZ: Asia/Shanghai
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Shanghai"
     depends_on:
@@ -112,6 +114,8 @@ services:
       redis:
         condition: service_healthy
     networks: [edge, data]
+    volumes:
+      - attachment_data:/app/data/attachments
     read_only: true
     tmpfs: [/tmp]
     security_opt: ["no-new-privileges:true"]
@@ -152,3 +156,4 @@ networks:
 volumes:
   pg_data: {}
   redis_data: {}
+  attachment_data: {}

@@ -9,7 +9,7 @@ COPY schema/expression-registry.json schema/expression-registry.json
 RUN mvn -q -f bff/pom.xml -B -DskipTests package
 
 FROM eclipse-temurin:21-jre-alpine
-RUN adduser -D -H -u 10002 app
+RUN adduser -D -H -u 10002 app && mkdir -p /app/data/attachments && chown -R app:app /app/data
 WORKDIR /app
 COPY --from=build /src/bff/target/bff.jar app.jar
 USER app

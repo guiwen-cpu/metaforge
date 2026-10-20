@@ -198,6 +198,100 @@ public class BusinessRecordService {
     return get(entity, businessId);
   }
 
+  /** 按实体元数据列出业务行；过滤键必须是实体字段，租户与软删除由服务端强制。 */
+  public List<Map<String, Object>> list(
+      JsonNode entity,
+      Map<String, Object> filters,
+      String orderColumn,
+      boolean descending,
+      int limit) {
+    if (entity == null) {
+      return List.of();
+    }
+    JsonNode storage = entity.path("storage");
+    String table = required(entity, "tableName");
+    String idColumn = text(storage, "primaryKey", "id");
+    String tenantColumn = text(storage, "tenantColumn", "tenant_id");
+    String jsonbColumn = text(storage, "jsonbColumn", "ext");
+    MapSqlParameterSource params = new MapSqlParameterSource("t", tenant());
+    List<String> where = new ArrayList<>();
+    where.add("t." + q(tenantColumn) + " = :t");
+    String softDelete = storage.path("softDelete").path("enabled").asBoolean(false)
+        ? storage.path("softDelete").path("column").asText("deleted_at") : null;
+    if (softDelete != null) {
+      where.add("t." + q(softDelete) + " is null");
+    }
+    int index = 0;
+    for (Map.Entry<String, Object> entry : filters.entrySet()) {
+      if (entry.getValue() == null) {
+        continue;
+      }
+      JsonNode field = field(entity, entry.getKey());
+      if (field == null || "jsonb".equals(field.path("storage").asText("column"))) {
+        continue;
+      }
+      String param = "f" + index++;
+      where.add("t." + q(entry.getKey()) + " = " + casts(field, ":" + param));
+      params.addValue(param, entry.getValue());
+    }
+    String order = orderColumn;
+    if (order == null || field(entity, order) == null) {
+      order = storage.path("timestamps").path("createdAt").asText(idColumn);
+    }
+    String ext = jsonbColumn == null ? "null" : "t." + q(jsonbColumn) + "::text";
+    String sql = "select t.*, " + ext + " as __ext_json from " + q(table) + " t"
+        + " where " + String.join(" and ", where)
+        + " order by t." + q(order) + (descending ? " desc" : " asc")
+        + " limit :limit";
+    params.addValue("limit", Math.max(1, Math.min(limit, 500)));
+    List<Map<String, Object>> rows = jdbc.queryForList(sql, params);
+    List<Map<String, Object>> out = new ArrayList<>(rows.size());
+    for (Map<String, Object> raw : rows) {
+      Map<String, Object> row = new LinkedHashMap<>(raw);
+      Object rawExt = row.remove("__ext_json");
+      if (jsonbColumn != null) {
+        row.remove(jsonbColumn);
+      }
+      if (rawExt instanceof String text && !text.isBlank()) {
+        try {
+          JsonNode node = json.readTree(text);
+          node.fields().forEachRemaining(entry -> row.putIfAbsent(entry.getKey(), plain(entry.getValue())));
+        } catch (Exception ignored) {
+          // ext 不是对象时不影响主列读取
+        }
+      }
+      row.replaceAll((key, value) -> normalize(value));
+      out.add(row);
+    }
+    return out;
+  }
+
+  /** 软删除由实体元数据决定列名；没有配置软删除时拒绝调用。 */
+  public void softDelete(JsonNode entity, String id, String actor) {
+    JsonNode storage = entity.path("storage");
+    String table = required(entity, "tableName");
+    String idColumn = text(storage, "primaryKey", "id");
+    String tenantColumn = text(storage, "tenantColumn", "tenant_id");
+    String column = storage.path("softDelete").path("enabled").asBoolean(false)
+        ? storage.path("softDelete").path("column").asText("deleted_at") : null;
+    if (column == null) {
+      throw new IllegalStateException("实体未启用软删除");
+    }
+    MapSqlParameterSource params = new MapSqlParameterSource("t", tenant())
+        .addValue("id", id).addValue("actor", actor);
+    List<String> sets = new ArrayList<>();
+    sets.add(q(column) + " = now()");
+    String updatedAt = storage.path("timestamps").path("updatedAt").asText(null);
+    if (updatedAt != null) {
+      sets.add(q(updatedAt) + " = now()");
+    }
+    String updatedBy = storage.path("timestamps").path("updatedBy").asText(null);
+    if (updatedBy != null) {
+      sets.add(q(updatedBy) + " = :actor");
+    }
+    jdbc.update("update " + q(table) + " set " + String.join(", ", sets)
+        + " where " + q(tenantColumn) + " = :t and " + q(idColumn) + " = :id", params);
+  }
   public JsonNode entity(JsonNode bundle, JsonNode flow) {
     String key = flow.path("entityRef").path("key").asText(null);
     if (key == null) {

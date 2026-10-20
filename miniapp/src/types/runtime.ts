@@ -369,3 +369,18 @@ export interface ActionRunFeed {
   items: ActionRunSummary[];
   total: number;
 }
+
+/** 运行时附件元数据；文件内容统一走受控 content 接口。 */
+export interface AttachmentView {
+  id: string;
+  biz_type?: string | null;
+  biz_id?: string | null;
+  file_name: string;
+  object_key: string;
+  mime?: string | null;
+  size: number;
+  kind: string;
+  checksum?: string | null;
+  created_at?: string | null;
+  url: string;
+}

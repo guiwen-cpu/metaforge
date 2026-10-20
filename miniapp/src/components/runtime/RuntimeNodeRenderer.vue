@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, inject, ref } from "vue";
+import { computed, inject, onMounted, reactive, ref, watch } from "vue";
+import { runtimeApi } from "@/api/runtime";
+import { errorMessage } from "@/api/request";
 import {
   RUNTIME_CONTEXT,
   type RuntimeContextApi,
@@ -17,7 +19,8 @@ import {
   propObject,
   propText
 } from "@/lib/runtimeModel";
-import type { DataField, EnumValueDef } from "@/types/dataModel";
+import type { DataField, EnumValueDef, UploadHints } from "@/types/dataModel";
+import type { AttachmentView } from "@/types/runtime";
 import type { UINode } from "@/types/uiModel";
 
 defineOptions({ name: "RuntimeNodeRenderer" });
@@ -550,6 +553,421 @@ function chooseFormOption(item: Record<string, unknown>, option: EnumValueDef): 
   setFormValue(item, option.value);
 }
 
+/* -------------------------------------------------------------- attachment */
+
+type AttachmentKind = "image" | "video" | "document" | "other";
+
+interface LocalFile {
+  path: string;
+  name: string;
+  size: number;
+}
+
+interface UploadConfig {
+  kind: AttachmentKind;
+  accept: string[];
+  maxSize: number;
+  maxCount: number;
+  multiple: boolean;
+}
+
+interface UploadState {
+  busy: boolean;
+  error: string;
+}
+
+const uploadState = reactive<Record<string, UploadState>>({});
+const attachmentState = reactive<
+  Record<string, { loading: boolean; error: string; items: AttachmentView[] }>
+>({});
+const uploadDrafts = new WeakMap<object, string>();
+
+const IMAGE_EXT = ["jpg", "jpeg", "png", "webp", "gif"];
+const VIDEO_EXT = ["mp4", "mov", "m4v", "webm"];
+const DOCUMENT_EXT = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv"];
+
+function uploadHint(item: Record<string, unknown>): UploadHints {
+  const field = formFieldOf(item);
+  const hint = field?.uiHints?.upload;
+  return hint && typeof hint === "object" ? hint : {};
+}
+
+function uploadKind(item: Record<string, unknown>): AttachmentKind {
+  const field = formFieldOf(item);
+  const type = String(field?.itemType?.type ?? field?.type ?? "");
+  if (type === "image") return "image";
+  if (type === "video") return "video";
+  const accept = uploadHint(item).accept ?? [];
+  const normalized = accept.map((value) => String(value).replace(/^\./, "").toLowerCase());
+  if (normalized.some((value) => IMAGE_EXT.includes(value))) return "image";
+  if (normalized.some((value) => VIDEO_EXT.includes(value))) return "video";
+  return "document";
+}
+
+function uploadConfig(item: Record<string, unknown>): UploadConfig {
+  const hint = uploadHint(item);
+  const kind = uploadKind(item);
+  const defaults = kind === "image" ? IMAGE_EXT : kind === "video" ? VIDEO_EXT : DOCUMENT_EXT;
+  const accept = (hint.accept?.length ? hint.accept : defaults)
+    .map((value) => String(value).replace(/^\./, "").toLowerCase());
+  const field = formFieldOf(item);
+  const arrayValue = Array.isArray(formValue(item)) || field?.type === "array";
+  const multiple = hint.multiple ?? arrayValue;
+  const maxCount = Math.max(1, Number(hint.maxCount ?? (multiple ? (kind === "video" ? 1 : 6) : 1)));
+  const maxSize = Number(
+    hint.maxSize ?? (hint.maxSizeMb ? Number(hint.maxSizeMb) * 1024 * 1024 : 0)
+  ) || (kind === "image" ? 10 * 1024 * 1024 : kind === "video" ? 100 * 1024 * 1024 : 50 * 1024 * 1024);
+  return { kind, accept, maxSize, maxCount, multiple };
+}
+
+function uploadItems(item: Record<string, unknown>): AttachmentView[] {
+  const value = formValue(item);
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is AttachmentView =>
+      Boolean(entry) && typeof entry === "object"
+    );
+  }
+  return value && typeof value === "object" ? [value as AttachmentView] : [];
+}
+
+function uploadKey(item: Record<string, unknown>): string {
+  return `${props.node.id}:${formFieldKey(item)}`;
+}
+
+function uploadStateOf(item: Record<string, unknown>): UploadState {
+  const key = uploadKey(item);
+  if (!uploadState[key]) uploadState[key] = { busy: false, error: "" };
+  return uploadState[key];
+}
+
+function ulidLike(): string {
+  const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  let value = Date.now().toString(32).toUpperCase();
+  while (value.length < 26) {
+    value += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return value.slice(0, 26);
+}
+
+function uploadBizType(): string {
+  return String(entity.value?.key ?? "") || api.view.key;
+}
+
+function uploadBizId(): string {
+  const existing = formModel.value.id;
+  if (existing !== undefined && existing !== null && String(existing).trim()) {
+    return String(existing);
+  }
+  let draft = uploadDrafts.get(formModel.value);
+  if (!draft) {
+    draft = ulidLike();
+    uploadDrafts.set(formModel.value, draft);
+  }
+  return draft;
+}
+
+function fileNameOf(path: string): string {
+  const value = String(path ?? "");
+  const name = value.split(/[\\/]/).pop() || "attachment";
+  return name.includes(".") ? name : "attachment.jpg";
+}
+
+function formatSize(value: unknown): string {
+  const size = Number(value ?? 0);
+  if (!Number.isFinite(size) || size <= 0) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function uploadHintText(item: Record<string, unknown>): string {
+  const config = uploadConfig(item);
+  return `支持 ${config.accept.join(" / ")}，单个不超过 ${formatSize(config.maxSize)}，最多 ${config.maxCount} 个`;
+}
+
+function callUni(
+  name: string,
+  options: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const fn = (uni as unknown as Record<string, (value: Record<string, unknown>) => void>)[name];
+    if (typeof fn !== "function") {
+      reject(new Error("当前平台不支持该文件选择方式"));
+      return;
+    }
+    fn({
+      ...options,
+      success: (result: Record<string, unknown>) => resolve(result),
+      fail: (error: { errMsg?: string }) => reject(new Error(error?.errMsg || "选择文件失败"))
+    });
+  });
+}
+
+async function pickLocalFiles(config: UploadConfig, remaining: number): Promise<LocalFile[]> {
+  if (config.kind === "image") {
+    const result = await callUni("chooseImage", {
+      count: Math.max(1, remaining),
+      sizeType: ["compressed"]
+    });
+    const paths = Array.isArray(result.tempFilePaths) ? result.tempFilePaths : [];
+    const files = Array.isArray(result.tempFiles) ? result.tempFiles : [];
+    return paths.map((pathValue: unknown, index: number) => {
+      const path = String(pathValue);
+      const meta = (files[index] ?? {}) as Record<string, unknown>;
+      return { path, name: fileNameOf(path), size: Number(meta.size ?? 0) };
+    });
+  }
+  if (config.kind === "video") {
+    const result = await callUni("chooseVideo", {
+      sourceType: ["album", "camera"],
+      compressed: true
+    });
+    const path = String(result.tempFilePath ?? "");
+    return path ? [{ path, name: fileNameOf(path), size: Number(result.size ?? 0) }] : [];
+  }
+  const options = {
+    count: Math.max(1, remaining),
+    type: "file",
+    extension: config.accept
+  };
+  const result = await callUni("chooseFile", options).catch(() => callUni("chooseMessageFile", options));
+  const paths = Array.isArray(result.tempFilePaths) ? result.tempFilePaths : [];
+  const files = Array.isArray(result.tempFiles) ? result.tempFiles : [];
+  return paths.map((pathValue: unknown, index: number) => {
+    const path = String(pathValue);
+    const meta = (files[index] ?? {}) as Record<string, unknown>;
+    return {
+      path,
+      name: String(meta.name ?? fileNameOf(path)),
+      size: Number(meta.size ?? 0)
+    };
+  });
+}
+
+function setUploadError(item: Record<string, unknown>, message: string): void {
+  uploadStateOf(item).error = message;
+  if (message) uni.showToast({ title: message, icon: "none" });
+}
+
+async function chooseUpload(item: Record<string, unknown>): Promise<void> {
+  if (formReadonly(item)) return;
+  const state = uploadStateOf(item);
+  if (state.busy) return;
+  const config = uploadConfig(item);
+  const current = uploadItems(item);
+  const remaining = config.maxCount - current.length;
+  if (remaining <= 0) {
+    setUploadError(item, `最多上传 ${config.maxCount} 个文件`);
+    return;
+  }
+  state.error = "";
+  let files: LocalFile[] = [];
+  try {
+    files = await pickLocalFiles(config, remaining);
+  } catch (error) {
+    if (!/cancel/i.test(errorMessage(error))) setUploadError(item, errorMessage(error));
+    return;
+  }
+  if (!files.length) return;
+  files = files.slice(0, remaining);
+  state.busy = true;
+  const added: AttachmentView[] = [];
+  try {
+    for (const file of files) {
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+      if (!config.accept.includes(ext)) {
+        setUploadError(item, `不支持的文件类型：${ext || file.name}`);
+        continue;
+      }
+      if (file.size > config.maxSize) {
+        setUploadError(item, `${file.name} 超过 ${formatSize(config.maxSize)}`);
+        continue;
+      }
+      const uploaded = await runtimeApi.uploadAttachment(api.appId, api.view.key, file.path, {
+        bizType: uploadBizType(),
+        bizId: uploadBizId(),
+        kind: config.kind,
+        fileName: file.name
+      });
+      added.push(uploaded);
+    }
+    if (added.length) {
+      const next = config.multiple || Array.isArray(formValue(item))
+        ? [...uploadItems(item), ...added]
+        : added.slice(-1);
+      setFormValue(item, next);
+    }
+  } catch (error) {
+    setUploadError(item, errorMessage(error));
+  } finally {
+    state.busy = false;
+  }
+}
+
+function attachmentName(entry: unknown): string {
+  if (!entry || typeof entry !== "object") return String(entry ?? "附件");
+  const record = entry as Record<string, unknown>;
+  return String(record.file_name ?? record.fileName ?? record.name ?? record.object_key ?? "附件");
+}
+
+function attachmentKey(entry: unknown, index: number): string {
+  if (entry && typeof entry === "object") {
+    const record = entry as Record<string, unknown>;
+    return String(record.id ?? record.object_key ?? index);
+  }
+  return String(index);
+}
+function attachmentSize(entry: unknown): string {
+  if (!entry || typeof entry !== "object") return "";
+  return formatSize((entry as Record<string, unknown>).size);
+}
+
+function attachmentUrl(entry: unknown): string {
+  if (!entry || typeof entry !== "object") return "";
+  const record = entry as Record<string, unknown>;
+  if (record.url) return runtimeApi.attachmentContentUrl(record as unknown as AttachmentView);
+  return String(record.object_key ?? record.objectKey ?? "");
+}
+
+function previewAttachment(entry: unknown): void {
+  const url = attachmentUrl(entry);
+  if (!url) {
+    uni.showToast({ title: "附件地址不可用", icon: "none" });
+    return;
+  }
+  const kind = entry && typeof entry === "object"
+    ? String((entry as Record<string, unknown>).kind ?? "")
+    : "";
+  if (kind === "image") {
+    uni.previewImage({ urls: [url] });
+    return;
+  }
+  // #ifdef H5
+  window.open(url, "_blank");
+  return;
+  // #endif
+  uni.downloadFile({
+    url,
+    success: (result) => {
+      if (result.statusCode !== 200) {
+        uni.showToast({ title: "附件下载失败", icon: "none" });
+        return;
+      }
+      uni.openDocument({
+        filePath: result.tempFilePath,
+        showMenu: true,
+        fail: () => uni.showToast({ title: "当前平台无法预览该附件", icon: "none" })
+      });
+    },
+    fail: () => uni.showToast({ title: "附件下载失败", icon: "none" })
+  });
+}
+
+async function removeUpload(item: Record<string, unknown>, index: number): Promise<void> {
+  if (formReadonly(item)) return;
+  const items = uploadItems(item);
+  const target = items[index];
+  items.splice(index, 1);
+  setFormValue(item, items);
+  if (target?.id) {
+    try {
+      await runtimeApi.deleteAttachment(api.appId, api.view.key, target.id);
+    } catch (error) {
+      setUploadError(item, errorMessage(error));
+    }
+  }
+}
+
+/* ------------------------------------------------------- attachment list */
+
+function attachmentStateOf(): { loading: boolean; error: string; items: AttachmentView[] } {
+  if (!attachmentState[props.node.id]) {
+    attachmentState[props.node.id] = { loading: false, error: "", items: [] };
+  }
+  return attachmentState[props.node.id];
+}
+
+function attachmentBizType(): string {
+  return textProp("bizType") || String(entity.value?.key ?? "") || "attachment";
+}
+
+function attachmentBizId(): string {
+  const value = api.evaluate(parseJsonProp(nodeProps.value.bizId), scope.value);
+  return value === undefined || value === null ? "" : String(value);
+}
+
+async function loadAttachmentList(): Promise<void> {
+  if (props.node.component !== "x-attachment-list") return;
+  const state = attachmentStateOf();
+  const bizId = attachmentBizId();
+  if (!bizId) {
+    state.items = [];
+    state.error = "";
+    state.loading = false;
+    return;
+  }
+  state.loading = true;
+  state.error = "";
+  try {
+    state.items = await runtimeApi.listAttachments(
+      api.appId,
+      api.view.key,
+      attachmentBizType(),
+      bizId
+    );
+  } catch (error) {
+    state.items = [];
+    state.error = errorMessage(error);
+  } finally {
+    state.loading = false;
+  }
+}
+
+function attachmentReadonly(): boolean {
+  return boolProp("readonly", true);
+}
+
+function attachmentGroupTitle(kind: string): string {
+  return { image: "图片", video: "视频", document: "文档", other: "其他" }[kind] ?? "附件";
+}
+
+function attachmentGroups(): Array<{ kind: string; title: string; items: AttachmentView[] }> {
+  const state = attachmentStateOf();
+  if (!boolProp("groupByKind", false)) {
+    return [{ kind: "all", title: "附件", items: state.items }];
+  }
+  const kinds = ["image", "video", "document", "other"];
+  return kinds
+    .map((kind) => ({
+      kind,
+      title: attachmentGroupTitle(kind),
+      items: state.items.filter((item) => String(item.kind ?? "other") === kind)
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+async function removeAttachmentEntry(entry: AttachmentView): Promise<void> {
+  if (attachmentReadonly()) return;
+  const accepted = await api.confirm("确定删除该附件？", "删除附件", true);
+  if (!accepted) return;
+  try {
+    await runtimeApi.deleteAttachment(api.appId, api.view.key, entry.id);
+    await loadAttachmentList();
+  } catch (error) {
+    uni.showToast({ title: errorMessage(error), icon: "none" });
+  }
+}
+
+onMounted(() => {
+  if (props.node.component === "x-attachment-list") void loadAttachmentList();
+});
+
+watch(
+  () => [attachmentBizType(), attachmentBizId()],
+  () => {
+    if (props.node.component === "x-attachment-list") void loadAttachmentList();
+  }
+);
 async function submitForm(): Promise<void> {
   await api.runHandler(props.node, "submit", {}, { ...scope.value, form: formModel.value });
 }
@@ -899,7 +1317,42 @@ const customTitle = computed(() => String(nodeProps.value.title ?? props.node.co
         />
 
         <view v-else-if="formWidget(item) === 'x-upload'" class="x-form__upload">
-          <text>附件上传暂未接入小程序，请在 H5 / 桌面端补充</text>
+          <view v-if="uploadItems(item).length" class="x-upload__list">
+            <view
+              v-for="(entry, index) in uploadItems(item)"
+              :key="attachmentKey(entry, index)"
+              class="x-upload__item"
+            >
+              <view class="x-upload__meta">
+                <text class="x-upload__name">{{ attachmentName(entry) }}</text>
+                <text class="x-upload__size">{{ attachmentSize(entry) }}</text>
+              </view>
+              <view class="x-upload__ops">
+                <button class="mf-btn mf-btn--sm mf-btn--plain" @click="previewAttachment(entry)">
+                  预览
+                </button>
+                <button
+                  v-if="!formReadonly(item)"
+                  class="mf-btn mf-btn--sm mf-btn--danger"
+                  @click="removeUpload(item, index)"
+                >
+                  移除
+                </button>
+              </view>
+            </view>
+          </view>
+          <button
+            v-if="!formReadonly(item)"
+            class="mf-btn mf-btn--sm mf-btn--plain"
+            :disabled="uploadStateOf(item).busy"
+            @click="chooseUpload(item)"
+          >
+            {{ uploadStateOf(item).busy ? "上传中…" : "选择文件" }}
+          </button>
+          <text v-if="uploadStateOf(item).error" class="x-form__help x-form__help--error">
+            {{ uploadStateOf(item).error }}
+          </text>
+          <text v-else class="x-form__help">{{ uploadHintText(item) }}</text>
         </view>
 
         <input
@@ -943,9 +1396,42 @@ const customTitle = computed(() => String(nodeProps.value.title ?? props.node.co
       <text class="x-placeholder__body">小程序暂未接入流程时间线，请到 H5 或桌面端查看。</text>
     </view>
 
-    <view v-else-if="node.component === 'x-attachment-list'" class="x-placeholder">
-      <text class="x-placeholder__title">附件列表</text>
-      <text class="x-placeholder__body">运行时的附件上传与下载将在后续版本接入。</text>
+    <view v-else-if="node.component === 'x-attachment-list'" class="x-attachment">
+      <view class="x-attachment__head">
+        <text class="x-attachment__title">{{ textProp("title") || "附件" }}</text>
+        <text v-if="attachmentStateOf().loading" class="x-attachment__hint">加载中…</text>
+      </view>
+      <text v-if="attachmentStateOf().error" class="x-form__help x-form__help--error">
+        {{ attachmentStateOf().error }}
+      </text>
+      <view v-else-if="attachmentStateOf().items.length === 0" class="x-table__empty">
+        暂无附件
+      </view>
+      <view v-else class="x-attachment__groups">
+        <view v-for="group in attachmentGroups()" :key="group.kind" class="x-attachment__group">
+          <text v-if="boolProp('groupByKind', false)" class="x-attachment__group-title">
+            {{ group.title }}
+          </text>
+          <view v-for="entry in group.items" :key="entry.id" class="x-upload__item">
+            <view class="x-upload__meta">
+              <text class="x-upload__name">{{ attachmentName(entry) }}</text>
+              <text class="x-upload__size">{{ attachmentSize(entry) }}</text>
+            </view>
+            <view class="x-upload__ops">
+              <button class="mf-btn mf-btn--sm mf-btn--plain" @click="previewAttachment(entry)">
+                预览
+              </button>
+              <button
+                v-if="!attachmentReadonly()"
+                class="mf-btn mf-btn--sm mf-btn--danger"
+                @click="removeAttachmentEntry(entry)"
+              >
+                删除
+              </button>
+            </view>
+          </view>
+        </view>
+      </view>
     </view>
 
     <text v-else-if="node.component === 'x-status-tag'" :class="chipClass(statusColor)">
@@ -1407,4 +1893,75 @@ const customTitle = computed(() => String(nodeProps.value.title ?? props.node.co
   color: #94a3b8;
   font-size: 22rpx;
 }
-</style>
+.x-form__upload {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+.x-form__help--error {
+  color: #dc2626;
+}
+.x-upload__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.x-upload__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  padding: 14rpx 16rpx;
+  border: 1rpx solid #e2e8f0;
+  border-radius: 14rpx;
+  background: #f8fafc;
+}
+.x-upload__meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.x-upload__name {
+  color: #334155;
+  font-size: 24rpx;
+  word-break: break-all;
+}
+.x-upload__size {
+  color: #94a3b8;
+  font-size: 20rpx;
+}
+.x-upload__ops {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8rpx;
+}
+.x-attachment {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+.x-attachment__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.x-attachment__title {
+  color: #0f172a;
+  font-size: 27rpx;
+  font-weight: 600;
+}
+.x-attachment__hint {
+  color: #94a3b8;
+  font-size: 21rpx;
+}
+.x-attachment__groups,
+.x-attachment__group {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.x-attachment__group-title {
+  color: #64748b;
+  font-size: 22rpx;
+  font-weight: 600;
+}</style>

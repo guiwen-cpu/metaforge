@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`4d28ed6 feat(codegen): 出码模板接入 JWT 登录与组织权限`
+> 分支：`dev` ｜ 最新提交：`2ae386c feat(miniapp): 接入受控 apiCall 运行时调用`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -78,6 +78,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `3bee549` | uni-app 小程序运行时壳 | typecheck + H5 / mp-weixin 构建 + H5 390×844 登录、列表、搜索、分页、详情与表单回填 CDP 实测 |
 | `f5bcd54` | 连接器扩展（GraphQL / SOAP / database / OAuth2 / 签名 / 审计） | typecheck / build / BFF 测试 + 审计落库与脱敏 + 私网 HTTP 链路冒烟 |
 | `4d28ed6` | 出码模板 JWT 会话与组织权限 | 生成工程 typecheck / build + 登录、刷新恢复、退出登录 CDP 实测 |
+| `2ae386c` | 小程序受控 apiCall | typecheck + H5 / mp-weixin 构建 + 受控调用与 ACL 冒烟 |
+| 本提交 | 小程序附件上传与附件列表 | typecheck + H5 / mp-weixin 构建 + 上传/列表/下载/软删/类型与页面校验冒烟 |
 
 ## 文档维护
 
@@ -251,6 +253,12 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - `ActionExecutor.invokeApi` 复用发布件、连接器、鉴权、mock、GraphQL / SOAP / database / internal 分派与 `resultPath`，小程序不接触连接器地址或密钥。
 - 小程序 `runSteps` 的 `apiCall` 已执行真实请求，支持表达式参数、页面 / 路由 / 表单 / 行数据上下文、`resultPath` 与 `assignTo`；失败沿用动作错误提示，不再静默警告。
 - 验证：`miniapp` typecheck 与 BFF 编译通过；受控入口将用演示页面 API 做 200 / 未引用 403 冒烟。
+### 22. 小程序附件上传与附件列表（刚完成）
+- BFF 新增页面级附件接口：`POST/GET /api/v1/runtime/apps/{appId}/pages/{pageKey}/attachments`、`GET .../{id}/content`、`DELETE .../{id}`；上传前校验页面 ACL，文件和元数据分离，内容落 `LCP_ATTACHMENT_DIR`，元数据写入发布件的 `attachment` 实体。
+- 类型白名单按 `image` / `video` / `document` / `other` 分组，单文件上限 100MB；对象键含租户、应用、年月与 ULID，拒绝路径穿越；响应带 SHA-256 校验和与受控下载地址，删除为软删除。
+- 小程序 `x-upload` 接入 `chooseImage` / `chooseVideo` / `chooseFile`（微信回退 `chooseMessageFile`），按控件 `uploadHints` 校验数量、大小与扩展名，上传后回填附件对象数组并支持预览/移除；`x-attachment-list` 按 `bizType + bizId` 加载、分组、预览与可选删除。
+- 容器卷改为 `/app/data/attachments` 并由镜像预创建为 `app` 用户所有，避免命名卷以 root 拥有导致写入失败。
+- 验证：`miniapp` typecheck 与 H5 / mp-weixin 构建通过；`alice` 上传 200、列表命中、下载 200、软删除后列表为空；`.exe` 返回 400 `file_type_not_allowed`，未知页面返回 404；数据库中仅登记元数据。
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -277,6 +285,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 6.3 uni-app 小程序运行时：独立登录态与运行时壳，复用发布件导航、页面、数据源与动作契约；移动端列表卡片化、表单与详情抽屉已接入。
 - [x] 6.4 运行时动作补齐：`kind=internal` 实体 save/get/patch 与流程终止、`startFlow` / `completeTask`、注册入口 `calcWorkdays`、服务端 `validate` 已接入；请假“新建 → 提交 → 撤回”端到端通过。
 - [x] 6.5 自定义组件远程模块加载：`runtime=remote` 的 https 模块按 `{version}` 锁定版本，加载前校验 SRI，模块 `meta` 与契约不一致时拒绝渲染；设计器按真实模块内容生成 integrity。
+- [x] 6.6 运行时附件：页面级 ACL 上传 / 列表 / 受控下载 / 软删除，本地卷存储与类型白名单；小程序上传控件与附件列表已接入。
 
 ### 阶段 7 · 出码引擎完整化
 - [ ] Bundle → 完整可运行工程（前端 + BFF + 迁移脚本）。
@@ -356,12 +365,12 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 认证审计暂无分页与保留期策略，`limit` 上限内一次返回。
 - 发布态渲染器已接入实体数据源、搜索/分页/排序、行操作、详情与流程时间线；菜单中的外部链接仍直接新开窗口。
 - H5 应用壳复用同一 SPA 与 JWT 会话，尚未独立部署 / PWA，无离线缓存；窄屏表格采用横向滑动，暂未卡片化重排。
-- 小程序端已执行交互步骤中的 `apiCall`（受页面引用链与 ACL 约束）；附件上传与审批时间线仍为明确占位。
+- 小程序端已执行交互步骤中的 `apiCall`（受页面引用链与 ACL 约束）；`x-upload` / `x-attachment-list` 已接入运行时附件接口（页面 ACL、类型白名单、大小上限、软删除）；审批时间线仍为明确占位。
 - 微信小程序构建需用微信开发者工具导入 `miniapp/dist/build/mp-weixin`；尚未配置 AppID、真机域名与体验版上传。非 H5 默认 API 为 `http://127.0.0.1:8080/api/v1`，真机联调需设置 `VITE_API_BASE_URL` 并使用可访问的局域网地址或 HTTPS 域名。
 - “新建请假 → 提交 → 撤回”已跑通：`startFlow`、`completeTask`、内部实体读写与流程终止可用；节假日 API 仅对占位地址降级为空日历并记警告，接入真实服务前工作日不扣除法定节假日。`transaction` 仍是顺序执行，未包真实数据库事务。
 - 通知已覆盖站内信、webhook / email outbox、`Rule.kind=notification` 与 SLA 提醒；`autoApprove` / `autoReject` 仍未实现，通知规则暂无实例规则做端到端实测，outbox 暂无管理界面与保留期策略。
 - 自定义组件已支持内联沙箱与 `runtime=remote` 远程模块；远程模块需自行保证可跨域访问，且模块必须自包含（blob import 不解析相对依赖）。设计器仍以内联预览为主，远程模块在工作台无网络时回退为明确错误态。
-- OSS STS 临时凭证服务未实现，生成代码里只有直传骨架。
+- OSS STS 临时凭证服务未实现，生成代码里只有直传骨架；BFF 附件当前落本地卷（`LCP_ATTACHMENT_DIR`），多副本需共享存储或切换 OSS provider。
 - 生成前端已使用平台 JWT；SSO 登录仍需按项目替换 `stores/session.ts` 的登录入口，生成器暂不产出 IdP 回调页。
 - 校验器残留警告：内联枚举与共享枚举取值不一致；流程监听器未限定 `taskKey`。
 
@@ -369,7 +378,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4、阶段 5 与阶段 6.1 / 6.2 / 6.3 / 6.4 已完成，按以下顺序推进：
 
-1. 小程序能力深化：附件上传、审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
+1. 小程序能力深化：审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
 2. 运行时深化：真实数据库事务、`custom` 代码钩子与其余内部 API 分派，接入真实节假日服务。
 
 ## 恢复上下文的顺序

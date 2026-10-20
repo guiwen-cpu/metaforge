@@ -20,6 +20,10 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:6379}
       password: ${SPRING_DATA_REDIS_PASSWORD:}
       timeout: 2s
+  servlet:
+    multipart:
+      max-file-size: ${LCP_UPLOAD_MAX_FILE_SIZE:100MB}
+      max-request-size: ${LCP_UPLOAD_MAX_REQUEST_SIZE:110MB}
   jackson:
     default-property-inclusion: non_null
     property-naming-strategy: SNAKE_CASE
@@ -102,6 +106,9 @@ lcp:
   identity:
     # 仅开发环境：跳过组织管理员校验；生产设为 false。
     allow-all: ${LCP_IDENTITY_ALLOW_ALL:false}
+  attachments:
+    # 本地文件存储目录；生产可替换为 OSS 实现，对象键契约保持不变。
+    dir: ${LCP_ATTACHMENT_DIR:./data/attachments}
   runtime:
     fallback-directory: ${LCP_RUNTIME_FALLBACK_DIRECTORY:true}
     dept-leader-user: ${LCP_RUNTIME_DEPT_LEADER_USER:bob}
