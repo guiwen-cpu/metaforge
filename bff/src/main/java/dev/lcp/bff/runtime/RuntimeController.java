@@ -1,5 +1,7 @@
 package dev.lcp.bff.runtime;
 
+import dev.lcp.bff.runtime.RuntimeNavigationService.NavigationView;
+import dev.lcp.bff.runtime.RuntimeNavigationService.PageView;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.CompleteTaskRequest;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.ExecuteActionRequest;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.StartInstanceRequest;
@@ -35,12 +37,28 @@ public class RuntimeController {
   private final ProcessRuntimeService runtime;
   private final ActionRunService actionRuns;
   private final NotificationService notificationService;
+  private final RuntimeNavigationService runtimeNavigation;
 
   public RuntimeController(
-      ProcessRuntimeService runtime, ActionRunService actionRuns, NotificationService notifications) {
+      ProcessRuntimeService runtime,
+      ActionRunService actionRuns,
+      NotificationService notifications,
+      RuntimeNavigationService runtimeNavigation) {
     this.runtime = runtime;
     this.actionRuns = actionRuns;
     this.notificationService = notifications;
+    this.runtimeNavigation = runtimeNavigation;
+  }
+
+  @GetMapping("/navigation")
+  public NavigationView navigation(@PathVariable("appId") UUID appId) {
+    return runtimeNavigation.navigation(appId);
+  }
+
+  @GetMapping("/pages/{pageKey}")
+  public PageView page(
+      @PathVariable("appId") UUID appId, @PathVariable("pageKey") String pageKey) {
+    return runtimeNavigation.page(appId, pageKey);
   }
 
   @PostMapping("/actions/{actionKey}/execute")

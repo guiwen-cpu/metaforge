@@ -26,6 +26,8 @@
 | 认证安全 API | `GET /api/v1/auth/password-policy`、`POST /api/v1/auth/password`、`GET /api/v1/platform/identity/auth-audits`（管理员，支持 `eventType` / `username` / `success` / `limit`） |
 | 登录保护 | 连续失败 5 次锁定 15 分钟；密码 8–128 位，须含小写字母与数字，禁止空白及登录名/显示名 |
 | 权限模式 | 开发：`LCP_AUTH_DEV_HEADERS=true`、`LCP_IDENTITY_ALLOW_ALL=true`；staging/prod 覆盖层已置 `false` |
+| 运行时导航 | `GET /api/v1/runtime/apps/{appId}/navigation`（发布态菜单 + 可访问页面 + 默认路由） |
+| 运行时页面 | `GET /api/v1/runtime/apps/{appId}/pages/{pageKey}`（按页面 ACL 返回 200 / 403） |
 
 启动与重建：
 
@@ -152,6 +154,13 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 前端：`IdentityPage` 增加「认证审计」页签与筛选；顶栏新增「修改密码」弹窗并展示密码策略，改密成功后退出重登。
 - 验证：弱密码新建用户返回 `400 password_policy_violation`；连续 5 次错误后正确密码仍 401，管理员重置后恢复；旧密码改密后 401、新密码 200；Principal 查审计 200、Alice 403；CDP 审计页签与改密弹窗正常。
 
+### 13. 运行时菜单与页面权限（刚完成）
+- `RuntimeNavigationService` 只读发布件 `navigation.menus` 与 `uiSchemas`：按 `roles`、`visible` 表达式、`page/menu` ACL 过滤，空分支自动剔除，`defaultRoute` 不可访问时回退首个可见路径。
+- 新增 `GET .../navigation` 与 `GET .../pages/{pageKey}`；页面授权取 `route.roles` / `access.roles` 与显式 page ACL 的并集。
+- `RuntimeShellPage` 提供发布态菜单、只读页面布局预览与角色标签；菜单优先按 `page_key` 打开页面，动态路由模板（如 `/leave/requests/:id?`）支持路径匹配。
+- 表达式 `in` / `notIn` 支持左侧数组：`in($user.roleKeys, [...])` 按交集判断，修复角色菜单 `visible` 与按钮权限同一类写法。
+- 验证：四账号导航过滤符合预期（Alice 仅本人 / 发起，Bob 增加审批与考勤，HR 无平台管理，Principal 全量）；Alice 访问审批页 403、Bob 200；CDP 从 `/leave/requests` 切到 `/leave/requests/new` 与 `/leave/approval`，标题与页面 key 正确。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（进行中）
@@ -168,7 +177,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 5.2 按钮权限与字段权限：提交 / 审批 / 动作执行按 Bundle 授权；DataSchema 字段白名单过滤读与写。
 - [x] 5.3 行级数据权限：本人 / 部门 / 部门子树 / 全校 / 自定义条件。
 - [x] 5.4 JWT 登录与 Bearer 会话，替换演示会话头；请求头仅保留开发兜底。
-- [ ] 5.5 菜单权限：Bundle `menu/page` 授权已建模，控制平面入口已按角色显隐；运行时菜单渲染待阶段 6。
+- [x] 5.5 菜单权限：发布态导航按 `roles` / `visible` / ACL 过滤；运行预览按菜单 `page_key` 打开只读页面，直接页面访问受 403 保护。
 - [ ] 5.6 SSO（OIDC / CAS）接入。
 - [x] 5.7 密码策略、登录锁定与认证审计：策略校验、失败锁定、自助改密与管理员审计查询已完成。
 
@@ -221,6 +230,9 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - **动作授权**：流程启动校验 `onSubmit` 对应 action 的 `execute`，审批校验 `onApprove` 的 outcome；动作执行器校验 action 的 `execute`，越权统一 403。
 - **密码与锁定参数化**：策略长度/字符要求与失败阈值、锁定时长走 `lcp.auth.password-policy.*` / `lcp.auth.lockout.*` 配置，默认值可直接用于演示环境。
 - **审计与认证同事务**：登录成功、失败与改密在同一事务写入 `lcp_auth_audit`，失败记录不阻断原异常返回；审计读取仅限管理员并受租户隔离。
+- **运行时导航只读发布件**：菜单、默认路由与页面访问均基于 `current_version`；`defaultRoute` 失效时回退首个可见菜单，避免上线后指向越权页面。
+- **角色与 ACL 取并集**：页面 `roles` 与显式 `page` ACL 任一命中即可访问；菜单 ACL 仅在该 key 存在授权声明时才作为额外门槛，避免稀疏授权误伤正常入口。
+- **数组版 `in`**：`in` / `notIn` 左侧为数组时按交集判断，统一支持 `$user.roleKeys` 用于菜单、按钮与权限表达式。
 
 ## 已知边界
 
@@ -233,7 +245,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 提交 / 审批 / 动作执行已做按钮级授权；加签尚未实现，任务归属仍由 Flowable `assignee` 控制。
 - SSO 未接入，控制平面登录仍是账号密码 + JWT；已有 JWT 在改密后不会服务端撤销，需等待过期或前端主动退出。
 - 认证审计暂无分页与保留期策略，`limit` 上限内一次返回。
-- Bundle 的 `menu/page` 授权尚未在运行时渲染器消费；当前只影响控制平面入口显隐。
+- 运行预览当前只渲染发布页面布局；数据绑定、表单动作与交互渲染留待阶段 6，菜单中的外部链接直接新开窗口。
 - 通知仅覆盖任务分派、转办、退回、驳回、通过；邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口未接入。
 - 自定义组件只有设计器内联沙箱预览；发布态远程组件加载未实现。
 - OSS STS 临时凭证服务未实现，生成代码里只有直传骨架。
@@ -244,10 +256,10 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4 与阶段 5 主体已完成，按以下顺序推进：
 
-1. 阶段 5 收尾：SSO（OIDC / CAS）；把 Bundle `menu/page` 授权接到运行时菜单。
+1. 阶段 5 收尾：SSO（OIDC / CAS）。
 2. 补连接器注册表与租户密钥库，再开放 internal / database / GraphQL / SOAP 与 bearer/apiKey 鉴权。
 3. 扩展通知：邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口。
-4. 阶段 6 发布态运行时渲染器与自定义组件远程加载。
+4. 阶段 6 发布态运行时渲染器：在现有只读布局上接数据查询、表单动作与组件交互，再做自定义组件远程加载。
 5. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
 
 ## 恢复上下文的顺序

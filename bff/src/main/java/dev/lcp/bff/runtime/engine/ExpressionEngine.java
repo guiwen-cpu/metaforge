@@ -438,8 +438,8 @@ public class ExpressionEngine {
       case "gte" -> compareResult(a, scope, c -> c >= 0);
       case "between" -> nodes.booleanNode(compare(a.get(0), a.get(1), scope) >= 0
           && compare(a.get(0), a.get(2), scope) <= 0);
-      case "in" -> nodes.booleanNode(contains(requireArray(a.get(1), "in"), a.get(0)));
-      case "notIn" -> nodes.booleanNode(!contains(requireArray(a.get(1), "notIn"), a.get(0)));
+      case "in" -> nodes.booleanNode(in(a.get(0), requireArray(a.get(1), "in")));
+      case "notIn" -> nodes.booleanNode(!in(a.get(0), requireArray(a.get(1), "notIn")));
       case "like" -> nodes.booleanNode(like(text(a.get(0)), text(a.get(1))));
       case "startsWith" -> nodes.booleanNode(text(a.get(0)).startsWith(text(a.get(1))));
       case "endsWith" -> nodes.booleanNode(text(a.get(0)).endsWith(text(a.get(1))));
@@ -600,6 +600,19 @@ public class ExpressionEngine {
       }
     }
     return false;
+  }
+
+  /** 左侧为数组时按交集判断，兼容 {@code in($user.roleKeys, [...])} 的权限写法。 */
+  private boolean in(JsonNode value, ArrayNode array) {
+    if (value != null && value.isArray()) {
+      for (JsonNode item : value) {
+        if (contains(array, item)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    return contains(array, value);
   }
 
   private boolean like(String value, String pattern) {

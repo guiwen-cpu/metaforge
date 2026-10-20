@@ -6,6 +6,7 @@ import ModelDesignerPage from "@/pages/ModelDesignerPage.vue";
 import PageDesignerPage from "@/pages/PageDesignerPage.vue";
 import LogicDesignerPage from "@/pages/LogicDesignerPage.vue";
 import ComponentDesignerPage from "@/pages/ComponentDesignerPage.vue";
+import RuntimeShellPage from "@/pages/RuntimeShellPage.vue";
 import ApprovalCenterPage from "@/pages/ApprovalCenterPage.vue";
 import ApprovalDetailPage from "@/pages/ApprovalDetailPage.vue";
 import InstanceDetailPage from "@/pages/InstanceDetailPage.vue";
@@ -51,6 +52,12 @@ const router = createRouter({
           name: "app-components",
           component: ComponentDesignerPage,
           meta: { title: "自定义组件" }
+        },
+        {
+          path: "apps/:appId/runtime",
+          name: "app-runtime",
+          component: RuntimeShellPage,
+          meta: { title: "运行预览" }
         },
         {
           path: "apps/:appId/approvals",

@@ -297,7 +297,7 @@
       ],
       "returns": "boolean",
       "pure": true,
-      "desc": "左侧值是否在右侧数组内"
+      "desc": "左侧值是否在右侧数组内；左侧为数组时判断是否存在交集"
     },
     {
       "name": "notIn",

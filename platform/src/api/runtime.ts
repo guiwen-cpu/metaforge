@@ -11,6 +11,8 @@ import type {
   NotificationFeed,
   NotificationItem,
   NotificationReadResult,
+  RuntimeNavigation,
+  RuntimePageView,
   StartInstancePayload,
   StartResult,
   TaskDetail,
@@ -22,6 +24,16 @@ import type {
 const base = (appId: string) => `/runtime/apps/${appId}`;
 
 export const runtimeApi = {
+  async navigation(appId: string): Promise<RuntimeNavigation> {
+    const { data } = await http.get<RuntimeNavigation>(`${base(appId)}/navigation`);
+    return data;
+  },
+
+  async page(appId: string, pageKey: string): Promise<RuntimePageView> {
+    const { data } = await http.get<RuntimePageView>(`${base(appId)}/pages/${pageKey}`);
+    return data;
+  },
+
   async executeAction(
     appId: string,
     actionKey: string,

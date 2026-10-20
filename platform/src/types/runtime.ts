@@ -1,6 +1,54 @@
+import type { DataSchema } from "./dataModel";
+import type { UISchema } from "./uiModel";
+
 export interface FieldOption {
   label: string;
   value: string;
+}
+
+export interface RuntimeMenuItem {
+  id: string;
+  key: string;
+  title: string;
+  icon?: string | null;
+  path?: string | null;
+  url?: string | null;
+  target?: string | null;
+  page_key?: string | null;
+  order: number;
+  children: RuntimeMenuItem[];
+}
+
+export interface RuntimePageLink {
+  key: string;
+  title: string;
+  path?: string | null;
+  kind: string;
+}
+
+export interface RuntimeNavigation {
+  app_id: string;
+  app_key: string;
+  app_name: string;
+  version_no: number;
+  role_keys: string[];
+  menus: RuntimeMenuItem[];
+  default_route?: string | null;
+  home_page_ref?: string | null;
+  breadcrumb: boolean;
+  tabs: boolean;
+  pages: RuntimePageLink[];
+}
+
+export interface RuntimePageView {
+  key: string;
+  title: string;
+  kind: string;
+  path?: string | null;
+  version_no: number;
+  page: UISchema;
+  data_schemas: DataSchema[];
+  components: unknown[];
 }
 
 export interface RuntimeField {

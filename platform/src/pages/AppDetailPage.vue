@@ -435,7 +435,8 @@ onMounted(loadAll);
           <el-button @click="router.push(`/apps/${app.id}/model`)">数据模型</el-button>
           <el-button @click="router.push(`/apps/${app.id}/pages`)">页面设计器</el-button>
           <el-button @click="router.push(`/apps/${app.id}/logic`)">逻辑编排</el-button>
-        <el-button @click="router.push(`/apps/${app.id}/components`)">自定义组件</el-button>
+          <el-button @click="router.push(`/apps/${app.id}/components`)">自定义组件</el-button>
+          <el-button @click="router.push(`/apps/${app.id}/runtime`)">运行预览</el-button>
           <el-button @click="openEdit">编辑信息</el-button>
           <el-button type="primary" @click="openPublish">发布当前草稿</el-button>
         </div>
