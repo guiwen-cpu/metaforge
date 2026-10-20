@@ -21,8 +21,10 @@ class ActionExecutorTest {
   private final ObjectMapper json = new ObjectMapper();
   private final ExpressionEngine expressions =
       new ExpressionEngine(new ExpressionCatalog(json), json, List.of());
+  private final FakeGateway gateway = new FakeGateway(json);
   private final ActionExecutor executor =
-      new ActionExecutor(new PublishedBundleService(null, null), expressions, json, null, null, null);
+      new ActionExecutor(new PublishedBundleService(null, null), expressions, json, null, null, null,
+          gateway);
 
   @BeforeEach
   void setUp() {
@@ -190,18 +192,28 @@ class ActionExecutorTest {
   }
 
   @Test
-  void rejectsInternalApisInsteadOfExecutingThem() {
+  void invokesInternalApisThroughGatewayAndMapsResponse() {
+    gateway.internalResponse = parse("""
+        {"code": 0, "data": {"id": "L1", "version": 2}}
+        """);
     PublishedBundle bundle = bundle("""
         {
           "key": "logic",
           "actions": [
             {"key": "save", "steps": [
-              {"id": "api", "type": "apiCall", "apiRef": {"key": "api_internal"}}
+              {"id": "api", "type": "apiCall", "apiRef": {"key": "api_internal"},
+               "params": {"entity": "leave_request", "data": {"status": "pending"}},
+               "assignTo": "vars.saved"}
             ]}
           ],
           "apis": [
             {"id": "api-1", "key": "api_internal", "name": "内部保存",
-             "kind": "internal", "method": "POST", "path": "/bff/entity/save"}
+             "kind": "internal", "method": "POST", "path": "/bff/entity/{entity}/save",
+             "request": {"path": [{"key": "entity", "required": true}]},
+             "response": {
+               "successWhen": {"$fn": "eq", "$args": [{"$ref": "$res.body.code"}, {"$lit": 0}]},
+               "mapping": {"id": "$.data.id", "version": "$.data.version"}
+             }}
           ]
         }
         """);
@@ -209,9 +221,179 @@ class ActionExecutorTest {
     ActionExecutionResult result = executor.execute(
         bundle, "save", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
 
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.vars().path("saved").path("id").asText()).isEqualTo("L1");
+    assertThat(result.vars().path("saved").path("version").asInt()).isEqualTo(2);
+    assertThat(gateway.internalMethod).isEqualTo("POST");
+    assertThat(gateway.internalPath).isEqualTo("/bff/entity/{entity}/save");
+    assertThat(gateway.internalPathValues).containsEntry("entity", "leave_request");
+    assertThat(gateway.internalParams.path("data").path("status").asText()).isEqualTo("pending");
+  }
+
+  @Test
+  void unwrapsSingleItemMappingForGetApi() {
+    gateway.internalResponse = parse("""
+        {"code": 0, "data": {"id": "L1", "applicant_id": "alice", "status": "pending"}}
+        """);
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "load", "steps": [
+              {"id": "api", "type": "apiCall", "apiRef": {"key": "api_get"},
+               "params": {"id": "L1"}, "assignTo": "vars.leave"}
+            ]}
+          ],
+          "apis": [
+            {"id": "api-1", "key": "api_get", "kind": "internal", "method": "GET",
+             "path": "/bff/entity/{entity}/get",
+             "request": {"path": [{"key": "entity", "defaultValue": "leave_request"}]},
+             "response": {
+               "successWhen": {"$fn": "eq", "$args": [{"$ref": "$res.body.code"}, {"$lit": 0}]},
+               "mapping": {"item": "$.data"}
+             }}
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(
+        bundle, "load", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.vars().path("leave").path("applicant_id").asText()).isEqualTo("alice");
+    assertThat(result.vars().path("leave").path("status").asText()).isEqualTo("pending");
+  }
+
+  @Test
+  void mapsRowsPathAndTotalPathWithoutMapping() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "scan", "steps": [
+              {"id": "api", "type": "apiCall", "apiRef": {"key": "api_stale"},
+               "assignTo": "vars.stale"}
+            ]}
+          ],
+          "apis": [
+            {"id": "api-1", "key": "api_stale", "kind": "rest", "method": "POST",
+             "path": "/findStale",
+             "mock": {"enabled": true, "data": {
+               "code": 0, "data": {"rows": [{"id": "L1"}, {"id": "L2"}], "total": 2}
+             }},
+             "response": {
+               "successWhen": {"$fn": "eq", "$args": [{"$ref": "$res.body.code"}, {"$lit": 0}]},
+               "rowsPath": "$.data.rows", "totalPath": "$.data.total"
+             }}
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(
+        bundle, "scan", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.vars().path("stale").path("rows")).hasSize(2);
+    assertThat(result.vars().path("stale").path("total").asInt()).isEqualTo(2);
+  }
+
+  @Test
+  void calcWorkdaysSkipsHolidaysAndCountsMakeupWorkday() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "calc", "steps": [
+              {"id": "code", "type": "code", "entry": "calcWorkdays",
+               "assignTo": "vars.workdays",
+               "inputs": [
+                 {"key": "start", "value": {"$ref": "$form.start_at"}},
+                 {"key": "end", "value": {"$ref": "$form.end_at"}},
+                 {"key": "leaveType", "value": {"$ref": "$form.leave_type"}},
+                 {"key": "holidays", "value": {"$lit": [
+                   {"date": "2026-10-23", "type": "holiday"},
+                   {"date": "2026-10-24", "type": "workday"}
+                 ]}}
+               ]}
+            ]}
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(bundle, "calc", new ExecuteActionRequest(
+        Map.of(), Map.of("form", Map.of(
+            "start_at", "2026-10-22T09:00:00+08:00",
+            "end_at", "2026-10-26T18:00:00+08:00",
+            "leave_type", "annual")), Map.of()));
+
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.vars().path("workdays").path("days").asInt()).isEqualTo(3);
+    JsonNode skipped = result.vars().path("workdays").path("skipped");
+    assertThat(skipped.size()).isEqualTo(2);
+    assertThat(skipped.get(0).asText()).isEqualTo("2026-10-23");
+    assertThat(skipped.get(1).asText()).isEqualTo("2026-10-25");
+    assertThat(result.vars().path("workdays").path("warnings").size()).isZero();
+  }
+
+  @Test
+  void validateRejectsBlankRequiredFields() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "check", "steps": [
+              {"id": "v1", "type": "validate", "scope": "form",
+               "fields": ["reason", "start_at"],
+               "message": {"$lit": "请完善带 * 的必填项"}}
+            ]}
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(bundle, "check", new ExecuteActionRequest(
+        Map.of(), Map.of("form", Map.of("reason", "  ", "start_at", "2026-10-22")), Map.of()));
+
     assertThat(result.status()).isEqualTo("failed");
-    assertThat(result.error().code()).isEqualTo("UNSUPPORTED_API");
-    assertThat(result.trace().get(0).status()).isEqualTo("failed");
+    assertThat(result.error().code()).isEqualTo("VALIDATION_FAILED");
+    assertThat(result.error().fields()).containsExactly("reason");
+    assertThat(result.error().message()).contains("请完善带 * 的必填项").contains("reason");
+  }
+
+  @Test
+  void startsFlowAndCompletesTaskThroughGateway() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "submit", "steps": [
+              {"id": "s1", "type": "assign", "target": "vars.savedId", "value": {"$lit": "L1"}},
+              {"id": "f1", "type": "startFlow",
+               "flowRef": {"key": "leave_approval"},
+               "businessKey": {"$ref": "$ctx.vars.savedId"},
+               "assignTo": "vars.processInstanceId",
+               "variables": {"applicantId": {"$ref": "$form.applicant_id"}, "days": 3}},
+              {"id": "t1", "type": "completeTask",
+               "taskId": {"$ref": "$ctx.params.taskId"},
+               "outcome": "approve",
+               "comment": {"$ref": "$ctx.params.comment"},
+               "variables": {"score": 88},
+               "afterComplete": [
+                 {"id": "a1", "type": "assign", "target": "vars.after", "value": {"$lit": true}}
+               ]}
+            ]}
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(bundle, "submit", new ExecuteActionRequest(
+        Map.of("taskId", "T1", "comment", "同意"),
+        Map.of("form", Map.of("applicant_id", "alice")), Map.of()));
+
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.vars().path("processInstanceId").asText()).isEqualTo("PI-1");
+    assertThat(result.vars().path("after").asBoolean()).isTrue();
+    assertThat(gateway.startedFlowKey).isEqualTo("leave_approval");
+    assertThat(gateway.startedBusinessKey).isEqualTo("L1");
+    assertThat(gateway.startedVariables).containsEntry("applicantId", "alice");
+    assertThat(gateway.completedTaskId).isEqualTo("T1");
+    assertThat(gateway.completedOutcome).isEqualTo("approve");
+    assertThat(gateway.completedComment).isEqualTo("同意");
+    assertThat(gateway.completedVariables).containsEntry("score", 88);
   }
 
   @Test
@@ -294,5 +476,78 @@ class ActionExecutorTest {
     assertThat(writeback.path("advance").path("outcome").asText()).isEqualTo("reject");
     assertThat(writeback.path("advance").path("comment").asText()).isEqualTo("失败：余额不足");
     assertThat(writeback.has("success")).isFalse();
+  }
+
+  private static final class FakeGateway implements RuntimeActionGateway {
+
+    private final ObjectMapper json;
+    JsonNode internalResponse;
+    String internalApiKey;
+    String internalMethod;
+    String internalPath;
+    Map<String, String> internalPathValues = Map.of();
+    JsonNode internalParams;
+    String startedFlowKey;
+    String startedBusinessKey;
+    Map<String, Object> startedVariables = Map.of();
+    String completedTaskId;
+    String completedOutcome;
+    String completedComment;
+    String completedNextAssignee;
+    Map<String, Object> completedVariables = Map.of();
+
+    FakeGateway(ObjectMapper json) {
+      this.json = json;
+      try {
+        this.internalResponse = json.readTree("{\"code\":0,\"data\":{}}");
+      } catch (Exception ex) {
+        throw new IllegalStateException(ex);
+      }
+    }
+
+    @Override
+    public JsonNode invokeInternalApi(
+        JsonNode bundle,
+        String apiKey,
+        String method,
+        String pathTemplate,
+        Map<String, String> pathValues,
+        JsonNode params) {
+      internalApiKey = apiKey;
+      internalMethod = method;
+      internalPath = pathTemplate;
+      internalPathValues = pathValues;
+      internalParams = params;
+      return internalResponse;
+    }
+
+    @Override
+    public String startFlow(
+        UUID appId, String flowKey, String businessKey, Map<String, Object> variables) {
+      startedFlowKey = flowKey;
+      startedBusinessKey = businessKey;
+      startedVariables = variables;
+      return "PI-1";
+    }
+
+    @Override
+    public JsonNode completeTask(
+        UUID appId,
+        String taskId,
+        String outcome,
+        String comment,
+        String nextAssignee,
+        Map<String, Object> variables) {
+      completedTaskId = taskId;
+      completedOutcome = outcome;
+      completedComment = comment;
+      completedNextAssignee = nextAssignee;
+      completedVariables = variables;
+      try {
+        return json.readTree("{\"code\":0,\"data\":{\"taskId\":\"" + taskId + "\"}}");
+      } catch (Exception ex) {
+        throw new IllegalStateException(ex);
+      }
+    }
   }
 }

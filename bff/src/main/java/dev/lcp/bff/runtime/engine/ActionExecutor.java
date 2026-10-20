@@ -63,6 +63,7 @@ public class ActionExecutor {
   private final ConnectionService connections;
   private final SecretService secrets;
   private final OutboundUrlPolicy outboundUrls;
+  private final RuntimeActionGateway gateway;
 
   public ActionExecutor(
       dev.lcp.bff.runtime.PublishedBundleService bundles,
@@ -70,13 +71,15 @@ public class ActionExecutor {
       ObjectMapper json,
       ConnectionService connections,
       SecretService secrets,
-      OutboundUrlPolicy outboundUrls) {
+      OutboundUrlPolicy outboundUrls,
+      RuntimeActionGateway gateway) {
     this.bundles = bundles;
     this.expressions = expressions;
     this.json = json;
     this.connections = connections;
     this.secrets = secrets;
     this.outboundUrls = outboundUrls;
+    this.gateway = gateway;
     this.http = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(5))
         .followRedirects(HttpClient.Redirect.NEVER)
@@ -481,16 +484,16 @@ public class ActionExecutor {
         fail(step, scope);
         yield StepOutcome.done(json.nullNode());
       }
-      case "validate" -> StepOutcome.skip("服务端校验步骤依赖实体校验规则，当前版本跳过");
+      case "validate" -> StepOutcome.done(validate(step, scope));
+      case "code" -> StepOutcome.done(code(step, scope));
+      case "startFlow" -> StepOutcome.done(startFlow(step, scope));
+      case "completeTask" -> StepOutcome.done(completeTask(step, scope, children, deadline));
       case "confirm" -> confirm(step, scope, children, deadline);
       case "openDialog", "closeDialog", "navigate", "upload", "download", "print" ->
           StepOutcome.skip("前端交互步骤，服务端执行跳过");
-      case "code", "custom" ->
+      case "custom" ->
           throw new BusinessFailure("UNSUPPORTED_STEP",
               "步骤 " + type + " 需要注册的沙箱/处理器，当前运行时未接入", List.of(), true);
-      case "startFlow", "completeTask" ->
-          throw new BusinessFailure("UNSUPPORTED_STEP",
-              "步骤 " + type + " 需通过流程运行时 API 接入", List.of(), true);
       default -> throw new BusinessFailure("UNKNOWN_STEP", "未知步骤类型：" + type, List.of(), true);
     };
   }
@@ -649,6 +652,267 @@ public class ActionExecutor {
     ctx.put("stepIndex", -1);
     child.put("ctx", ctx);
     return child;
+  }
+
+  // ------------------------------------------------------- server-side steps
+
+  private JsonNode validate(JsonNode step, ExpressionEngine.Scope scope) {
+    String scopeName = step.path("scope").asText("form");
+    if (!"form".equals(scopeName)) {
+      throw new BusinessFailure("UNSUPPORTED_STEP",
+          "validate 仅支持 scope=form，收到 " + scopeName, List.of(), false);
+    }
+    JsonNode form = scope.root("form");
+    List<String> missing = new ArrayList<>();
+    for (JsonNode field : step.path("fields")) {
+      String key = field.asText("");
+      if (key.isBlank()) {
+        continue;
+      }
+      JsonNode value = form == null ? null : form.get(key);
+      if (isMissing(value)) {
+        missing.add(key);
+      }
+    }
+    if (!missing.isEmpty()) {
+      String message = evalString(step.get("message"), scope);
+      String base = message == null ? "请完善必填项" : message;
+      throw new BusinessFailure("VALIDATION_FAILED",
+          base + "：" + String.join("、", missing), missing, false);
+    }
+    ObjectNode out = json.createObjectNode();
+    out.put("valid", true);
+    return out;
+  }
+
+  private JsonNode code(JsonNode step, ExpressionEngine.Scope scope) {
+    String entry = step.path("entry").asText("");
+    if ("calcWorkdays".equals(entry)) {
+      return calcWorkdays(step, scope);
+    }
+    throw new BusinessFailure("UNSUPPORTED_STEP",
+        "代码步骤 entry=" + entry + " 未注册，服务端不执行任意脚本", List.of(), true);
+  }
+
+  private JsonNode calcWorkdays(JsonNode step, ExpressionEngine.Scope scope) {
+    Map<String, JsonNode> inputs = new LinkedHashMap<>();
+    for (JsonNode input : step.path("inputs")) {
+      String key = input.path("key").asText("");
+      if (!key.isBlank()) {
+        inputs.put(key, expressions.eval(input.get("value"), scope));
+      }
+    }
+    LocalDate start = dateOf(inputs.get("start"));
+    LocalDate end = dateOf(inputs.get("end"));
+    ObjectNode out = json.createObjectNode();
+    ArrayNode skipped = json.createArrayNode();
+    ArrayNode warnings = json.createArrayNode();
+    if (start == null || end == null) {
+      out.put("days", 0);
+      out.set("skipped", skipped);
+      warnings.add("时间未填完整");
+      out.set("warnings", warnings);
+      return assignComputed(step, scope, out);
+    }
+    if (end.isBefore(start)) {
+      out.put("days", 0);
+      out.set("skipped", skipped);
+      warnings.add("结束时间早于开始时间");
+      out.set("warnings", warnings);
+      return assignComputed(step, scope, out);
+    }
+
+    Map<LocalDate, String> holidays = holidayTypes(inputs.get("holidays"));
+    int days = 0;
+    for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
+      String type = holidays.get(date);
+      if ("workday".equals(type)) {
+        days++;
+        continue;
+      }
+      boolean weekend = date.getDayOfWeek().getValue() >= 6;
+      if (weekend || "holiday".equals(type)) {
+        skipped.add(date.toString());
+        continue;
+      }
+      days++;
+    }
+    String leaveType = expressions.stringify(inputs.get("leaveType"));
+    if ("annual".equals(leaveType) && days > 15) {
+      warnings.add("年假超过 15 天需院长审批");
+    }
+    out.put("days", days);
+    out.set("skipped", skipped);
+    out.set("warnings", warnings);
+    return assignComputed(step, scope, out);
+  }
+
+  private JsonNode assignComputed(
+      JsonNode step, ExpressionEngine.Scope scope, ObjectNode value) {
+    String target = step.path("assignTo").asText("");
+    if (!target.isBlank()) {
+      setTarget(target, value, false, scope);
+    }
+    return value;
+  }
+
+  private JsonNode startFlow(JsonNode step, ExpressionEngine.Scope scope) {
+    String flowKey = evalString(step.path("flowRef").get("key"), scope);
+    if (flowKey == null) {
+      throw new BusinessFailure("BAD_FLOW_REF", "startFlow 缺少 flowRef.key", List.of(), false);
+    }
+    String businessKey = evalString(step.get("businessKey"), scope);
+    if (businessKey == null) {
+      throw new BusinessFailure("FLOW_BUSINESS_KEY_REQUIRED",
+          "startFlow 缺少 businessKey", List.of(), false);
+    }
+    Map<String, Object> variables = evalVarsMap(step.get("variables"), scope);
+    String processInstanceId = gateway.startFlow(
+        appId(scope), flowKey, businessKey, variables);
+    if (processInstanceId == null || processInstanceId.isBlank()) {
+      throw new BusinessFailure("FLOW_START_FAILED", "流程启动未返回实例 ID", List.of(), true);
+    }
+    String target = step.path("assignTo").asText("");
+    setTarget(target.isBlank() ? "vars.processInstanceId" : target,
+        json.getNodeFactory().textNode(processInstanceId), false, scope);
+    return json.getNodeFactory().textNode(processInstanceId);
+  }
+
+  private JsonNode completeTask(
+      JsonNode step, ExpressionEngine.Scope scope, List<StepTrace> children, long deadline) {
+    String taskId = evalString(step.get("taskId"), scope);
+    if (taskId == null) {
+      throw new BusinessFailure("FLOW_TASK_REQUIRED", "completeTask 缺少 taskId", List.of(), false);
+    }
+    String outcome = evalString(step.get("outcome"), scope);
+    if (outcome == null) {
+      outcome = "approve";
+    }
+    String comment = evalString(step.get("comment"), scope);
+    String nextAssignee = nextAssignee(step, scope);
+    Map<String, Object> variables = evalVarsMap(step.get("variables"), scope);
+    JsonNode result = gateway.completeTask(
+        appId(scope), taskId, outcome, comment, nextAssignee, variables);
+    executeSteps(step.path("afterComplete"), scope, children, deadline);
+    return result == null ? json.nullNode() : result;
+  }
+
+  private String nextAssignee(JsonNode step, ExpressionEngine.Scope scope) {
+    JsonNode def = step.get("nextAssignee");
+    if (def == null || def.isNull()) {
+      return null;
+    }
+    if (def.isObject()) {
+      String type = def.path("type").asText("");
+      if ("expression".equals(type)) {
+        return evalString(def.get("expr"), scope);
+      }
+      if ("user".equals(type)) {
+        return evalString(def.path("userId"), scope);
+      }
+    }
+    return evalString(def, scope);
+  }
+
+  private UUID appId(ExpressionEngine.Scope scope) {
+    Object value = scope.attachment("appId");
+    if (value instanceof UUID id) {
+      return id;
+    }
+    throw new BusinessFailure("APP_CONTEXT_MISSING", "动作缺少应用上下文", List.of(), true);
+  }
+
+  private String evalString(JsonNode expr, ExpressionEngine.Scope scope) {
+    if (expr == null) {
+      return null;
+    }
+    JsonNode value = expressions.eval(expr, scope);
+    if (value == null || value.isNull() || value.isMissingNode()) {
+      return null;
+    }
+    String text = expressions.stringify(value);
+    return text == null || text.isBlank() || "null".equals(text) ? null : text;
+  }
+
+  private Map<String, Object> evalVarsMap(JsonNode expr, ExpressionEngine.Scope scope) {
+    if (expr == null || expr.isNull()) {
+      return Map.of();
+    }
+    JsonNode value = expressions.eval(expr, scope);
+    if (value == null || !value.isObject()) {
+      return Map.of();
+    }
+    @SuppressWarnings("unchecked")
+    Map<String, Object> out = json.convertValue(value, Map.class);
+    return out;
+  }
+
+  private static boolean isMissing(JsonNode value) {
+    if (value == null || value.isNull() || value.isMissingNode()) {
+      return true;
+    }
+    if (value.isTextual()) {
+      return value.asText().isBlank();
+    }
+    return (value.isArray() || value.isObject()) && value.isEmpty();
+  }
+
+  private LocalDate dateOf(JsonNode node) {
+    if (node == null || node.isNull() || node.isMissingNode()) {
+      return null;
+    }
+    String raw = node.asText("").trim();
+    if (raw.isEmpty()) {
+      return null;
+    }
+    try {
+      return OffsetDateTime.parse(raw).atZoneSameInstant(ZONE).toLocalDate();
+    } catch (DateTimeParseException ignored) {
+      // 继续尝试无时区格式
+    }
+    try {
+      return LocalDateTime.parse(raw).toLocalDate();
+    } catch (DateTimeParseException ignored) {
+      // 继续尝试日期
+    }
+    try {
+      return LocalDate.parse(raw);
+    } catch (DateTimeParseException ignored) {
+      // 继续尝试空格分隔时间
+    }
+    try {
+      return LocalDateTime.parse(raw.replace(' ', 'T')).toLocalDate();
+    } catch (DateTimeParseException ignored) {
+      // 继续尝试日期前缀
+    }
+    if (raw.length() >= 10) {
+      try {
+        return LocalDate.parse(raw.substring(0, 10));
+      } catch (DateTimeParseException ignored) {
+        // 落到统一错误
+      }
+    }
+    throw new BusinessFailure("BAD_DATE", "无法解析日期：" + raw, List.of(), false);
+  }
+
+  private Map<LocalDate, String> holidayTypes(JsonNode node) {
+    Map<LocalDate, String> out = new LinkedHashMap<>();
+    if (node == null || !node.isArray()) {
+      return out;
+    }
+    for (JsonNode item : node) {
+      try {
+        LocalDate date = item.isTextual() ? dateOf(item) : dateOf(item.get("date"));
+        if (date == null) {
+          continue;
+        }
+        String type = item.isObject() ? item.path("type").asText("holiday") : "holiday";
+        out.put(date, "workday".equals(type) ? "workday" : "holiday");
+      } catch (BusinessFailure ignored) {
+        // 单个非法日历项不影响其余日期
+      }
+    }
+    return out;
   }
 
   private JsonNode delay(JsonNode step, ExpressionEngine.Scope scope) {
@@ -919,12 +1183,20 @@ public class ActionExecutor {
       response = mockResponse(api, apiScope);
     } else {
       String kind = api.path("kind").asText("rest");
-      if (!"rest".equals(kind)) {
+      if ("internal".equals(kind)) {
+        response = invokeInternal(api, apiKey, callParams, apiScope);
+      } else if ("rest".equals(kind)) {
+        JsonNode retry = step.has("retry") ? step.get("retry") : api.path("retry");
+        if (isPlaceholderHolidayApi(api)) {
+          log.warn("节假日日历使用占位服务，API {} 已降级为空日历", apiKey);
+          response = emptyResponse();
+        } else {
+          response = invokeRest(api, apiKey, callParams, apiScope, retry, deadline);
+        }
+      } else {
         throw new BusinessFailure("UNSUPPORTED_API",
             "API " + apiKey + " 的 kind=" + kind + " 尚未接入运行时连接器", List.of(), false);
       }
-      JsonNode retry = step.has("retry") ? step.get("retry") : api.path("retry");
-      response = invokeRest(api, apiKey, callParams, apiScope, retry, deadline);
     }
 
     ExpressionEngine.Scope resScope = apiScope.child();
@@ -965,6 +1237,60 @@ public class ActionExecutor {
     return response;
   }
 
+  private JsonNode invokeInternal(
+      JsonNode api, String apiKey, ObjectNode callParams, ExpressionEngine.Scope apiScope) {
+    Map<String, String> pathValues = pathValues(api, callParams, apiScope);
+    JsonNode body = gateway.invokeInternalApi(
+        (JsonNode) apiScope.attachment("bundle"),
+        apiKey,
+        api.path("method").asText("GET"),
+        api.path("path").asText(""),
+        pathValues,
+        callParams);
+    ObjectNode response = json.createObjectNode();
+    response.put("status", 200);
+    response.set("body", body == null ? json.nullNode() : body);
+    response.set("headers", json.createObjectNode());
+    response.put("internal", true);
+    return response;
+  }
+
+  private JsonNode emptyResponse() {
+    ObjectNode body = json.createObjectNode();
+    body.put("code", 0);
+    body.set("data", json.createArrayNode());
+    ObjectNode response = json.createObjectNode();
+    response.put("status", 200);
+    response.set("body", body);
+    response.set("headers", json.createObjectNode());
+    return response;
+  }
+
+  private boolean isPlaceholderHolidayApi(JsonNode api) {
+    String baseUrl = api.path("baseUrl").asText("");
+    if (baseUrl.isBlank()) {
+      return false;
+    }
+    try {
+      return "open.example.gov.cn".equalsIgnoreCase(URI.create(baseUrl).getHost());
+    } catch (IllegalArgumentException ex) {
+      return false;
+    }
+  }
+
+  private Map<String, String> pathValues(
+      JsonNode api, ObjectNode callParams, ExpressionEngine.Scope apiScope) {
+    LinkedHashMap<String, String> values = new LinkedHashMap<>();
+    for (JsonNode def : api.path("request").path("path")) {
+      String key = def.path("key").asText("");
+      Object value = apiParamValue(def, callParams, apiScope);
+      if (value != null) {
+        values.put(key, stringValue(value));
+      }
+    }
+    return values;
+  }
+
   private JsonNode invokeRest(
       JsonNode api, String apiKey, ObjectNode callParams, ExpressionEngine.Scope apiScope,
       JsonNode retry, long deadline) {
@@ -980,14 +1306,7 @@ public class ActionExecutor {
       throw new BusinessFailure("API_NO_BASE_URL",
           "API " + apiKey + " 未配置 baseUrl，运行时无法直连", List.of(), false);
     }
-    LinkedHashMap<String, String> pathValues = new LinkedHashMap<>();
-    for (JsonNode def : api.path("request").path("path")) {
-      String key = def.path("key").asText("");
-      Object value = apiParamValue(def, callParams, apiScope);
-      if (value != null) {
-        pathValues.put(key, stringValue(value));
-      }
-    }
+    Map<String, String> pathValues = pathValues(api, callParams, apiScope);
     String path = applyPathParams(api.path("path").asText(""), pathValues, apiKey);
     JsonNode apiAuth = api.path("auth");
     JsonNode auth = apiAuth.isMissingNode() || apiAuth.isNull()
@@ -1394,7 +1713,7 @@ public class ActionExecutor {
       JsonNode responseDef, JsonNode body, ExpressionEngine.Scope resScope) {
     JsonNode mapping = responseDef.path("mapping");
     if (!mapping.isObject() || mapping.isEmpty()) {
-      return body == null ? json.nullNode() : body;
+      return outputPath(responseDef, body);
     }
     ObjectNode out = json.createObjectNode();
     mapping.fields().forEachRemaining(entry -> {
@@ -1414,7 +1733,33 @@ public class ActionExecutor {
       }
       out.set(entry.getKey(), expressions.deepValue(spec, resScope));
     });
+    // 单条读取接口约定 response.mapping = { item: "$.data" }，下游按记录而不是包装对象使用。
+    if (out.size() == 1 && out.has("item")) {
+      return out.get("item");
+    }
     return out;
+  }
+
+  private JsonNode outputPath(JsonNode responseDef, JsonNode body) {
+    String rowsPath = responseDef.path("rowsPath").asText("");
+    if (!rowsPath.isBlank()) {
+      JsonNode rows = expressions.jsonPath(body, rowsPath);
+      String totalPath = responseDef.path("totalPath").asText("");
+      if (!totalPath.isBlank()) {
+        ObjectNode page = json.createObjectNode();
+        page.set("rows", rows == null ? json.nullNode() : rows);
+        JsonNode total = expressions.jsonPath(body, totalPath);
+        page.set("total", total == null ? json.nullNode() : total);
+        return page;
+      }
+      return rows == null ? json.nullNode() : rows;
+    }
+    String itemPath = responseDef.path("itemPath").asText("");
+    if (!itemPath.isBlank()) {
+      JsonNode item = expressions.jsonPath(body, itemPath);
+      return item == null ? json.nullNode() : item;
+    }
+    return body == null ? json.nullNode() : body;
   }
 
   private List<Integer> retryStatuses(JsonNode retry) {

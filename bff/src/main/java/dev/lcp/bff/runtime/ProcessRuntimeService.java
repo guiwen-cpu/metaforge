@@ -1,6 +1,7 @@
 package dev.lcp.bff.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.lcp.bff.auth.PermissionService;
 import dev.lcp.bff.platform.PlatformException;
 import dev.lcp.bff.runtime.PublishedBundleService.PublishedBundle;
@@ -550,6 +551,43 @@ public class ProcessRuntimeService {
           "流程已通过", "你的申请「" + businessTitle + "」已通过审批。");
     }
     return taskDetail(appId, taskId);
+  }
+
+  /**
+   * 终止运行中的流程实例。已结束或不属于当前租户的实例按幂等成功返回 terminated=false，
+   * 业务单据状态仍由调用方（撤回动作）显式回写，流程侧不改业务表。
+   */
+  public JsonNode terminate(String processInstanceId, String reason, boolean deleteHistory) {
+    if (processInstanceId == null || processInstanceId.isBlank()) {
+      throw PlatformException.badRequest("process_instance_required", "缺少流程实例 ID");
+    }
+    String id = processInstanceId.trim();
+    ProcessInstance running = runtimeService.createProcessInstanceQuery()
+        .processInstanceId(id)
+        .processInstanceTenantId(tenant())
+        .singleResult();
+    boolean terminated = false;
+    if (running != null) {
+      String deleteReason = trimToNull(reason) == null ? "运行时终止" : reason.trim();
+      identityService.setAuthenticatedUserId(user());
+      try {
+        runtimeService.deleteProcessInstance(id, deleteReason);
+      } finally {
+        identityService.setAuthenticatedUserId(null);
+      }
+      terminated = true;
+      if (deleteHistory) {
+        try {
+          historyService.deleteHistoricProcessInstance(id);
+        } catch (RuntimeException ex) {
+          log.warn("流程 {} 已终止，但清理历史失败: {}", id, ex.getMessage());
+        }
+      }
+    }
+    ObjectNode out = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+    out.put("terminated", terminated);
+    out.put("processInstanceId", id);
+    return out;
   }
 
   public JsonNode flowForDefinition(JsonNode bundle, String definitionId) {

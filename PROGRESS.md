@@ -230,7 +230,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 ### 阶段 4 · 运行时与工作流（已完成）
 - [x] 4.1 Flowable 运行时：发布时部署 BPMN（来自 `logicSchemas.flows`），实例启动/查询已通；挂起/激活未做。
 - [x] 4.2 任务 API：待办/已办/我发起、签收、完成、转办、变量、历史时间线已完成；加签未做。
-- [x] 4.3 逻辑执行器：动作步骤同步执行（assign / branch / loop / parallel 串行兼容 / callAction / transaction 顺序 / delay / log / emit / fail），REST 与 mock API 已接入，支持超时、重试、路径/查询/头/体、`successWhen`、响应映射、`resultPath` / `assignTo`；内部/数据库 API 与脚本类步骤明确失败。
+- [x] 4.3 逻辑执行器：动作步骤同步执行（assign / branch / loop / parallel 串行兼容 / callAction / transaction 顺序 / delay / log / emit / fail），REST 与 mock API 已接入，支持超时、重试、路径/查询/头/体、`successWhen`、响应映射、`resultPath` / `assignTo`；已接入 `kind=internal` 的实体增查改与流程终止，以及 `startFlow` / `completeTask`、注册入口 `calcWorkdays` 与节假日占位降级。
 - [x] 4.4 表达式引擎：按注册表白名单求值 97 个函数、14 个取值根；支持 `$lit/$ref/$fn/$tpl/$if`、路径、`filter/map` 子作用域、`$now` 冻结；未知函数、错误元数、未知根均抛错。
 - [x] 4.5 审批页：审批中心（待办/已办/我发起）、详情（表单 + 时间线 + 审批动作）已完成；办理人解析已接组织架构，静态目录仅作兜底。
 - [x] 4.6 运行时事件与回调：流程状态回写；站内通知（任务分派 / 转办 / 退回 / 驳回 / 通过）与审批同事务落库，支持未读数、单条 / 全部已读；审批中心通知面板 + 顶栏全局铃铛（跨应用、30 秒轮询、点击跳转）。外部渠道（webhook / email）走 outbox，复用连接器、幂等、指数退避与 `dead` 终态；`Rule.kind=notification` 规则挂载与 SLA warning / escalate 幂等提醒已接入。
@@ -249,6 +249,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 6.1 发布态运行时渲染器：读发布件渲染布局、数据源、搜索分页排序、行操作、详情抽屉与流程时间线；按 `allowedActions` 禁用越权动作，不依赖设计器状态。
 - [x] 6.2 Web / H5 应用壳与路由、登录态：独立移动壳复用同一 SPA、JWT 会话与发布件导航；支持深链回跳、底部导航、桌面/H5 切换与移动端表格横滑。
 - [x] 6.3 uni-app 小程序运行时：独立登录态与运行时壳，复用发布件导航、页面、数据源与动作契约；移动端列表卡片化、表单与详情抽屉已接入。
+- [x] 6.4 运行时动作补齐：`kind=internal` 实体 save/get/patch 与流程终止、`startFlow` / `completeTask`、注册入口 `calcWorkdays`、服务端 `validate` 已接入；请假“新建 → 提交 → 撤回”端到端通过。
 - [ ] 自定义组件远程模块加载（`runtime=remote` + SRI 校验）。
 
 ### 阶段 7 · 出码引擎完整化
@@ -281,10 +282,10 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - **动作由流程声明驱动**：前端按 `Flow.taskForms[].buttons` 渲染动作，后端按同一份声明校验 `outcome` 与 `comment_required`。
 - **已办口径**：排除 `assignee.type=initiator` 的自动提交节点，避免与「我发起」重复。
 - **状态回写**：运行时服务在审批事务内把状态与当前节点写回业务表，业务表仍是 DataSchema 驱动的唯一业务真源。
-- **动作执行边界**：运行时只读发布件 `logicSchemas`；前端交互与校验步骤跳过，脚本类步骤明确失败，不做静默降级。
+- **动作执行边界**：运行时只读发布件 `logicSchemas`；前端交互步骤跳过，`validate` 在服务端执行；`code` 只放行注册入口（当前 `calcWorkdays`），`custom` 仍明确失败，不做静默降级。
 - **动作回写两段式**：动作只产出 `writeback` 声明，`ActionRunService` 统一求值并执行变量/业务回写；任务推进仅在声明 outcome 且办理人匹配时发生，回写与推进各自记录 applied 结果。
 - **动作日志与重放**：每次执行落一行 `lcp_action_run`，保存原始入参/上下文/事件与 trace；重放复用原始输入并写 `replayed_from`，不撤销上一次副作用。
-- **API 单点收口**：动作不内联 URL，只引用 Api 工件；REST 直连，内部/数据库等待连接器与密钥库。
+- **API 单点收口**：动作不内联 URL，只引用 Api 工件；REST 直连，`kind=internal` 经 `RuntimeInternalApiService` 白名单分派，数据库类仍等待连接器与密钥库。
 - **表达式安全**：白名单函数 + 注册取值根，叠加步数、调用层级、动作超时与延迟上限。
 - **通知分通道落库**：站内信与审批动作同事务写入，按「租户 + 用户 + 类型 + 业务对象」对未读去重；webhook / email 只写 outbox，payload 入队即冻结，投递失败不回滚审批。
 - **外部通知幂等与退避**：`(tenant_id, idempotency_key, channel, recipient)` 唯一；调度器 15 秒轮询，指数退避上限 1 小时，5 次后置 `dead`。
@@ -320,7 +321,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 动作执行器已支持同步 REST / mock 与分支、循环、子动作；`parallel` 仍顺序执行，`transaction` 未包数据库事务。
 - 连接器首版只支持 REST/HTTP；内部、数据库、GraphQL、SOAP 连接器仍返回明确不支持，不执行裸 SQL。`oauth2` 与签名类鉴权尚未接入。
 - 密钥没有历史版本，轮换会直接覆盖旧密文；主密钥丢失后已有密钥无法解密。SSRF 防护已覆盖字面地址与解析结果，但仍有 DNS rebinding 的边界，连接器变更也暂无审计日志。
-- `validate` 与前端交互步骤在服务端记为 skipped；`code` / `custom` / `startFlow` / `completeTask` 明确报未接入。
+- `validate` 已在服务端执行；前端交互步骤仍记为 skipped。`code` 仅放行注册入口 `calcWorkdays`，`custom` 仍明确报未接入。`kind=internal` 目前只分派实体 save/get/patch 与流程终止，`findStale` / `findOverlap` 等其余内部 API 尚未接入。
 - 动作日志按租户隔离并可按实例/动作/状态查询，暂无跨应用全局检索与保留期策略；重放不撤销已发生的业务/流程副作用。
 - 办理人解析优先查组织架构（部门负责人 / 角色成员），静态目录仅在 `LCP_RUNTIME_FALLBACK_DIRECTORY=true` 时兜底。
 - 提交 / 审批 / 动作执行已做按钮级授权；加签尚未实现，任务归属仍由 Flowable `assignee` 控制。
@@ -330,7 +331,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - H5 应用壳复用同一 SPA 与 JWT 会话，尚未独立部署 / PWA，无离线缓存；窄屏表格采用横向滑动，暂未卡片化重排。
 - 小程序端尚未执行交互步骤中的 `apiCall`：编辑态改由实体数据源回填，其他 `apiCall` 只记录警告；附件上传与审批时间线仍为明确占位。
 - 微信小程序构建需用微信开发者工具导入 `miniapp/dist/build/mp-weixin`；尚未配置 AppID、真机域名与体验版上传。非 H5 默认 API 为 `http://127.0.0.1:8080/api/v1`，真机联调需设置 `VITE_API_BASE_URL` 并使用可访问的局域网地址或 HTTPS 域名。
-- 撤回与新建提交仍受未接入的运行时连接器/动作步骤限制：`kind=internal` API、`code`、`startFlow` 与节假日查询 `api_holiday_list` 会返回明确错误，不伪造成功。
+- “新建请假 → 提交 → 撤回”已跑通：`startFlow`、`completeTask`、内部实体读写与流程终止可用；节假日 API 仅对占位地址降级为空日历并记警告，接入真实服务前工作日不扣除法定节假日。`transaction` 仍是顺序执行，未包真实数据库事务。
 - 通知已覆盖站内信、webhook / email outbox、`Rule.kind=notification` 与 SLA 提醒；`autoApprove` / `autoReject` 仍未实现，通知规则暂无实例规则做端到端实测，outbox 暂无管理界面与保留期策略。
 - 自定义组件只有设计器内联沙箱预览与发布态占位；`runtime=remote` 的远程模块加载与 SRI 校验未实现。
 - OSS STS 临时凭证服务未实现，生成代码里只有直传骨架。
@@ -339,13 +340,13 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 ## 下一步（建议直接开工）
 
-阶段 4、阶段 5 与阶段 6.1 / 6.2 / 6.3 已完成，按以下顺序推进：
+阶段 4、阶段 5 与阶段 6.1 / 6.2 / 6.3 / 6.4 已完成，按以下顺序推进：
 
-1. 运行时动作补齐：接入 `kind=internal` API、`code` / `startFlow` 与节假日 API，跑通“新建请假 → 提交 → 撤回”完整业务闭环。
-2. 自定义组件远程加载：实现 `runtime=remote` 的模块加载、版本锁定与 SRI 校验，替换当前占位。
-3. 连接器扩展：database / GraphQL / SOAP 与 `oauth2`、签名鉴权，并补连接器变更审计与 DNS rebinding 加固。
-4. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
-5. 小程序能力深化：补 `apiCall`、附件上传、审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
+1. 自定义组件远程加载：实现 `runtime=remote` 的模块加载、版本锁定与 SRI 校验，替换当前占位。
+2. 连接器扩展：database / GraphQL / SOAP 与 `oauth2`、签名鉴权，并补连接器变更审计与 DNS rebinding 加固。
+3. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
+4. 小程序能力深化：补 `apiCall`、附件上传、审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
+5. 运行时深化：真实数据库事务、`custom` 代码钩子与其余内部 API 分派，接入真实节假日服务。
 
 ## 恢复上下文的顺序
 
