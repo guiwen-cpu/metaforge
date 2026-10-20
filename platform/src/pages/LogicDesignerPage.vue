@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { connectionsApi } from "@/api/connections";
 import { platformApi } from "@/api/platform";
 import { ApiError, errorMessage } from "@/lib/http";
 import { formatDateTime, prettyJson } from "@/lib/format";
@@ -23,6 +24,7 @@ import {
   findStepById,
   logicStats,
   newStep,
+  normalizeLogicSchema,
   regenerateStepIds,
   ruleKindLabel,
   stepDef,
@@ -45,6 +47,7 @@ import type {
   LogicTab
 } from "@/types/logicModel";
 import type { AppBundle, AppView, DraftView } from "@/types/platform";
+import type { ConnectionView } from "@/types/connection";
 import { useSessionStore } from "@/stores/session";
 
 const route = useRoute();
@@ -57,6 +60,7 @@ const draft = ref<DraftView | null>(null);
 const bundle = ref<AppBundle | null>(null);
 const logicSchemas = ref<LogicSchema[]>([]);
 const logic = ref<LogicSchema | null>(null);
+const connections = ref<ConnectionView[]>([]);
 const savedSnapshot = ref("");
 const loading = ref(true);
 const saving = ref(false);
@@ -138,6 +142,16 @@ const filteredRules = computed(() => filterItems(logic.value?.rules ?? [], (item
 
 const selectedAction = computed<LogicAction | null>(() => logic.value?.actions.find((item) => item.id === selectedActionId.value) ?? null);
 const selectedApi = computed<LogicApi | null>(() => logic.value?.apis.find((item) => item.id === selectedApiId.value) ?? null);
+const connectionOptions = computed(() =>
+  connections.value.filter((item) => item.enabled).map((item) => ({
+    value: item.key,
+    label: `${item.name} · ${item.key}`,
+    connection: item
+  }))
+);
+const selectedApiConnection = computed(() =>
+  selectedApi.value ? connectionFor(selectedApi.value) : null
+);
 const selectedFlow = computed<LogicFlow | null>(() => logic.value?.flows.find((item) => item.id === selectedFlowId.value) ?? null);
 const selectedRule = computed<LogicRule | null>(() => logic.value?.rules.find((item) => item.id === selectedRuleId.value) ?? null);
 
@@ -233,7 +247,9 @@ function applyDraft(next: DraftView, preserve = true) {
   bundle.value = next.bundle ?? bundle.value ?? defaultBundle();
   if (!bundle.value.artifacts) bundle.value.artifacts = {};
   const raw = bundle.value.artifacts.logicSchemas;
-  const list = Array.isArray(raw) ? (cloneJson(raw) as LogicSchema[]) : [];
+  const list = Array.isArray(raw)
+    ? (cloneJson(raw) as LogicSchema[]).map((item) => normalizeLogicSchema(item))
+    : [];
   if (!list.length) {
     const created = createDefaultLogic(app.value?.key ?? "");
     list.push(created);
@@ -280,7 +296,40 @@ async function load() {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  void loadConnections();
+});
+
+async function loadConnections() {
+  try {
+    connections.value = await connectionsApi.listConnections();
+  } catch {
+    connections.value = [];
+  }
+}
+
+function connectionFor(api: LogicApi): ConnectionView | null {
+  const key = api.connectionRef?.key ?? api.connectionRef?.id;
+  if (!key) return null;
+  return connections.value.find((item) => item.key === key || item.id === key) ?? null;
+}
+
+function connectionKeyOf(api: LogicApi): string {
+  return String(api.connectionRef?.key ?? "");
+}
+
+function setApiConnection(api: LogicApi, key: string) {
+  if (!key) {
+    delete api.connectionRef;
+    return;
+  }
+  api.connectionRef = { kind: "connection", key };
+}
+
+function apiBaseUrl(api: LogicApi): string {
+  return String(api.baseUrl || connectionFor(api)?.base_url || "");
+}
 
 async function reloadDraft() {
   if (dirty.value) {
@@ -1041,12 +1090,13 @@ function flowListenerCount(flow: LogicFlow): number {
                   <div class="cursor-pointer overflow-hidden rounded-xl bg-slate-900 p-4 text-white" @click="selectedStepId = null">
                     <div class="flex flex-wrap items-center gap-3">
                       <span class="rounded-md px-2 py-1 text-[10.5px] font-semibold" :class="apiMethodClass(selectedApi.method)">{{ selectedApi.method }}</span>
-                      <span class="break-all font-mono text-[13px]">{{ selectedApi.baseUrl || "" }}{{ selectedApi.path }}</span>
+                      <span class="break-all font-mono text-[13px]">{{ apiBaseUrl(selectedApi) }}{{ selectedApi.path }}</span>
                     </div>
                     <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
                       <span class="rounded bg-white/10 px-2 py-0.5">{{ selectedApi.name }}</span>
                       <span class="font-mono text-slate-400">{{ selectedApi.key }}</span>
                       <span class="rounded bg-white/10 px-2 py-0.5">{{ selectedApi.kind ?? "rest" }}</span>
+                      <span v-if="selectedApiConnection" class="rounded bg-emerald-400/15 px-2 py-0.5 text-emerald-200">连接器 {{ selectedApiConnection.key }}</span>
                       <span class="rounded bg-white/10 px-2 py-0.5">超时 {{ selectedApi.timeoutMs ?? 10000 }}ms</span>
                     </div>
                     <p class="mt-2 text-[11px] leading-relaxed text-slate-400">{{ selectedApi.description || "未填写接口说明" }}</p>
@@ -1595,8 +1645,34 @@ function flowListenerCount(flow: LogicFlow): number {
                   </div>
                 </div>
                 <div>
+                  <p class="mb-1 text-[10.5px] font-medium text-slate-500">连接器</p>
+                  <el-select
+                    :model-value="connectionKeyOf(selectedApi)"
+                    size="small"
+                    clearable
+                    filterable
+                    placeholder="不使用连接器"
+                    class="!w-full"
+                    @update:model-value="setApiConnection(selectedApi, String($event ?? ''))"
+                  >
+                    <el-option
+                      v-for="item in connectionOptions"
+                      :key="item.value"
+                      :label="item.label"
+                      :value="item.value"
+                    />
+                  </el-select>
+                  <div v-if="selectedApiConnection" class="mt-1.5 rounded-lg border border-indigo-100 bg-indigo-50/70 px-2.5 py-2 text-[10.5px] leading-relaxed text-indigo-700">
+                    <p class="font-medium">继承 {{ selectedApiConnection.name }}</p>
+                    <p class="mt-0.5 break-all font-mono text-[10px] text-indigo-500">
+                      {{ selectedApiConnection.base_url || "baseUrl 由 API 提供" }} · {{ selectedApiConnection.config?.timeoutMs ?? 10000 }}ms
+                    </p>
+                    <p class="mt-0.5">公共头与默认鉴权自动合并；本 API 的 baseUrl、超时、同名头与 auth 优先。</p>
+                  </div>
+                </div>
+                <div>
                   <p class="mb-1 text-[10.5px] font-medium text-slate-500">Base URL</p>
-                  <el-input :model-value="String(selectedApi.baseUrl ?? '')" size="small" placeholder="内部 API 留空走 BFF" @update:model-value="selectedApi.baseUrl = $event" />
+                  <el-input :model-value="String(selectedApi.baseUrl ?? '')" size="small" :placeholder="selectedApiConnection ? '留空继承连接器' : '内部 API 留空走 BFF'" @update:model-value="selectedApi.baseUrl = $event" />
                 </div>
                 <div class="grid grid-cols-2 gap-2">
                   <div>
@@ -1617,6 +1693,7 @@ function flowListenerCount(flow: LogicFlow): number {
                 <div>
                   <p class="mb-1 text-[10.5px] font-medium text-slate-500">鉴权 auth</p>
                   <JsonField :model-value="selectedApi.auth" :rows="3" @update:model-value="selectedApi.auth = $event" />
+                  <p v-if="selectedApiConnection && !selectedApi.auth" class="mt-1 text-[10px] text-slate-400">留空则继承连接器的默认鉴权。</p>
                 </div>
                 <div>
                   <p class="mb-1 text-[10.5px] font-medium text-slate-500">请求契约 request</p>

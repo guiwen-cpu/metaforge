@@ -13,6 +13,7 @@ import InstanceDetailPage from "@/pages/InstanceDetailPage.vue";
 import LoginPage from "@/pages/LoginPage.vue";
 import SsoCallbackPage from "@/pages/SsoCallbackPage.vue";
 import IdentityPage from "@/pages/IdentityPage.vue";
+import ConnectionsPage from "@/pages/ConnectionsPage.vue";
 import NotFoundView from "@/views/NotFoundView.vue";
 import { session } from "@/lib/session";
 
@@ -83,6 +84,12 @@ const router = createRouter({
           name: "identity",
           component: IdentityPage,
           meta: { title: "组织与权限" }
+        },
+        {
+          path: "connections",
+          name: "connections",
+          component: ConnectionsPage,
+          meta: { title: "集成连接" }
         }
       ]
     },

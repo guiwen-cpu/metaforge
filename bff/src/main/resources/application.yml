@@ -92,6 +92,13 @@ lcp:
     auto-create: ${LCP_SSO_AUTO_CREATE:false}
     state-ttl-minutes: ${LCP_SSO_STATE_TTL_MINUTES:10}
     ticket-ttl-seconds: ${LCP_SSO_TICKET_TTL_SECONDS:60}
+  secrets:
+    # Base64 编码的 32 字节主密钥；仅在读写密钥时校验，可为空。
+    master-key: ${LCP_SECRET_MASTER_KEY:}
+  connectors:
+    # 本地联调可打开；staging/prod 保持 false。
+    allow-private-networks: ${LCP_CONNECTOR_ALLOW_PRIVATE_NETWORKS:false}
+    allow-insecure-http: ${LCP_CONNECTOR_ALLOW_INSECURE_HTTP:false}
   identity:
     # 仅开发环境：跳过组织管理员校验；生产设为 false。
     allow-all: ${LCP_IDENTITY_ALLOW_ALL:false}

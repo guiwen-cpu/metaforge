@@ -22,7 +22,7 @@ class ActionExecutorTest {
   private final ExpressionEngine expressions =
       new ExpressionEngine(new ExpressionCatalog(json), json, List.of());
   private final ActionExecutor executor =
-      new ActionExecutor(new PublishedBundleService(null, null), expressions, json);
+      new ActionExecutor(new PublishedBundleService(null, null), expressions, json, null, null, null);
 
   @BeforeEach
   void setUp() {

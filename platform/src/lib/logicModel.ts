@@ -687,6 +687,13 @@ export function createDefaultLogic(appKey: string): LogicSchema {
     rules: []
   };
 }
+export function normalizeLogicSchema(logic: LogicSchema): LogicSchema {
+  if (!Array.isArray(logic.actions)) logic.actions = [];
+  if (!Array.isArray(logic.apis)) logic.apis = [];
+  if (!Array.isArray(logic.flows)) logic.flows = [];
+  if (!Array.isArray(logic.rules)) logic.rules = [];
+  return logic;
+}
 const KEY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]{1,63}$/;
 
 function refKey(value: unknown): string {

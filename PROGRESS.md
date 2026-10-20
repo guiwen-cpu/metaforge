@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-20
-> 分支：`dev` ｜ 最新提交：`20e3eb9 feat(auth): 接入 OIDC / CAS 统一身份登录`
+> 分支：`dev` ｜ 最新提交：`6c1fa07 fix(designer): 画布预览控件可点击选中`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -26,6 +26,9 @@
 | 认证安全 API | `GET /api/v1/auth/password-policy`、`POST /api/v1/auth/password`、`GET /api/v1/platform/identity/auth-audits`（管理员，支持 `eventType` / `username` / `success` / `limit`） |
 | 统一身份 API | `GET /api/v1/auth/sso/config`、`GET /api/v1/auth/sso/start?redirect=/...`、`GET /api/v1/auth/sso/callback`、`POST /api/v1/auth/sso/exchange` |
 | SSO 配置 | `LCP_SSO_ENABLED`、`LCP_SSO_MODE`（`oidc` / `cas`）及 `LCP_SSO_*`；本地默认关闭，staging/prod 通过环境变量注入 |
+| 连接器 API | `GET/POST /api/v1/platform/connections`；`PATCH/DELETE /api/v1/platform/connections/{id}` |
+| 密钥 API | `GET/POST /api/v1/platform/secrets`；`PATCH/DELETE /api/v1/platform/secrets/{id}`（密钥只写不读） |
+| 连接器配置 | `LCP_SECRET_MASTER_KEY`、`LCP_CONNECTOR_ALLOW_PRIVATE_NETWORKS`、`LCP_CONNECTOR_ALLOW_INSECURE_HTTP`；本地冒烟临时开启私网与 HTTP |
 | 登录保护 | 连续失败 5 次锁定 15 分钟；密码 8–128 位，须含小写字母与数字，禁止空白及登录名/显示名 |
 | 权限模式 | 开发：`LCP_AUTH_DEV_HEADERS=true`、`LCP_IDENTITY_ALLOW_ALL=true`；staging/prod 覆盖层已置 `false` |
 | 运行时导航 | `GET /api/v1/runtime/apps/{appId}/navigation`（发布态菜单 + 可访问页面 + 默认路由） |
@@ -62,6 +65,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `d35afe5` | 认证安全：密码策略 / 登录锁定 / 认证审计 | typecheck / build + 弱密码 400 + 锁定与重置 + 审计 403 + CDP 改密 |
 | `1565955` | 运行时菜单与页面权限 | 四账号导航过滤 + 页面 200/403 + CDP 菜单切换与动态路由 |
 | `20e3eb9` | 统一身份登录（OIDC / CAS） | OIDC 端到端 + 票据/state 重放 + 未绑定 403 + CDP 登录 |
+| 本轮 | 连接器注册表与租户密钥库 | 四种鉴权真实 HTTP 链路 + 权限 403 + CDP 连接器/密钥/引用保存 |
 
 ## 文档维护
 
@@ -174,6 +178,16 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 登录页在 SSO 启用时显示组织登录入口；已登录访问 `/login` 直接回到工作台。Nginx 使用 `Host $http_host` 与 `X-Forwarded-Host`，保留回调端口。
 - 验证：typecheck / build、BFF/Web 镜像构建通过；假 OIDC 服务覆盖绑定登录、`/auth/me`、ticket/state 重放、未知 state、未绑定 403；CDP 完成按钮登录并确认租户与角色会话。
 
+### 15. 连接器注册表与租户密钥库（刚完成）
+- 数据库：`34_connections.sql` 新建 `lcp_connection` 与 `lcp_secret`，均带 `tenant_id`、唯一索引与 RLS；`99_grants.sql` 通用授权覆盖新表。
+- 协议：`ArtifactRef.kind` 增加 `connection`；逻辑 Schema 新增 `SecretRef`，鉴权值统一写成 `secret:<key>`，Bundle 内不出现明文。
+- BFF：`SecretCipher` 使用 AES-256-GCM，AAD 绑定 `tenant_id:secret_key`；主密钥由 `LCP_SECRET_MASTER_KEY` 注入，密钥接口只写不读，支持元数据更新与轮换。
+- 出站策略：`OutboundUrlPolicy` 默认只允许 HTTP/HTTPS 与公网地址，拦截回环、私网、链路本地与云元数据地址；本地与 staging/prod 通过显式开关控制私网与 HTTP。
+- 运行时：`ActionExecutor` 读取连接器的 `baseUrl`、超时、公共请求头与默认鉴权；支持 `bearer`、`apiKey`（header/query）、`basic`。API 未声明 `auth` 时继承连接器，显式 `{"type":"none"}` 才覆盖。
+- 前端：新增 `/connections` 管理页（连接器与密钥双页签、编辑/删除/轮换）与管理员导航；逻辑设计器 API 设置支持选择连接器并写入 `connectionRef`。
+- 健壮性：逻辑设计器加载草稿时归一化缺失的 `actions/apis/flows/rules` 数组，避免旧草稿或外部导入 Bundle 打开即报错。
+- 验证：typecheck / build 与 BFF 镜像构建通过；管理员连接器/密钥接口 200，Alice 读连接器 200、写连接器与读密钥 403；密钥响应不含明文/密文/IV；四种鉴权真实 HTTP 链路分别返回预期结果，错误密钥 401 且日志无明文；CDP 验证连接器列表、密钥轮换状态、逻辑设计器连接器继承与草稿 r4 回读。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（进行中）
@@ -206,8 +220,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [ ] 导出包与在线版本的 diff。
 
 ### 阶段 8 · 集成与扩展
-- [ ] 连接器注册表（HTTP / 数据库 / 第三方服务）。
-- [ ] 租户级密钥与凭证管理。
+- [x] 连接器注册表（首版 REST / HTTP；数据库、GraphQL、SOAP 仍保留明确不支持）。
+- [x] 租户级密钥与凭证管理：AES-256-GCM 加密存储、只写不读、轮换与租户隔离。
 - [ ] 自定义 TS 代码钩子（页面生命周期、逻辑步骤）。
 - [ ] AI 辅助：自然语言生成表单/页面/流程（语义字段已预留）。
 
@@ -249,12 +263,17 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - **SSO 票据一次性且不进入查询串**：OIDC state 与本地 exchange ticket 均存 Redis 并原子取出；回调只把 ticket 放在 fragment，避免 JWT 或 ticket 出现在服务端日志、Referer 与浏览历史。
 - **外部身份以稳定 subject 绑定**：优先使用 `tenant_id + sso_provider + sso_subject`，首次登录才允许按 username / email 关联；默认不自动建号，避免 IdP 用户无边界地进入本地租户。
 - **SSO 出站默认要求 HTTPS**：`LCP_SSO_ALLOW_INSECURE_HTTP` 只用于本地假 IdP；生产回调地址由反向代理的 `X-Forwarded-Host` 还原，保留对外端口。
+- **连接器与密钥分离**：连接器只存地址、超时、公共头与鉴权引用；密钥值单独加密入库，Bundle 与 API 响应都只出现 `secret:<key>`。
+- **出站地址默认收紧**：连接器默认拒绝私网、回环、链路本地与云元数据地址；本地冒烟通过 `LCP_CONNECTOR_ALLOW_PRIVATE_NETWORKS` / `LCP_CONNECTOR_ALLOW_INSECURE_HTTP` 显式放宽。
+- **鉴权继承显式覆盖**：API 的 `auth` 缺省或为 `null` 时继承连接器默认鉴权；只有显式 `{type:"none"}` 才关闭，避免误把空对象当成无鉴权。
+- **密钥轮换即覆盖**：轮换在同一行更新密文、版本号与轮换时间，不保留历史密文；主密钥丢失不可恢复。
 
 ## 已知边界
 
 - 三个设计器只负责元数据编辑、校验与发布，不含运行时执行。
 - 动作执行器已支持同步 REST / mock 与分支、循环、子动作；`parallel` 仍顺序执行，`transaction` 未包数据库事务。
-- 内部 / 数据库 / GraphQL / SOAP API 尚未接连接器，调用时明确返回 `UNSUPPORTED_API`，不执行裸 SQL；带密钥库的鉴权方式同样未开放。
+- 连接器首版只支持 REST/HTTP；内部、数据库、GraphQL、SOAP 连接器仍返回明确不支持，不执行裸 SQL。`oauth2` 与签名类鉴权尚未接入。
+- 密钥没有历史版本，轮换会直接覆盖旧密文；主密钥丢失后已有密钥无法解密。SSRF 防护已覆盖字面地址与解析结果，但仍有 DNS rebinding 的边界，连接器变更也暂无审计日志。
 - `validate` 与前端交互步骤在服务端记为 skipped；`code` / `custom` / `startFlow` / `completeTask` 明确报未接入。
 - 动作日志按租户隔离并可按实例/动作/状态查询，暂无跨应用全局检索与保留期策略；重放不撤销已发生的业务/流程副作用。
 - 办理人解析优先查组织架构（部门负责人 / 角色成员），静态目录仅在 `LCP_RUNTIME_FALLBACK_DIRECTORY=true` 时兜底。
@@ -272,9 +291,9 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4 与阶段 5 已完成，按以下顺序推进：
 
-1. 补连接器注册表与租户密钥库，再开放 internal / database / GraphQL / SOAP 与 bearer/apiKey 鉴权。
-2. 扩展通知：邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口。
-3. 阶段 6 发布态运行时渲染器：在现有只读布局上接数据查询、表单动作与组件交互，再做自定义组件远程加载。
+1. 扩展通知：复用连接器与密钥库接邮件 / webhook 通道，补 `Rule.kind=notification` 挂载、SLA 超时提醒与全局未读入口。
+2. 阶段 6 发布态运行时渲染器：在现有只读布局上接数据查询、表单动作与组件交互，再做自定义组件远程加载。
+3. 连接器扩展：internal / database / GraphQL / SOAP 与 `oauth2`、签名鉴权，并补连接器变更审计与 DNS rebinding 加固。
 4. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
 
 ## 恢复上下文的顺序

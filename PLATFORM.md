@@ -179,3 +179,39 @@ curl -X POST http://localhost:8080/api/v1/platform/apps/$APP_ID/versions/1/rollb
 - 结构化 `changeSummary` 的生成与持久化（当前 diff 实时计算）；
 - 应用级数据权限、成员与角色绑定；
 - 控制平面前端（应用工作台、设计器壳层）。
+
+## 8. 连接器与租户密钥
+
+基础路径：
+
+- `/api/v1/platform/connections`：连接器注册表，支持 `GET` / `POST`，子路径 `/{id}` 支持 `PATCH` / `DELETE`。
+- `/api/v1/platform/secrets`：租户密钥库，支持 `GET` / `POST`，子路径 `/{id}` 支持 `PATCH` / `DELETE`。
+
+连接器与密钥都按 `tenant_id` 隔离，写操作要求租户管理员权限。密钥值只写不读：列表与更新响应只返回 key、名称、说明、版本和轮换时间。
+
+### 密钥引用
+
+- 逻辑 Schema 的 `auth` 用 `secret:<key>` 引用密钥，不写明文。
+- 密钥由 `SecretCipher` 以 AES-256-GCM 加密，随机 96 位 nonce，AAD 为 `tenant_id:secret_key`。
+- 主密钥来自 `LCP_SECRET_MASTER_KEY`，必须是 32 字节（Base64、十六进制或原始文本）；丢失后已有密钥不可恢复。
+
+### 运行时合并
+
+API 绑定连接器后，运行时按以下优先级合并：
+
+1. 地址：API `baseUrl` 优先，否则连接器 `baseUrl`；
+2. 超时：API 正值优先，否则连接器超时；
+3. 请求头：连接器公共头为基础，同名 API 头覆盖；
+4. 鉴权：API `auth` 缺省或为 `null` 时继承连接器默认鉴权；显式 `{ "type": "none" }` 才关闭。
+
+支持 `bearer`、`apiKey`（`header` / `query`）与 `basic`。`oauth2` 与签名鉴权尚未接入。
+
+### 出站安全
+
+`OutboundUrlPolicy` 在保存连接器和每次请求前校验地址：
+
+- 只允许 HTTP/HTTPS；HTTP 默认拒绝，需 `LCP_CONNECTOR_ALLOW_INSECURE_HTTP=true`。
+- 默认拒绝回环、私网、链路本地、多播与云元数据地址；本地联调需 `LCP_CONNECTOR_ALLOW_PRIVATE_NETWORKS=true`。
+- 地址不得包含 userinfo 或 fragment。
+
+连接器首版只支持 REST/HTTP；内部、数据库、GraphQL、SOAP 仍返回明确不支持。

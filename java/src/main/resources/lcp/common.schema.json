@@ -184,7 +184,8 @@
             "page",
             "entity",
             "field",
-            "role"
+            "role",
+            "connection"
           ]
         },
         "id": {

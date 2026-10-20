@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import dev.lcp.bff.connector.ConnectionService;
+import dev.lcp.bff.connector.OutboundUrlPolicy;
+import dev.lcp.bff.connector.SecretService;
 import dev.lcp.bff.platform.PlatformException;
 import dev.lcp.bff.runtime.PublishedBundleService.PublishedBundle;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.ExecuteActionRequest;
@@ -18,6 +21,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -31,6 +35,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
@@ -55,15 +60,27 @@ public class ActionExecutor {
   private final ExpressionEngine expressions;
   private final ObjectMapper json;
   private final HttpClient http;
+  private final ConnectionService connections;
+  private final SecretService secrets;
+  private final OutboundUrlPolicy outboundUrls;
 
   public ActionExecutor(
       dev.lcp.bff.runtime.PublishedBundleService bundles,
       ExpressionEngine expressions,
-      ObjectMapper json) {
+      ObjectMapper json,
+      ConnectionService connections,
+      SecretService secrets,
+      OutboundUrlPolicy outboundUrls) {
     this.bundles = bundles;
     this.expressions = expressions;
     this.json = json;
-    this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    this.connections = connections;
+    this.secrets = secrets;
+    this.outboundUrls = outboundUrls;
+    this.http = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(5))
+        .followRedirects(HttpClient.Redirect.NEVER)
+        .build();
   }
 
   public ActionExecutionResult execute(UUID appId, String actionKey, ExecuteActionRequest request) {
@@ -930,7 +947,13 @@ public class ActionExecutor {
       JsonNode api, String apiKey, ObjectNode callParams, ExpressionEngine.Scope apiScope,
       JsonNode retry, long deadline) {
     String method = api.path("method").asText("GET").toUpperCase(Locale.ROOT);
+    ConnectionService.RuntimeConnection connection = resolveConnection(api, apiKey);
+    JsonNode connectionConfig = connection == null
+        ? json.createObjectNode() : connection.config();
     String baseUrl = api.path("baseUrl").asText("");
+    if (baseUrl.isBlank() && connection != null && connection.baseUrl() != null) {
+      baseUrl = connection.baseUrl();
+    }
     if (baseUrl.isBlank()) {
       throw new BusinessFailure("API_NO_BASE_URL",
           "API " + apiKey + " 未配置 baseUrl，运行时无法直连", List.of(), false);
@@ -944,30 +967,38 @@ public class ActionExecutor {
       }
     }
     String path = applyPathParams(api.path("path").asText(""), pathValues, apiKey);
-    URI uri = buildUri(baseUrl, path, api.path("request").path("query"), callParams, apiScope, apiKey);
+    JsonNode apiAuth = api.path("auth");
+    JsonNode auth = apiAuth.isMissingNode() || apiAuth.isNull()
+        ? connectionConfig.path("auth") : apiAuth;
+    AuthResolution authResolution = resolveAuth(auth, apiKey);
+    URI uri = buildUri(
+        baseUrl, path, api.path("request").path("query"), callParams, apiScope, apiKey,
+        authResolution.query());
+    try {
+      outboundUrls.validate(uri);
+    } catch (OutboundUrlPolicy.PolicyViolation ex) {
+      throw new BusinessFailure("API_URL_BLOCKED", "API " + apiKey + " 地址被拒绝：" + ex.getMessage(),
+          List.of(), false);
+    }
 
-    long timeout = Math.max(1, api.path("timeoutMs").asLong(10_000));
+    long defaultTimeout = connectionConfig.path("timeoutMs").asLong(10_000);
+    long timeout = Math.max(1, api.has("timeoutMs")
+        ? api.path("timeoutMs").asLong(defaultTimeout) : defaultTimeout);
     timeout = remainingMillis(deadline, timeout);
     HttpRequest.Builder request = HttpRequest.newBuilder(uri).timeout(Duration.ofMillis(timeout));
     HttpPayload payload = requestPayload(api, apiScope);
-    applyAuth(request, api.path("auth"));
 
-    for (JsonNode header : api.path("request").path("headers")) {
-      String name = header.path("name").asText("");
-      if (name.isBlank()) {
-        continue;
-      }
-      String value = headerValue(header, callParams, apiScope);
-      if (value != null) {
-        request.header(name, value);
-      }
-    }
+    Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    addConnectionHeaders(connectionConfig.path("headers"), headers);
+    addApiHeaders(api.path("request").path("headers"), callParams, apiScope, headers);
     if (payload != null) {
-      request.header("Content-Type", payload.contentType());
+      headers.put("Content-Type", payload.contentType());
       request.method(method, HttpRequest.BodyPublishers.ofString(payload.body(), StandardCharsets.UTF_8));
     } else {
       request.method(method, HttpRequest.BodyPublishers.noBody());
     }
+    headers.forEach(request::setHeader);
+    authResolution.headers().forEach(request::setHeader);
 
     int maxAttempts = Math.max(1, Math.min(10, retry.path("maxAttempts").asInt(1)));
     String backoff = retry.path("backoff").asText("none");
@@ -985,7 +1016,8 @@ public class ActionExecutor {
       } catch (IOException ex) {
         if (attempt >= maxAttempts) {
           throw new BusinessFailure("API_IO",
-              "API " + apiKey + " 请求失败：" + ex.getMessage(), List.of(), false);
+              "API " + apiKey + " 网络请求失败（" + ex.getClass().getSimpleName() + "）",
+              List.of(), false);
         }
         sleep(backoffMillis(backoff, attempt));
       } catch (InterruptedException ex) {
@@ -993,10 +1025,72 @@ public class ActionExecutor {
         throw new BusinessFailure("ACTION_INTERRUPTED", "API 请求被中断", List.of(), false);
       } catch (IllegalArgumentException ex) {
         throw new BusinessFailure("API_REQUEST",
-            "API " + apiKey + " 请求构造失败：" + ex.getMessage(), List.of(), false);
+            "API " + apiKey + " 请求构造失败，请检查地址与请求头", List.of(), false);
       }
     }
     throw new BusinessFailure("API_IO", "API " + apiKey + " 请求失败", List.of(), false);
+  }
+
+  private ConnectionService.RuntimeConnection resolveConnection(JsonNode api, String apiKey) {
+    JsonNode ref = api.path("connectionRef");
+    if (ref.isMissingNode() || ref.isNull() || ref.isTextual() && ref.asText().isBlank()) {
+      return null;
+    }
+    String kind = ref.isTextual() ? "connection" : ref.path("kind").asText("connection");
+    if (!kind.isBlank() && !"connection".equals(kind)) {
+      throw new BusinessFailure("CONNECTION_REF_INVALID",
+          "API " + apiKey + " 的 connectionRef.kind 必须是 connection", List.of(), false);
+    }
+    String value = ref.isTextual() ? ref.asText() : ref.path("key").asText("");
+    if (value.isBlank() && !ref.isTextual()) {
+      value = ref.path("id").asText("");
+    }
+    if (value.isBlank()) {
+      throw new BusinessFailure("CONNECTION_REF_INVALID",
+          "API " + apiKey + " 的 connectionRef 缺少 key 或 id", List.of(), false);
+    }
+    ConnectionService.RuntimeConnection connection = connections.runtime(value);
+    if (connection == null) {
+      throw new BusinessFailure("CONNECTION_NOT_FOUND",
+          "连接器 " + value + " 不存在", List.of(), false);
+    }
+    if (!connection.enabled()) {
+      throw new BusinessFailure("CONNECTION_DISABLED",
+          "连接器 " + value + " 已停用", List.of(), false);
+    }
+    if (!"rest".equals(connection.kind())) {
+      throw new BusinessFailure("UNSUPPORTED_CONNECTION",
+          "连接器 " + value + " 的 kind=" + connection.kind() + " 尚未接入运行时", List.of(), false);
+    }
+    return connection;
+  }
+
+  private void addConnectionHeaders(JsonNode headers, Map<String, String> merged) {
+    if (!headers.isArray()) {
+      return;
+    }
+    for (JsonNode header : headers) {
+      String name = header.path("name").asText("");
+      String value = header.path("value").asText("");
+      if (!name.isBlank()) {
+        merged.put(name, value);
+      }
+    }
+  }
+
+  private void addApiHeaders(
+      JsonNode headers, ObjectNode callParams, ExpressionEngine.Scope apiScope,
+      Map<String, String> merged) {
+    for (JsonNode header : headers) {
+      String name = header.path("name").asText("");
+      if (name.isBlank()) {
+        continue;
+      }
+      String value = headerValue(header, callParams, apiScope);
+      if (value != null) {
+        merged.put(name, value);
+      }
+    }
   }
 
   private Object apiParamValue(
@@ -1059,7 +1153,7 @@ public class ActionExecutor {
 
   private URI buildUri(
       String baseUrl, String path, JsonNode queryDefs, ObjectNode callParams,
-      ExpressionEngine.Scope apiScope, String apiKey) {
+      ExpressionEngine.Scope apiScope, String apiKey, List<QueryParam> authQuery) {
     StringBuilder url = new StringBuilder(baseUrl.endsWith("/")
         ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl);
     if (path != null && !path.isEmpty()) {
@@ -1082,6 +1176,14 @@ public class ActionExecutor {
           .append('=')
           .append(URLEncoder.encode(stringValue(value), StandardCharsets.UTF_8));
     }
+    for (QueryParam param : authQuery) {
+      if (query.length() > 0) {
+        query.append('&');
+      }
+      query.append(URLEncoder.encode(param.name(), StandardCharsets.UTF_8))
+          .append('=')
+          .append(URLEncoder.encode(param.value(), StandardCharsets.UTF_8));
+    }
     if (query.length() > 0) {
       url.append(url.indexOf("?") >= 0 ? '&' : '?').append(query);
     }
@@ -1089,7 +1191,7 @@ public class ActionExecutor {
       return URI.create(url.toString());
     } catch (IllegalArgumentException ex) {
       throw new BusinessFailure("API_URL",
-          "API " + apiKey + " 地址非法：" + url, List.of(), false);
+          "API " + apiKey + " 地址非法，请检查 baseUrl、路径与查询参数", List.of(), false);
     }
   }
 
@@ -1132,21 +1234,65 @@ public class ActionExecutor {
         "请求体类型 " + contentType + " 尚未接入", List.of(), false);
   }
 
-  private void applyAuth(HttpRequest.Builder request, JsonNode auth) {
+  private AuthResolution resolveAuth(JsonNode auth, String apiKey) {
+    Map<String, String> headers = new LinkedHashMap<>();
+    List<QueryParam> query = new ArrayList<>();
+    if (auth == null || auth.isMissingNode() || auth.isNull()) {
+      return new AuthResolution(headers, query);
+    }
     String type = auth.path("type").asText("none");
     switch (type) {
-      case "", "none" -> {
-      }
+      case "", "none" -> { }
       case "tenant" -> {
         String name = auth.path("headerName").asText("X-Tenant-Id");
         String tenant = TenantContext.tenantId();
         if (tenant == null || tenant.isBlank()) {
           throw new BusinessFailure("API_AUTH", "缺少租户上下文，无法注入租户头", List.of(), false);
         }
-        request.header(name, tenant);
+        headers.put(name, tenant);
+      }
+      case "bearer" -> {
+        String token = secretValue(auth.path("tokenRef").asText(""), apiKey);
+        headers.put("Authorization", "Bearer " + token);
+      }
+      case "apiKey" -> {
+        String name = auth.path("name").asText("");
+        String value = secretValue(auth.path("valueRef").asText(""), apiKey);
+        if (name.isBlank()) {
+          throw new BusinessFailure("API_AUTH", "API " + apiKey + " 的 apiKey.name 不能为空",
+              List.of(), false);
+        }
+        if ("query".equals(auth.path("in").asText("header"))) {
+          query.add(new QueryParam(name, value));
+        } else {
+          headers.put(name, value);
+        }
+      }
+      case "basic" -> {
+        String username = secretValue(auth.path("usernameRef").asText(""), apiKey);
+        String password = secretValue(auth.path("passwordRef").asText(""), apiKey);
+        String encoded = Base64.getEncoder().encodeToString(
+            (username + ":" + password).getBytes(StandardCharsets.UTF_8));
+        headers.put("Authorization", "Basic " + encoded);
       }
       default -> throw new BusinessFailure("UNSUPPORTED_AUTH",
-          "鉴权方式 " + type + " 需要密钥库支持，当前运行时未接入", List.of(), false);
+          "鉴权方式 " + type + " 尚未接入运行时，当前支持 none / tenant / bearer / apiKey / basic",
+          List.of(), false);
+    }
+    return new AuthResolution(headers, query);
+  }
+
+  private String secretValue(String ref, String apiKey) {
+    if (ref == null || ref.isBlank()) {
+      throw new BusinessFailure("API_AUTH_REF", "API " + apiKey + " 缺少密钥引用", List.of(), false);
+    }
+    try {
+      return secrets.value(ref);
+    } catch (PlatformException ex) {
+      throw new BusinessFailure(ex.code(), "API " + apiKey + " 鉴权失败：" + ex.getMessage(),
+          List.of(), false);
+    } catch (RuntimeException ex) {
+      throw new BusinessFailure("API_AUTH", "API " + apiKey + " 鉴权失败", List.of(), false);
     }
   }
 
@@ -1309,5 +1455,11 @@ public class ActionExecutor {
   }
 
   private record HttpPayload(String contentType, String body) {
+  }
+
+  private record QueryParam(String name, String value) {
+  }
+
+  private record AuthResolution(Map<String, String> headers, List<QueryParam> query) {
   }
 }

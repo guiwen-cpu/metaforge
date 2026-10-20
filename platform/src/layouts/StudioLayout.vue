@@ -22,6 +22,7 @@ const inPages = computed(() => route.name === "app-pages");
 const inLogic = computed(() => route.name === "app-logic");
 const inComponents = computed(() => route.name === "app-components");
 const inIdentity = computed(() => route.name === "identity");
+const inConnections = computed(() => route.name === "connections");
 const inApprovals = computed(
   () =>
     route.name === "app-approvals" ||
@@ -226,6 +227,17 @@ async function submitPassword() {
               组织与权限
             </span>
             <span v-if="inIdentity" class="text-[9px] text-indigo-300">当前</span>
+          </button>
+          <button
+            class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[13px] transition"
+            :class="inConnections ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'"
+            @click="router.push('/connections')"
+          >
+            <span class="flex items-center gap-2.5">
+              <span class="grid h-5 w-5 place-items-center rounded bg-white/5 text-[11px]">⇄</span>
+              集成连接
+            </span>
+            <span v-if="inConnections" class="text-[9px] text-indigo-300">当前</span>
           </button>
         </template>
       </nav>

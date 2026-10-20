@@ -2192,7 +2192,7 @@
         },
         "connectionRef": {
           "$ref": "#/$defs/ArtifactRef",
-          "description": "引用集成连接（第三方服务的凭证与超时配置），避免把密钥写进 Schema"
+          "description": "引用租户连接器（kind=connection）。连接器保存 baseUrl、超时、公共请求头与默认鉴权，凭证本身仍以密钥库引用表示。API 的 baseUrl 可覆盖连接器默认值。"
         },
         "auth": {
           "$ref": "#/$defs/ApiAuth"
@@ -2369,7 +2369,7 @@
               "const": "bearer"
             },
             "tokenRef": {
-              "type": "string"
+              "$ref": "#/$defs/SecretRef"
             },
             "tokenUrl": {
               "type": "string"
@@ -2400,7 +2400,7 @@
               ]
             },
             "valueRef": {
-              "type": "string"
+              "$ref": "#/$defs/SecretRef"
             }
           },
           "required": [
@@ -2418,10 +2418,10 @@
               "const": "basic"
             },
             "usernameRef": {
-              "type": "string"
+              "$ref": "#/$defs/SecretRef"
             },
             "passwordRef": {
-              "type": "string"
+              "$ref": "#/$defs/SecretRef"
             }
           },
           "required": [
@@ -2454,7 +2454,7 @@
               }
             },
             "tokenRef": {
-              "type": "string"
+              "$ref": "#/$defs/SecretRef"
             }
           },
           "required": [
@@ -2476,7 +2476,7 @@
               ]
             },
             "secretRef": {
-              "type": "string"
+              "$ref": "#/$defs/SecretRef"
             },
             "template": {
               "type": "string",
@@ -2495,6 +2495,11 @@
           "additionalProperties": false
         }
       ]
+    },
+    "SecretRef": {
+      "type": "string",
+      "pattern": "^(secret:)?[a-z][a-z0-9_]{0,63}$",
+      "description": "租户密钥库引用。推荐写作 secret:<key>；实际值只存服务端密钥库，绝不进入 Bundle。"
     },
     "ApiRequest": {
       "type": "object",
