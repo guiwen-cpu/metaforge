@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`54ae546`（`feat(runtime): code 步骤接入白名单入口表`）
+> 分支：`dev` ｜ 最新提交：`3ce8342`（`feat(runtime): 接入 findStale 与 findOverlap 内部 API`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -35,6 +35,7 @@
 | 连接器审计 | `GET /api/v1/platform/connections/{id}/audits`（`create` / `update` / `delete`，请求头与凭据脱敏） |
 | 密钥 API | `GET/POST /api/v1/platform/secrets`；`PATCH/DELETE /api/v1/platform/secrets/{id}`（密钥只写不读） |
 | 连接器配置 | `LCP_SECRET_MASTER_KEY`、`LCP_CONNECTOR_ALLOW_PRIVATE_NETWORKS`、`LCP_CONNECTOR_ALLOW_INSECURE_HTTP`；本地冒烟临时开启私网与 HTTP |
+| 节假日服务 | 默认 `https://timor.tech/api/holiday/year/{year}`；`LCP_HOLIDAY_ENABLED`、`LCP_HOLIDAY_URL_TEMPLATE`、`LCP_HOLIDAY_TIMEOUT_MS`、`LCP_HOLIDAY_CACHE_TTL_SECONDS`；Redis 键 `lcp:holiday:v1:<year>` |
 | 登录保护 | 连续失败 5 次锁定 15 分钟；密码 8–128 位，须含小写字母与数字，禁止空白及登录名/显示名 |
 | 权限模式 | 开发：`LCP_AUTH_DEV_HEADERS=true`、`LCP_IDENTITY_ALLOW_ALL=true`；staging/prod 覆盖层已置 `false` |
 | 运行时导航 | `GET /api/v1/runtime/apps/{appId}/navigation`（发布态菜单 + 可访问页面 + 默认路由） |
@@ -89,7 +90,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `ea19eb3` | 运行时 parallel 受控并发 | BFF 单测 + 真实 API `leave_batch_recall` 两单撤回 |
 | `dcedacf` | 运行时 custom 注册式处理器 | BFF 单测 + 真实发布件 API 执行 `platform.uuid` / `platform.now` |
 | `54ae546` | 运行时 code 白名单入口 | BFF 单测 + 真实发布件 API 执行 `calcWorkdays` 与未注册入口 |
-| 本提交 | 运行时 findStale / findOverlap 内部 API | BFF 47 个测试 + 临时发布件真实 API 冒烟 |
+| `3ce8342` | 运行时 findStale / findOverlap 内部 API | BFF 47 个测试 + 临时发布件真实 API 冒烟 |
+| 本提交 | 真实节假日服务 | BFF 测试 + 真实页面 API + 请假工作日计算 + Redis 缓存 |
 
 ## 文档维护
 
@@ -314,12 +316,19 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 两个入口都先计算 `total` 再取最多 5000 行，JSONB `ext` 字段合并回业务行，非法实体/字段/参数明确返回错误。
 - 验证：BFF 47 个测试通过；临时发布件真实 API 冒烟中 `findStale` 返回 8 条 approved 超期单据，`findOverlap` 命中 2026-11-09 至 11-10 的两张重叠单据（含 approved 与 draft），临时应用、运行日志与草稿单据均已清理。
 
+### 31. 真实节假日服务（已完成）
+- 新增 `HolidayCalendarProvider` 与 `HolidayCalendarService`：按年份读取 Redis 缓存，未命中时请求可配置的开放接口；支持 `{year}` URL 模板、连接/读取超时与 7 天默认 TTL。
+- 兼容 `holiday` 对象（含 `holiday` 布尔值）与 `data` / `holidays` 数组格式；非法单日、未知类型和非 2xx 响应均不会中断动作。
+- 非 2xx、超时或网络异常降级为空日历并记录 warning；`calcWorkdays` 会合并服务端日历与步骤输入，步骤输入优先，降级时额外返回“已仅按周末计算”提示。
+- 发布件中的占位节假日 API 改由同一服务返回 `{code:0,data:[...]}`，不再直接返回空数组。
+- 验证：BFF 测试通过；真实页面 API `page_leave_form/apis/api_holiday_list/invoke?year=2026` 返回 39 条节假日/调休，Redis `lcp:holiday:v1:2026` TTL 约 7 天；真实 `leave_submit` 以 `2026-10-01` 至 `10-10` 计算得到 3 个工作日（10-08、10-09、10-10 调休），临时草稿与动作日志已清理。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
 - [x] 4.1 Flowable 运行时：发布时部署 BPMN（来自 `logicSchemas.flows`），实例启动/查询已通；挂起/激活未做。
 - [x] 4.2 任务 API：待办/已办/我发起、签收、完成、转办、变量、历史时间线已完成；加签未做。
-- [x] 4.3 逻辑执行器：动作步骤同步执行（assign / branch / loop / parallel 受控并发 / callAction / transaction 数据库保存点 / delay / log / emit / fail），REST 与 mock API 已接入，支持超时、重试、路径/查询/头/体、`successWhen`、响应映射、`resultPath` / `assignTo`；已接入 `kind=internal` 的实体增查改、流程终止、`findStale` / `findOverlap`，以及 `startFlow` / `completeTask`、注册入口表（当前 `calcWorkdays`）与节假日占位降级。
+- [x] 4.3 逻辑执行器：动作步骤同步执行（assign / branch / loop / parallel 受控并发 / callAction / transaction 数据库保存点 / delay / log / emit / fail），REST 与 mock API 已接入，支持超时、重试、路径/查询/头/体、`successWhen`、响应映射、`resultPath` / `assignTo`；已接入 `kind=internal` 的实体增查改、流程终止、`findStale` / `findOverlap`，以及 `startFlow` / `completeTask`、注册入口表（当前 `calcWorkdays`）与真实节假日服务。
 - [x] 4.4 表达式引擎：按注册表白名单求值 97 个函数、14 个取值根；支持 `$lit/$ref/$fn/$tpl/$if`、路径、`filter/map` 子作用域、`$now` 冻结；未知函数、错误元数、未知根均抛错。
 - [x] 4.5 审批页：审批中心（待办/已办/我发起）、详情（表单 + 时间线 + 审批动作）已完成；办理人解析已接组织架构，静态目录仅作兜底。
 - [x] 4.6 运行时事件与回调：流程状态回写；站内通知（任务分派 / 转办 / 退回 / 驳回 / 通过）与审批同事务落库，支持未读数、单条 / 全部已读；审批中心通知面板 + 顶栏全局铃铛（跨应用、30 秒轮询、点击跳转）。外部渠道（webhook / email）走 outbox，复用连接器、幂等、指数退避与 `dead` 终态；`Rule.kind=notification` 规则挂载与 SLA warning / escalate 幂等提醒已接入。
@@ -424,7 +433,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - H5 应用壳复用同一 SPA 与 JWT 会话，尚未独立部署 / PWA，无离线缓存；窄屏表格采用横向滑动，暂未卡片化重排。
 - 小程序端已执行交互步骤中的 `apiCall`（受页面引用链与 ACL 约束）；`x-upload` / `x-attachment-list` 已接入运行时附件接口（页面 ACL、类型白名单、大小上限、软删除）；审批时间线已接入流程实例接口。审批办理页的 `x-process-form` / `x-approval-actions` 仍为占位，小程序暂不能直接完成审批。
 - 微信小程序构建需用微信开发者工具导入 `miniapp/dist/build/mp-weixin`；尚未配置 AppID、真机域名与体验版上传。非 H5 默认 API 为 `http://127.0.0.1:8080/api/v1`，真机联调需设置 `VITE_API_BASE_URL` 并使用可访问的局域网地址或 HTTPS 域名。
-- “新建请假 → 提交 → 撤回”已跑通：`startFlow`、`completeTask`、内部实体读写与流程终止可用；节假日 API 仅对占位地址降级为空日历并记警告，接入真实服务前工作日不扣除法定节假日。`transaction` 已接入数据库保存点；`parallel` 已支持受控并发与声明顺序合并；`custom` 已接入注册式处理器。
+- “新建请假 → 提交 → 撤回”已跑通：`startFlow`、`completeTask`、内部实体读写与流程终止可用；节假日服务已接入真实日历并按年缓存，外部接口失败时降级为仅排除周末并返回 warning。`transaction` 已接入数据库保存点；`parallel` 已支持受控并发与声明顺序合并；`custom` 已接入注册式处理器。
 - 通知已覆盖站内信、webhook / email outbox、`Rule.kind=notification` 与 SLA 提醒；`autoApprove` / `autoReject` 仍未实现，通知规则暂无实例规则做端到端实测，outbox 暂无管理界面与保留期策略。
 - 自定义组件已支持内联沙箱与 `runtime=remote` 远程模块；远程模块需自行保证可跨域访问，且模块必须自包含（blob import 不解析相对依赖）。设计器仍以内联预览为主，远程模块在工作台无网络时回退为明确错误态。
 - OSS STS 临时凭证服务未实现，生成代码里只有直传骨架；BFF 附件当前落本地卷（`LCP_ATTACHMENT_DIR`），多副本需共享存储或切换 OSS provider。
@@ -435,9 +444,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4、阶段 5 与阶段 6.1–6.8 已完成，按以下顺序推进：
 
-1. 运行时深化：真实节假日服务（Redis 按年缓存、超时、非 2xx 降级、`calcWorkdays` 合并服务端日历）。
-2. 阶段 7 出码引擎完整化：完整工程、CLI 参数化与增量导出、在线版本 diff。
-3. 阶段 8 集成与阶段 9 市场。
+1. 阶段 7 出码引擎完整化：完整工程、CLI 参数化与增量导出、在线版本 diff。
+2. 阶段 8 集成与阶段 9 市场。
 
 ## 恢复上下文的顺序
 

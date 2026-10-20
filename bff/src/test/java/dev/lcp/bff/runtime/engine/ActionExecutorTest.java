@@ -13,6 +13,8 @@ import dev.lcp.bff.tenant.TenantContext;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.time.LocalDate;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,9 +32,11 @@ class ActionExecutorTest {
           new dev.lcp.bff.runtime.engine.handlers.PlatformUuidCustomHandler(),
           new dev.lcp.bff.runtime.engine.handlers.PlatformNowCustomHandler(),
           new EchoCustomHandler()));
+  private final AtomicReference<HolidayCalendarProvider.Calendar> holidayCalendar =
+      new AtomicReference<>(HolidayCalendarProvider.Calendar.empty(false));
   private final ActionExecutor executor =
       new ActionExecutor(new PublishedBundleService(null, null), expressions, json, null, null, null,
-          gateway, transactionRunner, customHandlers);
+          gateway, transactionRunner, customHandlers, year -> holidayCalendar.get());
 
   @BeforeEach
   void setUp() {
@@ -338,6 +342,41 @@ class ActionExecutorTest {
     assertThat(skipped.get(0).asText()).isEqualTo("2026-10-23");
     assertThat(skipped.get(1).asText()).isEqualTo("2026-10-25");
     assertThat(result.vars().path("workdays").path("warnings").size()).isZero();
+  }
+
+  @Test
+  void calcWorkdaysMergesServerCalendarAndKeepsStepOverride() {
+    holidayCalendar.set(new HolidayCalendarProvider.Calendar(Map.of(
+        LocalDate.parse("2026-10-23"), "holiday",
+        LocalDate.parse("2026-10-24"), "workday",
+        LocalDate.parse("2026-10-25"), "holiday"), false));
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "calc", "steps": [
+              {"id": "code", "type": "code", "entry": "calcWorkdays",
+               "assignTo": "vars.workdays",
+               "inputs": [
+                 {"key": "start", "value": {"$ref": "$form.start_at"}},
+                 {"key": "end", "value": {"$ref": "$form.end_at"}},
+                 {"key": "holidays", "value": {"$lit": [
+                   {"date": "2026-10-25", "type": "workday"}
+                 ]}}
+               ]}
+            ]}
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(bundle, "calc", new ExecuteActionRequest(
+        Map.of(), Map.of("form", Map.of(
+            "start_at", "2026-10-22T09:00:00+08:00",
+            "end_at", "2026-10-26T18:00:00+08:00")), Map.of()));
+
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.vars().path("workdays").path("days").asInt()).isEqualTo(4);
+    assertThat(result.vars().path("workdays").path("skipped").toString())
+        .isEqualTo("[\"2026-10-23\"]");
   }
 
   @Test

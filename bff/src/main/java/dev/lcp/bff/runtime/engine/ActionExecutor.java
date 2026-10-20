@@ -74,6 +74,7 @@ public class ActionExecutor {
   private final RuntimeTransactionRunner transactionRunner;
   private final RuntimeCustomHandlerRegistry customHandlers;
   private final RuntimeCodeEntryRegistry codeEntries;
+  private final HolidayCalendarProvider holidayCalendars;
 
   public ActionExecutor(
       dev.lcp.bff.runtime.PublishedBundleService bundles,
@@ -84,7 +85,8 @@ public class ActionExecutor {
       XmlJson xml,
       RuntimeActionGateway gateway,
       RuntimeTransactionRunner transactionRunner,
-      RuntimeCustomHandlerRegistry customHandlers) {
+      RuntimeCustomHandlerRegistry customHandlers,
+      HolidayCalendarProvider holidayCalendars) {
     this.bundles = bundles;
     this.expressions = expressions;
     this.json = json;
@@ -94,6 +96,7 @@ public class ActionExecutor {
     this.gateway = gateway;
     this.transactionRunner = transactionRunner;
     this.customHandlers = customHandlers;
+    this.holidayCalendars = holidayCalendars;
     this.codeEntries = new RuntimeCodeEntryRegistry(Map.of("calcWorkdays", this::calcWorkdays));
   }
 
@@ -992,6 +995,13 @@ public class ActionExecutor {
     }
 
     Map<LocalDate, String> holidays = holidayTypes(inputs.get("holidays"));
+    boolean degraded = false;
+    if (holidayCalendars != null) {
+      HolidayCalendarProvider.Calendar calendar = holidayCalendars.loadRange(start, end);
+      // 步骤输入优先，服务端日历只补缺，便于租户覆盖个别调休日。
+      calendar.days().forEach(holidays::putIfAbsent);
+      degraded = calendar.degraded();
+    }
     int days = 0;
     for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
       String type = holidays.get(date);
@@ -1009,6 +1019,9 @@ public class ActionExecutor {
     String leaveType = expressions.stringify(inputs.get("leaveType"));
     if ("annual".equals(leaveType) && days > 15) {
       warnings.add("年假超过 15 天需院长审批");
+    }
+    if (degraded) {
+      warnings.add("节假日服务暂不可用，已仅按周末计算");
     }
     out.put("days", days);
     out.set("skipped", skipped);
@@ -1498,8 +1511,7 @@ public class ActionExecutor {
       } else if ("rest".equals(kind)) {
         JsonNode retry = step.has("retry") ? step.get("retry") : api.path("retry");
         if (isPlaceholderHolidayApi(api)) {
-          log.warn("节假日日历使用占位服务，API {} 已降级为空日历", apiKey);
-          response = emptyResponse();
+          response = holidayResponse(callParams);
         } else {
           response = invokeHttp(api, "rest", apiKey, callParams, apiScope, retry, deadline);
         }
@@ -1584,10 +1596,24 @@ public class ActionExecutor {
     return response;
   }
 
-  private JsonNode emptyResponse() {
+  private JsonNode holidayResponse(ObjectNode callParams) {
+    int year = callParams.path("year").asInt(LocalDate.now(ZONE).getYear());
+    if (year < 1900 || year > 2200) {
+      year = LocalDate.now(ZONE).getYear();
+    }
     ObjectNode body = json.createObjectNode();
     body.put("code", 0);
-    body.set("data", json.createArrayNode());
+    ArrayNode data = json.createArrayNode();
+    if (holidayCalendars != null) {
+      Map<LocalDate, String> days = new TreeMap<>(holidayCalendars.loadYear(year).days());
+      for (Map.Entry<LocalDate, String> entry : days.entrySet()) {
+        ObjectNode item = json.createObjectNode();
+        item.put("date", entry.getKey().toString());
+        item.put("type", entry.getValue());
+        data.add(item);
+      }
+    }
+    body.set("data", data);
     ObjectNode response = json.createObjectNode();
     response.put("status", 200);
     response.set("body", body);
