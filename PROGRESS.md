@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`de7b00a`（`feat(codegen): 生成完整可运行工程`）
+> 分支：`dev` ｜ 最新提交：`604d3d8`（`feat(codegen): 增加统一 CLI 与增量导出`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -38,6 +38,8 @@
 | 节假日服务 | 默认 `https://timor.tech/api/holiday/year/{year}`；`LCP_HOLIDAY_ENABLED`、`LCP_HOLIDAY_URL_TEMPLATE`、`LCP_HOLIDAY_TIMEOUT_MS`、`LCP_HOLIDAY_CACHE_TTL_SECONDS`；Redis 键 `lcp:holiday:v1:<year>` |
 | 独立出码工程 | `codegen/leave_approval/docker-compose.yml`：Web `http://localhost:8091`、API `http://localhost:8090`、PostgreSQL `5433`；租户 `tenant_demo_school`、密码 `demo123`，账号为 Bundle 角色键与 `admin` |
 | 出码 CLI | `node tools/codegen.mjs <bundle...> [--out dir] [--dry-run] [--no-incremental] [--app-key k] [--app-name n] [--tenant id] [--clean] [--json]`；默认增量写入 |
+| 导出包 | `node tools/codegen.mjs <bundle> --export dist/<app>.zip`；包内含 `bundle.json`、`MANIFEST.json`、`README.md`、`generated/` |
+| 版本对比 | `node tools/version-diff.mjs --export <zip> --online <appId> [--version n] [--tenant id] [--username u --password p]`；也支持 `--left/--right` 比两个本地包 |
 | 登录保护 | 连续失败 5 次锁定 15 分钟；密码 8–128 位，须含小写字母与数字，禁止空白及登录名/显示名 |
 | 权限模式 | 开发：`LCP_AUTH_DEV_HEADERS=true`、`LCP_IDENTITY_ALLOW_ALL=true`；staging/prod 覆盖层已置 `false` |
 | 运行时导航 | `GET /api/v1/runtime/apps/{appId}/navigation`（发布态菜单 + 可访问页面 + 默认路由） |
@@ -95,7 +97,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `3ce8342` | 运行时 findStale / findOverlap 内部 API | BFF 47 个测试 + 临时发布件真实 API 冒烟 |
 | `b87a62a` | 真实节假日服务 | BFF 测试 + 真实页面 API + 请假工作日计算 + Redis 缓存 |
 | `de7b00a` | 出码完整可运行工程 | 独立 server 编译 + Compose 端到端 CRUD + RLS 租户隔离 |
-| 本提交 | 出码 CLI、参数化与增量导出 | dry-run / 参数覆盖 / 二次生成 0 变更 + 生成工程编译 |
+| `604d3d8` | 出码 CLI、参数化与增量导出 | dry-run / 参数覆盖 / 二次生成 0 变更 + 生成工程编译 |
+| 本提交 | 导出包与在线版本 diff | zip 外部解压校验 + 平台 v8↔v9 diff 200 条逐条一致 |
 
 ## 文档维护
 
@@ -341,6 +344,13 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - `gen-entity` 清理孤儿文件时显式跳过 `sql/95_force_rls.sql`，避免与 `gen-project` 共享目录时互相删除；dry-run 在系统临时目录跑完整生成，只打印文件清单，不污染目标目录。
 - 验证：`--dry-run` 生成 94 个文件；`--app-key smoke_app --tenant tenant_smoke` 后包名、数据库名与租户配置均切换；连续两次生成第二次摘要为「变更 0 个」；生成工程 `mvn -DskipTests package` 通过。
 
+### 34. 导出包与在线版本 diff（已完成）
+- `tools/codegen.mjs --export <zip|dir>` 在出码后生成可移交包：`bundle.json`、`MANIFEST.json`（内容摘要 + 逐文件 SHA-256）、`README.md` 与 `generated/`；只收集四个生成器清单声明的文件，不再把 `package-lock.json` 或构建目录带进包。
+- `gen-project` 新增 `PROJECT.txt` 清单并清理自己上一轮的孤儿文件；`tools/codegen-export.mjs` 可读取 zip / 目录 / 普通 bundle.json，`tools/zip.mjs` 提供无依赖的 zip 读写。
+- 新增 `tools/version-diff.mjs`：支持本地包 ↔ 本地包、导出包 ↔ 在线版本；账号密码登录或复用 JWT，`--fail-on-diff` 可直接用于 CI。
+- diff 口径复用平台规则：去掉 `snapshot`、规范化 JSON 计算 SHA-256、数组按 `key`/`id`/`name` 配对、最多 200 条并标记截断；单侧超大节点只保留定位字段。
+- 验证：`version-diff --self-test` 5 条通过；导出包经 PowerShell `Expand-Archive` 解压成功，`MANIFEST.json` 的 95 个文件 SHA-256 全部匹配；本地工具对在线 v9 的内容摘要与平台返回一致；对 v8↔v9 的 200 条 diff，路径、类型、工件归属与摘要和平台 API 逐条一致。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -374,7 +384,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 ### 阶段 7 · 出码引擎完整化
 - [x] Bundle → 完整可运行工程（前端 + BFF + 迁移脚本）。
 - [x] 出码 CLI、参数化、增量导出。
-- [ ] 导出包与在线版本的 diff。
+- [x] 导出包与在线版本的 diff。
 
 ### 阶段 8 · 集成与扩展
 - [x] 连接器注册表：REST / GraphQL / SOAP / PostgreSQL database / internal；OAuth2、签名鉴权、变更审计与 DNS pinning 已接入。
@@ -456,14 +466,15 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 自定义组件已支持内联沙箱与 `runtime=remote` 远程模块；远程模块需自行保证可跨域访问，且模块必须自包含（blob import 不解析相对依赖）。设计器仍以内联预览为主，远程模块在工作台无网络时回退为明确错误态。
 - OSS STS 临时凭证服务未实现，生成代码里只有直传骨架；BFF 附件当前落本地卷（`LCP_ATTACHMENT_DIR`），多副本需共享存储或切换 OSS provider。
 - 生成前端已使用平台 JWT；SSO 登录仍需按项目替换 `stores/session.ts` 的登录入口，生成器暂不产出 IdP 回调页。
+- 导出包使用内置 ZIP 写入器，暂不支持 zip64；单个包超过 4GB 需拆分。版本对比只比较 Bundle 元数据，不比较生成代码或依赖锁文件。
 - 校验器残留警告：内联枚举与共享枚举取值不一致；流程监听器未限定 `taskKey`。
 
 ## 下一步（建议直接开工）
 
-阶段 4、阶段 5 与阶段 6.1–6.8 已完成，按以下顺序推进：
+阶段 4–7 已完成，按以下顺序推进：
 
-1. 阶段 7 收尾：导出包与在线版本 diff。
-2. 阶段 8 集成与阶段 9 市场。
+1. 阶段 8 集成与扩展：自定义 TS 代码钩子、AI 辅助生成。
+2. 阶段 9 市场：页面模板、应用与组件市场。
 
 ## 恢复上下文的顺序
 

@@ -18,6 +18,8 @@ const ROOT = path.resolve(HERE, "..");
 const OUT_ROOT = process.env.LCP_CODEGEN_OUT
   ? path.resolve(process.env.LCP_CODEGEN_OUT)
   : path.join(ROOT, "codegen");
+const MANIFEST_NAME = "PROJECT.txt";
+const MANIFEST_MARK = "# tools/gen-project.mjs 的产物清单";
 
 const bad = (where, msg) => {
   throw new Error(where + "：" + msg);
@@ -780,6 +782,55 @@ npm run dev
 `;
 }
 
+function manifestText(files) {
+  const rels = [...files.keys()].sort();
+  return [
+    MANIFEST_MARK + "。每行一个路径（相对应用目录）。",
+    "# 下一轮只删除本清单里有、下一轮不再产出的文件；api/、web/、sql/ 的其余产物不归本生成器所有。",
+    `# 产物数：${rels.length}（不含本清单）`,
+    ...rels,
+    ""
+  ].join("\n");
+}
+
+function readManifest(appDir) {
+  const file = path.join(appDir, MANIFEST_NAME);
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, "utf8")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+}
+
+function removeStale(appDir, keep) {
+  const removed = [];
+  for (const rel of readManifest(appDir)) {
+    if (keep.has(rel) || rel === MANIFEST_NAME) continue;
+    const full = path.join(appDir, rel);
+    if (!fs.existsSync(full)) continue;
+    fs.rmSync(full, { force: true });
+    removed.push(rel);
+  }
+  return removed;
+}
+
+function pruneEmptyDirs(root) {
+  if (!fs.existsSync(root)) return;
+  const dirs = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const full = path.join(dir, entry.name);
+      dirs.push(full);
+      walk(full);
+    }
+  };
+  walk(root);
+  for (const dir of dirs.sort((left, right) => right.length - left.length)) {
+    if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+  }
+}
+
 function writeFiles(appDir, files, stats) {
   for (const [rel, text] of files) {
     const target = path.join(appDir, rel);
@@ -837,11 +888,16 @@ function main() {
     files.set(`docker-compose.yml`, renderCompose(appKey, tenantId));
     files.set(`sql/95_force_rls.sql`, renderForceRls(entities));
     files.set(`RUN.md`, renderRunDoc(bundle, appKey, roles, entities));
-    writeFiles(path.join(OUT_ROOT, appKey), files, stats);
+    const appDir = path.join(OUT_ROOT, appKey);
+    const removed = removeStale(appDir, new Set(files.keys()));
+    writeFiles(appDir, files, stats);
+    writeTextIfChanged(path.join(appDir, MANIFEST_NAME), manifestText(files), stats);
+    pruneEmptyDirs(appDir);
     console.log(`gen-project 完成 → ${path.join(OUT_ROOT, appKey)}`);
     console.log(`  服务端 ${serverDir}`);
     console.log(`  Compose ${path.join(OUT_ROOT, appKey, "docker-compose.yml")}`);
     console.log(`  实体 ${entities.length} 个 · 演示账号 ${roles.length + 1} 个`);
+    if (removed.length) console.log(`  清理过期文件 ${removed.length} 个`);
   }
   console.log(`  增量写入：${writeStatsText(stats)}`);
 }

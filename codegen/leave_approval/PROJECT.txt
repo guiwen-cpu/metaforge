@@ -1,0 +1,19 @@
+# tools/gen-project.mjs 的产物清单。每行一个路径（相对应用目录）。
+# 下一轮只删除本清单里有、下一轮不再产出的文件；api/、web/、sql/ 的其余产物不归本生成器所有。
+# 产物数：16（不含本清单）
+.dockerignore
+Dockerfile.web
+RUN.md
+docker-compose.yml
+nginx.conf
+server/Dockerfile
+server/pom.xml
+server/src/main/java/dev/lcp/generated/leave_approval/GeneratedApplication.java
+server/src/main/java/dev/lcp/generated/leave_approval/server/AuthController.java
+server/src/main/java/dev/lcp/generated/leave_approval/server/AuthTokenService.java
+server/src/main/java/dev/lcp/generated/leave_approval/server/RequestPrincipal.java
+server/src/main/java/dev/lcp/generated/leave_approval/server/TenantContext.java
+server/src/main/java/dev/lcp/generated/leave_approval/server/TenantSessionFilter.java
+server/src/main/java/dev/lcp/generated/leave_approval/server/TenantTransactionAspect.java
+server/src/main/resources/application.yml
+sql/95_force_rls.sql

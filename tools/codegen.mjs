@@ -4,6 +4,7 @@
  *
  *   node tools/codegen.mjs examples/leave-approval.bundle.json
  *   node tools/codegen.mjs examples/leave-approval.bundle.json --out .tmp/codegen --dry-run
+ *   node tools/codegen.mjs examples/leave-approval.bundle.json --export dist/leave_approval.zip
  *   node tools/codegen.mjs examples/leave-approval.bundle.json --app-key smoke_app --tenant tenant_smoke
  *
  * 依次执行 gen-entity → gen-api → gen-page → gen-project。四个生成器仍然各自负责
@@ -19,6 +20,7 @@
  *   --app-name <name>    覆盖 bundle.app.name
  *   --tenant <id>        覆盖 bundle.tenantId
  *   --clean              清理输出根目录下带 GENERATED.txt 的直属应用目录
+ *   --export <path>      生成后打包为 zip；传目录时为每个应用各打一个 <appKey>.zip
  *   --json               只输出 JSON 结果，便于脚本消费
  */
 import fs from "node:fs";
@@ -26,6 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { exportPackage } from "./codegen-export.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
@@ -40,7 +43,7 @@ function fail(message) {
 
 function usage() {
   console.error("用法：node tools/codegen.mjs [bundle.json ...] [--out dir] [--dry-run] [--no-incremental]");
-  console.error("      [--app-key key] [--app-name name] [--tenant id] [--clean] [--json]");
+  console.error("      [--app-key key] [--app-name name] [--tenant id] [--clean] [--export path] [--json]");
   process.exit(2);
 }
 
@@ -63,6 +66,7 @@ function parseArgs(argv) {
     appName: null,
     tenant: null,
     clean: false,
+    export: null,
     json: false,
     inputs: []
   };
@@ -75,6 +79,12 @@ function parseArgs(argv) {
     if (arg === "--no-incremental") { options.incremental = false; continue; }
     if (arg === "--clean") { options.clean = true; continue; }
     if (arg === "--json") { options.json = true; continue; }
+    if (arg === "--export" || arg.startsWith("--export=")) {
+      const parsed = takeValue(argv, i, "--export");
+      options.export = path.resolve(parsed.value);
+      i = parsed.next;
+      continue;
+    }
     if (arg === "--out" || arg.startsWith("--out=")) {
       const parsed = takeValue(argv, i, "--out");
       options.out = path.resolve(parsed.value);
@@ -115,7 +125,7 @@ function defaultBundles() {
 }
 
 function readBundle(file) {
-  const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+  const raw = JSON.parse(fs.readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
   return { raw, bundle: raw.bundle ?? raw, wrapped: Boolean(raw.bundle) };
 }
 
@@ -184,6 +194,35 @@ function walkFiles(dir, base = dir) {
   return files;
 }
 
+function buildExports(options, stepInputs, outDir) {
+  if (!options.export) return [];
+  const mappings = stepInputs.map((file) => {
+    const raw = JSON.parse(fs.readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
+    const bundle = raw?.bundle ?? raw;
+    const appKey = bundle?.app?.key;
+    if (!appKey) fail("导出失败：Bundle 缺少 app.key");
+    const appDir = path.join(outDir, appKey);
+    if (!fs.existsSync(appDir)) fail("导出失败：找不到生成目录 " + appDir);
+    return { file, raw, appKey, appDir };
+  });
+  const keys = new Set(mappings.map((item) => item.appKey));
+  if (keys.size !== mappings.length) fail("导出失败：多个 Bundle 生成了同一个 app.key");
+
+  const isZip = /\.zip$/i.test(options.export);
+  if (isZip && mappings.length > 1) fail("导出到单个 zip 时只能包含一个应用；请传目录或逐个导出");
+  if (!isZip) fs.mkdirSync(options.export, { recursive: true });
+
+  return mappings.map((item) => {
+    const outFile = isZip ? options.export : path.join(options.export, item.appKey + ".zip");
+    return exportPackage({
+      bundleFile: item.file,
+      appDir: item.appDir,
+      outFile,
+      raw: item.raw
+    });
+  });
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   const inputs = options.inputs.length > 0 ? options.inputs : defaultBundles();
@@ -221,12 +260,14 @@ function main() {
       .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(outDir, entry.name, MANIFEST_NAME)))
       .map((entry) => entry.name)
       .sort();
+    const exported = buildExports(options, stepInputs, outDir);
     const summary = {
       out: outDir,
       dryRun: options.dryRun,
       incremental: options.incremental,
       cleaned,
       apps,
+      exports: exported,
       files: files.length,
       bytes: files.reduce((total, rel) => total + fs.statSync(path.join(outDir, rel)).size, 0),
       elapsedMs: Date.now() - started
@@ -254,6 +295,9 @@ function main() {
       console.log(`  文件 ${summary.files} 个 · ${(summary.bytes / 1024).toFixed(1)} KB · 耗时 ${summary.elapsedMs} ms`);
       console.log(`  模式 ${options.incremental ? "增量" : "全量"}${options.dryRun ? " · dry-run" : ""}`);
       if (cleaned.length) console.log(`  已清理：${cleaned.join(", ")}`);
+      for (const item of exported) {
+        console.log(`  导出 ${item.file}（${item.entries} 个条目 · ${(item.bytes / 1024).toFixed(1)} KB）`);
+      }
       console.log("");
     }
   } finally {
