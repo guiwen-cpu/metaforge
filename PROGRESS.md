@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`3bee549 feat(miniapp): 新增 uni-app 小程序运行时壳`
+> 分支：`dev` ｜ 最新提交：`47f92e0 feat(runtime): 补齐内部动作与流程编排`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -15,7 +15,7 @@
 | 容器 | `metaforge-web` / `metaforge-bff` / `metaforge-postgres` / `metaforge-redis` |
 | 当前草稿 | `r10`：3 个页面、1 个自定义组件 `biz-card`、逻辑编排完整；已恢复可编辑状态 |
 | 发布版本 | `v9`：中文内容正常、动作权限 35 条；`v2/v4/v6` 为冒烟临时版本，`v3/v5/v7` 为回滚快照 |
-| 演示数据 | 请假实例若干（已通过 / 已驳回 / 待审批）；冒烟实例 `ef3ea1e4-cbbe-11f1-ab05-eac30cd331c5` 含 3 条动作日志；`/leave/requests` 底部挂有 `biz-card` 联调节点 |
+| 演示数据 | 请假实例若干（已通过 / 已驳回 / 待审批）；冒烟实例 `ef3ea1e4-cbbe-11f1-ab05-eac30cd331c5` 含 3 条动作日志；`/leave/requests` 底部挂有 `biz-card` 联调节点；运行时闭环单 `01M5D95H48A2VFJHTFQ5BSZK4Q` 已验证提交与撤回（`cancelled`） |
 | 审批入口 | `/apps/<appId>/approvals`；详情 `/approvals/:taskId`，实例 `/instances/:instanceId` |
 | 动作执行 | `POST /api/v1/runtime/apps/{appId}/actions/{actionKey}/execute` |
 | 动作日志 | `GET /api/v1/runtime/apps/{appId}/action-runs`（按 `processInstanceId` / `actionKey` / `status` 过滤）；详情 `GET .../action-runs/{id}` |
