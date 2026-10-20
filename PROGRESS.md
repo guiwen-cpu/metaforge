@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`03fd438`（`feat(runtime): transaction 步骤接入数据库保存点`）
+> 分支：`dev` ｜ 最新提交：`ea19eb3`（`feat(runtime): parallel 支持受控并发执行`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -86,7 +86,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `621319a` | 小程序微信登录 | BFF 编译 + typecheck + H5/mp-weixin 构建 + 假微信服务成功/未绑定/关闭降级 |
 | `4fa5d64` | 小程序真机与体验版发布说明 | 文档命令/产物/配置核对 + `git diff --check` |
 | `03fd438` | 运行时 transaction 真事务 | BFF 单测 + 真实 API `leave_submit` 草稿落库 |
-| 本提交 | 运行时 parallel 受控并发 | BFF 单测 + 真实 API `leave_batch_recall` 两单撤回 |
+| `ea19eb3` | 运行时 parallel 受控并发 | BFF 单测 + 真实 API `leave_batch_recall` 两单撤回 |
+| 本提交 | 运行时 custom 注册式处理器 | BFF 单测 + 真实发布件 API 执行 `platform.uuid` / `platform.now` |
 
 ## 文档维护
 
@@ -285,12 +286,20 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - `transaction` 步骤改由 `SpringRuntimeTransactionRunner` 执行：请求级事务内开 `PROPAGATION_NESTED` 保存点，支持 `readCommitted` / `repeatableRead` / `serializable` 与 `readOnly`。
 - 进入保存点前设置 `search_path` 与 `lcp.tenant_id`；步骤失败只回滚当前段，外层仍可记录失败日志或走 `onError`。
 - 验证：BFF 单元测试通过；真实 API 执行 `leave_submit` 草稿保存，`transaction` trace completed，`edu_leave_request` 落库成功。
-### 27. 运行时 parallel 受控并发（刚完成）
+### 27. 运行时 parallel 受控并发（已完成）
 - `parallel` 改为固定大小守护线程池执行，单步并发上限 `MAX_PARALLEL=20`；`failFast=true` 取消其余分支并抛首个失败，`failFast=false` 保留失败分支 trace、其余分支正常完成。
 - 每个分支使用父作用域根节点的深拷贝，`ctx.vars` / `form` / `page.state` 互相隔离；完成后按声明顺序做根节点 diff 合并，数组整体替换、后者覆盖前者，`events` 与 trace 同样按声明顺序合并。
 - 分支内设置并清理 `TenantContext`，每个分支由 `SpringRuntimeTransactionRunner` 开启独立事务（`readCommitted`），保证 `search_path` 与 `lcp.tenant_id` 在 worker 线程生效；语义是“分支独立提交”，父动作后续失败不会回滚已提交分支。
 - 步骤超时取动作 deadline 与 `timeoutMs` 的较早值；步骤计数器改为共享 `AtomicInteger`，并发分支共同受 `MAX_STEPS` 约束。
-- 验证：BFF 16 个执行器测试通过（含并发耗时、变量隔离、事件顺序、failFast 取消、failFast=false、超时）；真实 API `leave_batch_recall` 并行撤回两张 pending 请假单成功，trace 两分支 completed，数据库状态均为 `cancelled`。## 剩余路线图
+- 验证：BFF 16 个执行器测试通过（含并发耗时、变量隔离、事件顺序、failFast 取消、failFast=false、超时）；真实 API `leave_batch_recall` 并行撤回两张 pending 请假单成功，trace 两分支 completed，数据库状态均为 `cancelled`。
+
+### 28. 运行时 custom 注册式处理器（已完成）
+- 新增 `RuntimeCustomHandler` 接口与 `RuntimeCustomHandlerRegistry`，Spring 自动收集处理器并按 key 排序、拒绝重复注册；Bundle 只保存 handler 标识，不能携带或执行任意脚本。
+- `ActionExecutor` 的 `custom` 步骤先对 `params` 做表达式求值，再把租户、用户、应用、版本、发布件、时区与 `$now` 传入处理器；结果写入 `assignTo`，未知或缺失 handler 返回 `UNKNOWN_HANDLER`。
+- 内置 `platform.uuid`（支持 `prefix`）与 `platform.now`；处理器异常经运行时失败映射统一记录 trace 并触发回滚语义。
+- 验证：BFF 38 个测试通过（含参数求值、`assignTo`、上下文透传、未知 handler 明确失败）；真实发布件 API 执行 `custom_check`，两条 custom trace 均为 completed，`state.generated.value` 带 `std-A1-` 前缀、`state.generatedAt` 为 Asia/Shanghai 时间。
+
+## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
 - [x] 4.1 Flowable 运行时：发布时部署 BPMN（来自 `logicSchemas.flows`），实例启动/查询已通；挂起/激活未做。
@@ -350,7 +359,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - **动作由流程声明驱动**：前端按 `Flow.taskForms[].buttons` 渲染动作，后端按同一份声明校验 `outcome` 与 `comment_required`。
 - **已办口径**：排除 `assignee.type=initiator` 的自动提交节点，避免与「我发起」重复。
 - **状态回写**：运行时服务在审批事务内把状态与当前节点写回业务表，业务表仍是 DataSchema 驱动的唯一业务真源。
-- **动作执行边界**：运行时只读发布件 `logicSchemas`；前端交互步骤跳过，`validate` 在服务端执行；`code` 只放行注册入口（当前 `calcWorkdays`），`custom` 仍明确失败，不做静默降级。
+- **动作执行边界**：运行时只读发布件 `logicSchemas`；前端交互步骤跳过，`validate` 在服务端执行；`code` 只放行注册入口（当前 `calcWorkdays`），`custom` 只分派到平台注册处理器，二者都不执行 Bundle 内的任意脚本。
 - **动作回写两段式**：动作只产出 `writeback` 声明，`ActionRunService` 统一求值并执行变量/业务回写；任务推进仅在声明 outcome 且办理人匹配时发生，回写与推进各自记录 applied 结果。
 - **动作日志与重放**：每次执行落一行 `lcp_action_run`，保存原始入参/上下文/事件与 trace；重放复用原始输入并写 `replayed_from`，不撤销上一次副作用。
 - **API 单点收口**：动作不内联 URL，只引用 Api 工件；REST 直连，`kind=internal` 经 `RuntimeInternalApiService` 白名单分派，数据库类仍等待连接器与密钥库。
@@ -390,7 +399,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 数据库连接器只支持 PostgreSQL 只读查询；不提供写入、事务脚本或多语句执行。
 - 签名模板只提供常用占位符（`{method}` / `{path}` / `{body}` / `{timestamp}` / `{tenant}`），不支持自定义签名算法插件。
 - 密钥没有历史版本，轮换会直接覆盖旧密文；主密钥丢失后已有密钥无法解密。连接器审计保留最近变更，暂无自动归档策略。
-- `validate` 已在服务端执行；前端交互步骤仍记为 skipped。`code` 仅放行注册入口 `calcWorkdays`，`custom` 仍明确报未接入。`kind=internal` 目前只分派实体 save/get/patch 与流程终止，`findStale` / `findOverlap` 等其余内部 API 尚未接入。
+- `validate` 已在服务端执行；前端交互步骤仍记为 skipped。`code` 仅放行注册入口 `calcWorkdays`，`custom` 仅分派平台注册处理器（当前内置 `platform.uuid` / `platform.now`）。`kind=internal` 目前只分派实体 save/get/patch 与流程终止，`findStale` / `findOverlap` 等其余内部 API 尚未接入。
 - 动作日志按租户隔离并可按实例/动作/状态查询，暂无跨应用全局检索与保留期策略；重放不撤销已发生的业务/流程副作用。
 - 办理人解析优先查组织架构（部门负责人 / 角色成员），静态目录仅在 `LCP_RUNTIME_FALLBACK_DIRECTORY=true` 时兜底。
 - 提交 / 审批 / 动作执行已做按钮级授权；加签尚未实现，任务归属仍由 Flowable `assignee` 控制。
@@ -400,7 +409,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - H5 应用壳复用同一 SPA 与 JWT 会话，尚未独立部署 / PWA，无离线缓存；窄屏表格采用横向滑动，暂未卡片化重排。
 - 小程序端已执行交互步骤中的 `apiCall`（受页面引用链与 ACL 约束）；`x-upload` / `x-attachment-list` 已接入运行时附件接口（页面 ACL、类型白名单、大小上限、软删除）；审批时间线已接入流程实例接口。审批办理页的 `x-process-form` / `x-approval-actions` 仍为占位，小程序暂不能直接完成审批。
 - 微信小程序构建需用微信开发者工具导入 `miniapp/dist/build/mp-weixin`；尚未配置 AppID、真机域名与体验版上传。非 H5 默认 API 为 `http://127.0.0.1:8080/api/v1`，真机联调需设置 `VITE_API_BASE_URL` 并使用可访问的局域网地址或 HTTPS 域名。
-- “新建请假 → 提交 → 撤回”已跑通：`startFlow`、`completeTask`、内部实体读写与流程终止可用；节假日 API 仅对占位地址降级为空日历并记警告，接入真实服务前工作日不扣除法定节假日。`transaction` 已接入数据库保存点；`parallel` 已支持受控并发与声明顺序合并。
+- “新建请假 → 提交 → 撤回”已跑通：`startFlow`、`completeTask`、内部实体读写与流程终止可用；节假日 API 仅对占位地址降级为空日历并记警告，接入真实服务前工作日不扣除法定节假日。`transaction` 已接入数据库保存点；`parallel` 已支持受控并发与声明顺序合并；`custom` 已接入注册式处理器。
 - 通知已覆盖站内信、webhook / email outbox、`Rule.kind=notification` 与 SLA 提醒；`autoApprove` / `autoReject` 仍未实现，通知规则暂无实例规则做端到端实测，outbox 暂无管理界面与保留期策略。
 - 自定义组件已支持内联沙箱与 `runtime=remote` 远程模块；远程模块需自行保证可跨域访问，且模块必须自包含（blob import 不解析相对依赖）。设计器仍以内联预览为主，远程模块在工作台无网络时回退为明确错误态。
 - OSS STS 临时凭证服务未实现，生成代码里只有直传骨架；BFF 附件当前落本地卷（`LCP_ATTACHMENT_DIR`），多副本需共享存储或切换 OSS provider。
@@ -411,7 +420,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4、阶段 5 与阶段 6.1–6.8 已完成，按以下顺序推进：
 
-1. 运行时深化：`custom` 注册式处理器、`code` 白名单钩子、`findStale` / `findOverlap` 内部 API 与真实节假日服务。
+1. 运行时深化：`code` 白名单钩子、`findStale` / `findOverlap` 内部 API 与真实节假日服务。
 2. 阶段 7 出码引擎完整化：完整工程、CLI 参数化与增量导出、在线版本 diff。
 3. 阶段 8 集成与阶段 9 市场。
 

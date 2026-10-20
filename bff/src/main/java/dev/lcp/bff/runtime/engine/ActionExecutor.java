@@ -51,8 +51,8 @@ import org.springframework.stereotype.Service;
 
 /**
  * 发布态动作执行器。只读取 current_version 的发布件，逐步执行 LogicSchema.actions[].steps，
- * 返回完整 trace。前端交互类步骤在服务端记为 skipped；任意脚本（code/custom）与
- * 内部 API 连接器未接入时明确失败，不做静默降级。
+ * 返回完整 trace。前端交互类步骤在服务端记为 skipped；code 只放行注册入口，
+ * custom 只分派平台注册处理器，未注册时明确失败，不做静默降级。
  */
 @Service
 public class ActionExecutor {
@@ -72,6 +72,7 @@ public class ActionExecutor {
   private final XmlJson xml;
   private final RuntimeActionGateway gateway;
   private final RuntimeTransactionRunner transactionRunner;
+  private final RuntimeCustomHandlerRegistry customHandlers;
 
   public ActionExecutor(
       dev.lcp.bff.runtime.PublishedBundleService bundles,
@@ -81,7 +82,8 @@ public class ActionExecutor {
       ConnectorRuntime connectors,
       XmlJson xml,
       RuntimeActionGateway gateway,
-      RuntimeTransactionRunner transactionRunner) {
+      RuntimeTransactionRunner transactionRunner,
+      RuntimeCustomHandlerRegistry customHandlers) {
     this.bundles = bundles;
     this.expressions = expressions;
     this.json = json;
@@ -90,6 +92,7 @@ public class ActionExecutor {
     this.xml = xml;
     this.gateway = gateway;
     this.transactionRunner = transactionRunner;
+    this.customHandlers = customHandlers;
   }
 
   public ActionExecutionResult execute(UUID appId, String actionKey, ExecuteActionRequest request) {
@@ -544,9 +547,7 @@ public class ActionExecutor {
       case "confirm" -> confirm(step, scope, children, deadline);
       case "openDialog", "closeDialog", "navigate", "upload", "download", "print" ->
           StepOutcome.skip("前端交互步骤，服务端执行跳过");
-      case "custom" ->
-          throw new BusinessFailure("UNSUPPORTED_STEP",
-              "步骤 " + type + " 需要注册的沙箱/处理器，当前运行时未接入", List.of(), true);
+      case "custom" -> StepOutcome.done(custom(step, scope));
       default -> throw new BusinessFailure("UNKNOWN_STEP", "未知步骤类型：" + type, List.of(), true);
     };
   }
@@ -1021,6 +1022,47 @@ public class ActionExecutor {
     return value;
   }
 
+  /**
+   * custom 只分派到平台注册的处理器；Bundle 里的 handler 键无法触发任意脚本。
+   */
+  private JsonNode custom(JsonNode step, ExpressionEngine.Scope scope) {
+    String handlerKey = step.path("handler").asText("");
+    RuntimeCustomHandler handler =
+        customHandlers == null ? null : customHandlers.find(handlerKey);
+    if (handler == null) {
+      throw new BusinessFailure("UNKNOWN_HANDLER",
+          "custom 处理器未注册：" + (handlerKey.isBlank() ? "(缺少 handler)" : handlerKey),
+          List.of(), true);
+    }
+    ObjectNode params = evaluateParams(step.get("params"), scope);
+    Object appId = scope.attachment("appId");
+    Object version = scope.attachment("versionNo");
+    RuntimeCustomContext context = new RuntimeCustomContext(
+        step,
+        params,
+        TenantContext.tenantId(),
+        TenantContext.userId(),
+        appId instanceof UUID value ? value : null,
+        version instanceof Number number ? number.intValue() : null,
+        scope.root("bundle"),
+        scope.now(),
+        scope.zone(),
+        json);
+    JsonNode value;
+    try {
+      value = handler.execute(context);
+    } catch (RuntimeException ex) {
+      throw toFailure(ex);
+    }
+    if (value == null) {
+      value = json.nullNode();
+    }
+    String target = step.path("assignTo").asText("");
+    if (!target.isBlank()) {
+      setTarget(target, value, false, scope);
+    }
+    return value;
+  }
   private JsonNode startFlow(JsonNode step, ExpressionEngine.Scope scope) {
     String flowKey = evalString(step.path("flowRef").get("key"), scope);
     if (flowKey == null) {

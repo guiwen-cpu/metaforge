@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.lcp.bff.runtime.PublishedBundleService;
 import dev.lcp.bff.runtime.PublishedBundleService.PublishedBundle;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.ExecuteActionRequest;
@@ -24,9 +25,14 @@ class ActionExecutorTest {
       new ExpressionEngine(new ExpressionCatalog(json), json, List.of());
   private final FakeGateway gateway = new FakeGateway(json);
   private final RecordingTransactionRunner transactionRunner = new RecordingTransactionRunner();
+  private final RuntimeCustomHandlerRegistry customHandlers =
+      new RuntimeCustomHandlerRegistry(List.of(
+          new dev.lcp.bff.runtime.engine.handlers.PlatformUuidCustomHandler(),
+          new dev.lcp.bff.runtime.engine.handlers.PlatformNowCustomHandler(),
+          new EchoCustomHandler()));
   private final ActionExecutor executor =
       new ActionExecutor(new PublishedBundleService(null, null), expressions, json, null, null, null,
-          gateway, transactionRunner);
+          gateway, transactionRunner, customHandlers);
 
   @BeforeEach
   void setUp() {
@@ -638,6 +644,106 @@ class ActionExecutorTest {
     assertThat(result.status()).isEqualTo("failed");
     assertThat(result.error().code()).isEqualTo("PARALLEL_TIMEOUT");
     assertThat(elapsedMs).isLessThan(1200L);
+  }
+  @Test
+  void customHandlerReceivesEvaluatedParamsAndAssignsResult() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "main", "params": [{"key": "code", "type": "string", "required": true}],
+             "steps": [
+               {"id": "c1", "type": "custom", "handler": "test.echo", "assignTo": "state.custom",
+                "params": {
+                  "code": {"$ref": "$ctx.params.code"},
+                  "suffix": {"$tpl": ["-", {"$ref": "$form.x"}]},
+                  "nested": {"$lit": {"ok": true}}
+                }}
+             ]}
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(bundle, "main",
+        new ExecuteActionRequest(Map.of("code", "A-9"), Map.of("form", Map.of("x", 2)), Map.of()));
+
+    assertThat(result.status()).isEqualTo("completed");
+    JsonNode assigned = result.state().path("custom");
+    assertThat(assigned.path("params").path("code").asText()).isEqualTo("A-9");
+    assertThat(assigned.path("params").path("suffix").asText()).isEqualTo("-2");
+    assertThat(assigned.path("params").path("nested").path("ok").asBoolean()).isTrue();
+    assertThat(assigned.path("tenantId").asText()).isEqualTo("tenant_demo_school");
+    assertThat(assigned.path("userId").asText()).isEqualTo("alice");
+    assertThat(assigned.path("versionNo").asInt()).isEqualTo(1);
+    assertThat(assigned.path("appId").asText()).isEqualTo(bundle.appId().toString());
+    assertThat(assigned.path("zone").asText()).isEqualTo("Asia/Shanghai");
+    assertThat(result.result().path("params").path("code").asText()).isEqualTo("A-9");
+  }
+
+  @Test
+  void customPlatformHandlersAreAvailable() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "main", "steps": [
+              {"id": "c1", "type": "custom", "handler": "platform.uuid",
+               "params": {"prefix": {"$lit": "std-"}}, "assignTo": "vars.uuid"},
+              {"id": "c2", "type": "custom", "handler": "platform.now",
+               "assignTo": "vars.now"}
+            ]}
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(
+        bundle, "main", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.vars().path("uuid").path("value").asText()).startsWith("std-");
+    assertThat(result.vars().path("uuid").path("id").asText()).isNotBlank();
+    assertThat(result.vars().path("now").asText()).contains("T");
+  }
+
+  @Test
+  void unknownCustomHandlerFailsAndDoesNotExecuteBundleScript() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "main", "steps": [
+              {"id": "c1", "type": "custom", "handler": "bundle.run",
+               "params": {"script": {"$lit": "return 1"}}}
+            ]}
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(
+        bundle, "main", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+
+    assertThat(result.status()).isEqualTo("failed");
+    assertThat(result.error().code()).isEqualTo("UNKNOWN_HANDLER");
+    assertThat(result.error().rollback()).isTrue();
+    assertThat(result.error().message()).contains("bundle.run");
+  }
+
+  private static final class EchoCustomHandler implements RuntimeCustomHandler {
+
+    @Override
+    public String key() {
+      return "test.echo";
+    }
+
+    @Override
+    public JsonNode execute(RuntimeCustomContext context) {
+      ObjectNode out = context.json().createObjectNode();
+      out.set("params", context.params());
+      out.put("tenantId", context.tenantId());
+      out.put("userId", context.userId());
+      out.put("versionNo", context.versionNo());
+      out.put("appId", String.valueOf(context.appId()));
+      out.put("now", context.now());
+      out.put("zone", context.zone().getId());
+      return out;
+    }
   }
   private static final class RecordingTransactionRunner implements RuntimeTransactionRunner {
 
