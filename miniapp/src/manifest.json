@@ -1,0 +1,23 @@
+{
+  "name": "MetaForge",
+  "appid": "",
+  "description": "MetaForge 发布态移动运行时",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "h5": {
+    "router": {
+      "mode": "hash"
+    },
+    "title": "MetaForge 移动运行时"
+  },
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "minified": true
+    },
+    "usingComponents": true
+  }
+}

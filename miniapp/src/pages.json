@@ -1,0 +1,25 @@
+{
+  "pages": [
+    {
+      "path": "pages/login/index",
+      "style": {
+        "navigationStyle": "custom",
+        "backgroundColor": "#f4f6fb"
+      }
+    },
+    {
+      "path": "pages/runtime/index",
+      "style": {
+        "navigationStyle": "custom",
+        "backgroundColor": "#f4f6fb",
+        "enablePullDownRefresh": true
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "MetaForge",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f4f6fb"
+  }
+}
