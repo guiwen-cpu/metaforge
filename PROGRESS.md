@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`16507a3 feat(runtime): 新增独立 H5 应用壳与移动端适配`
+> 分支：`dev` ｜ 最新提交：`3bee549 feat(miniapp): 新增 uni-app 小程序运行时壳`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -74,6 +74,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `4c7a971` | 外部通知通道、通知规则与 SLA 提醒 | webhook / email outbox + 规则挂载 + SLA 幂等 + 全局通知入口 |
 | `0737829` | 发布态运行时渲染器 | typecheck / build / 容器重建 + v9 列表、详情时间线、动作权限 CDP 实测 |
 | `16507a3` | H5 应用壳与移动端适配 | typecheck / build / 容器重建 + 深链登录回跳、非法路径回退、发起页、底部导航与桌面回归 CDP 实测 |
+| `3bee549` | uni-app 小程序运行时壳 | typecheck + H5 / mp-weixin 构建 + H5 390×844 登录、列表、搜索、分页、详情与表单回填 CDP 实测 |
 
 ## 文档维护
 
@@ -213,6 +214,17 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 桌面运行预览与 H5 预览入口会保留当前发布页；移动端搜索区在 `<=640px` 改为两列，表格改为横向滚动，避免按钮与列被压缩。
 - 验证：typecheck / build 与 web 容器重建通过；iPhone 390×844 下 `/leave/requests`、`/leave/requests/new`、底部导航、退出登录、深链登录回跳、非法路径回退均通过；桌面 `/runtime?path=/leave/requests/new` 正常，搜索区恢复四列，控制台无错误。
 
+### 18. uni-app 小程序运行时（刚完成）
+- 新增 `miniapp/`：uni-app Vue3 + TypeScript，独立登录页与运行时页；只消费发布件契约，不复制控制平面。
+- 登录态：租户 / 用户名 / 密码登录，会话持久化到 `metaforge.miniapp.session.v1`，支持演示账号快捷填充、账号抽屉与退出登录。
+- 运行时壳：读取 `navigation / page / data-source / action` 接口；底部主导航、更多菜单、下拉刷新、动态路由参数、默认路由回退与页面错误态。
+- 组件渲染：`x-page / x-card / x-toolbar / x-btn / x-text / x-search-form / x-table / x-pagination / x-form / x-descriptions / x-status-tag / x-row-actions / x-dialog`；搜索支持 `like / eq / in / between`，表格在窄屏卡片化，表单覆盖枚举、单选、日期时间、开关、多行文本与数字。
+- 插槽：`x-toolbar`、`x-search-form` 的左右插槽与自定义子节点都会渲染，避免设计器里添加的按钮/组件在小程序端丢失。
+- 编辑态：表单页通过实体数据源预取回填；未实现的 `apiCall` 不再用空结果覆盖已回填表单。
+- 编辑回填复核：`01M5BW2BV4V8PKPF7MG9GY70EX` 的 `reason` 正常回填；`01M5CYJK0E081KA588K6TREETD` 本身原因为空，不是渲染问题。
+- 构建：`npm run build:h5` 产物在 `miniapp/dist/build/h5`；`npm run build:mp-weixin` 产物在 `miniapp/dist/build/mp-weixin`。
+- 验证：`typecheck`、H5 构建、mp-weixin 构建均通过；H5 390×844 实测登录、列表 13 条、状态筛选 1 条、翻页到 2/2、详情抽屉、新建与编辑表单回填及底部按钮。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -236,7 +248,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 ### 阶段 6 · 多端发布与运行时
 - [x] 6.1 发布态运行时渲染器：读发布件渲染布局、数据源、搜索分页排序、行操作、详情抽屉与流程时间线；按 `allowedActions` 禁用越权动作，不依赖设计器状态。
 - [x] 6.2 Web / H5 应用壳与路由、登录态：独立移动壳复用同一 SPA、JWT 会话与发布件导航；支持深链回跳、底部导航、桌面/H5 切换与移动端表格横滑。
-- [ ] 小程序端（Taro 或原生）。
+- [x] 6.3 uni-app 小程序运行时：独立登录态与运行时壳，复用发布件导航、页面、数据源与动作契约；移动端列表卡片化、表单与详情抽屉已接入。
 - [ ] 自定义组件远程模块加载（`runtime=remote` + SRI 校验）。
 
 ### 阶段 7 · 出码引擎完整化
@@ -300,6 +312,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - **运行态查询服务端收口**：数据源只接受发布件声明的实体、字段、算子与排序字段；用户值全部参数绑定，行级权限编译为 SQL 条件，编译失败按拒绝处理。
 - **动作能力随页面下发**：页面响应同时返回定义与当前用户可执行动作，前端仅做展示/禁用，后端执行时仍按同一份权限再次校验。
 - **H5 与桌面共用运行时**：H5 只是独立路由壳，仍读同一发布件与 JWT 会话；不复制页面渲染器，移动适配集中在壳层与通用渲染器的断点样式。
+- **小程序独立原生渲染**：使用 uni-app Vue3 重建移动端渲染层，不嵌入 H5 WebView；共享发布件与接口契约，登录态、导航与组件能力按小程序生命周期单独实现。
 
 ## 已知边界
 
@@ -315,6 +328,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 认证审计暂无分页与保留期策略，`limit` 上限内一次返回。
 - 发布态渲染器已接入实体数据源、搜索/分页/排序、行操作、详情与流程时间线；菜单中的外部链接仍直接新开窗口。
 - H5 应用壳复用同一 SPA 与 JWT 会话，尚未独立部署 / PWA，无离线缓存；窄屏表格采用横向滑动，暂未卡片化重排。
+- 小程序端尚未执行交互步骤中的 `apiCall`：编辑态改由实体数据源回填，其他 `apiCall` 只记录警告；附件上传与审批时间线仍为明确占位。
+- 微信小程序构建需用微信开发者工具导入 `miniapp/dist/build/mp-weixin`；尚未配置 AppID、真机域名与体验版上传。非 H5 默认 API 为 `http://127.0.0.1:8080/api/v1`，真机联调需设置 `VITE_API_BASE_URL` 并使用可访问的局域网地址或 HTTPS 域名。
 - 撤回与新建提交仍受未接入的运行时连接器/动作步骤限制：`kind=internal` API、`code`、`startFlow` 与节假日查询 `api_holiday_list` 会返回明确错误，不伪造成功。
 - 通知已覆盖站内信、webhook / email outbox、`Rule.kind=notification` 与 SLA 提醒；`autoApprove` / `autoReject` 仍未实现，通知规则暂无实例规则做端到端实测，outbox 暂无管理界面与保留期策略。
 - 自定义组件只有设计器内联沙箱预览与发布态占位；`runtime=remote` 的远程模块加载与 SRI 校验未实现。
@@ -324,13 +339,13 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 ## 下一步（建议直接开工）
 
-阶段 4、阶段 5 与阶段 6.1 / 6.2 已完成，按以下顺序推进：
+阶段 4、阶段 5 与阶段 6.1 / 6.2 / 6.3 已完成，按以下顺序推进：
 
 1. 运行时动作补齐：接入 `kind=internal` API、`code` / `startFlow` 与节假日 API，跑通“新建请假 → 提交 → 撤回”完整业务闭环。
 2. 自定义组件远程加载：实现 `runtime=remote` 的模块加载、版本锁定与 SRI 校验，替换当前占位。
 3. 连接器扩展：database / GraphQL / SOAP 与 `oauth2`、签名鉴权，并补连接器变更审计与 DNS rebinding 加固。
 4. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
-5. 小程序端（Taro 或原生）：复用发布件导航与页面渲染契约，补齐原生登录态与移动能力。
+5. 小程序能力深化：补 `apiCall`、附件上传、审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
 
 ## 恢复上下文的顺序
 
