@@ -176,6 +176,7 @@ export interface TransferTaskPayload {
 
 export interface NotificationItem {
   id: string;
+  app_id?: string | null;
   type: string;
   title: string;
   body?: string | null;

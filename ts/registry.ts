@@ -67,6 +67,25 @@ export const UI_PAGE_KIND_VALUES = [
   "error",
 ] as const;
 
+/** LogicNotificationChannel —— 通知渠道。inApp 与审批同事务写站内信；webhook/email 走租户连接器与投递 outbox。 */
+export const LOGIC_NOTIFICATION_CHANNEL_VALUES = [
+  "inApp",
+  "webhook",
+  "email",
+] as const;
+
+/** LogicNotificationEvent —— 通知规则可挂载的流程生命周期事件。 */
+export const LOGIC_NOTIFICATION_EVENT_VALUES = [
+  "processStarted",
+  "taskAssigned",
+  "taskTransferred",
+  "taskReturned",
+  "flowRejected",
+  "flowApproved",
+  "slaWarning",
+  "slaEscalated",
+] as const;
+
 /** ComponentKind —— field=可作为表单字段（参与表单模型与校验）；layout/container=可容纳子节点；data=消费数据源的主组件（表格/列表/树） */
 export const COMPONENT_KIND_VALUES = [
   "layout",
@@ -1021,7 +1040,7 @@ export const EXPRESSION_FUNCTIONS = [
     ],
     "returns": "boolean",
     "pure": true,
-    "desc": "左侧值是否在右侧数组内"
+    "desc": "左侧值是否在右侧数组内；左侧为数组时判断是否存在交集"
   },
   {
     "name": "notIn",

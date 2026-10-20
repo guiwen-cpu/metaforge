@@ -182,6 +182,20 @@ public class LogicRule {
         this.stopOnFail = stopOnFail;
     }
 
+    /**
+     * kind=notification 时生效；then 不执行。
+     */
+    @JsonProperty("notification")
+    private LogicNotificationRuleConfig notification;
+
+    public LogicNotificationRuleConfig getNotification() {
+        return notification;
+    }
+
+    public void setNotification(LogicNotificationRuleConfig notification) {
+        this.notification = notification;
+    }
+
     @JsonProperty("access")
     private CommonAccess access;
 

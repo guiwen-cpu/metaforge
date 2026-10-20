@@ -1597,6 +1597,132 @@
       ],
       "additionalProperties": false
     },
+    "NotificationChannel": {
+      "type": "string",
+      "enum": [
+        "inApp",
+        "webhook",
+        "email"
+      ],
+      "description": "通知渠道。inApp 与审批同事务写站内信；webhook/email 走租户连接器与投递 outbox。"
+    },
+    "NotificationEvent": {
+      "type": "string",
+      "enum": [
+        "processStarted",
+        "taskAssigned",
+        "taskTransferred",
+        "taskReturned",
+        "flowRejected",
+        "flowApproved",
+        "slaWarning",
+        "slaEscalated"
+      ],
+      "description": "通知规则可挂载的流程生命周期事件。"
+    },
+    "NotificationSpec": {
+      "type": "object",
+      "description": "流程时限通知配置。模板字段支持表达式；外部渠道只入队，失败不回滚审批。",
+      "properties": {
+        "channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NotificationChannel"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "title": {
+          "$ref": "#/$defs/Expr"
+        },
+        "body": {
+          "$ref": "#/$defs/Expr"
+        },
+        "link": {
+          "$ref": "#/$defs/Expr"
+        },
+        "connectionRef": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "path": {
+          "type": "string",
+          "description": "连接器 baseUrl 下的相对路径"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/Expr",
+          "description": "投递幂等键；缺省按事件与业务对象生成"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "channels"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "NotificationRuleConfig": {
+      "type": "object",
+      "description": "kind=notification 的规则配置。targets 复用人员选择器，表达式结果可返回用户 ID 或 ID 数组。",
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NotificationEvent"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NotificationChannel"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssigneeSpec"
+          }
+        },
+        "title": {
+          "$ref": "#/$defs/Expr"
+        },
+        "body": {
+          "$ref": "#/$defs/Expr"
+        },
+        "link": {
+          "$ref": "#/$defs/Expr"
+        },
+        "connectionRef": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "path": {
+          "type": "string",
+          "description": "连接器 baseUrl 下的相对路径"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/Expr",
+          "description": "投递幂等键；缺省按规则、事件与业务对象生成"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "channels",
+        "targets"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
     "PrintStep": {
       "type": "object",
       "properties": {
@@ -2769,6 +2895,9 @@
             "escalateTo": {
               "$ref": "#/$defs/AssigneeSpec"
             },
+            "notify": {
+              "$ref": "#/$defs/NotificationSpec"
+            },
             "onTimeout": {
               "enum": [
                 "notify",
@@ -3114,6 +3243,10 @@
         "stopOnFail": {
           "type": "boolean",
           "default": true
+        },
+        "notification": {
+          "$ref": "#/$defs/NotificationRuleConfig",
+          "description": "kind=notification 时生效；then 不执行。"
         },
         "access": {
           "$ref": "#/$defs/Access"

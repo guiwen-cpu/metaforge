@@ -59,7 +59,7 @@ public final class ExpressionRegistry {
         new Function("gt", "comparison", 2, 2, false, "boolean", true, List.<String>of("any", "any"), "大于"),
         new Function("gte", "comparison", 2, 2, false, "boolean", true, List.<String>of("any", "any"), "大于等于"),
         new Function("between", "comparison", 3, 3, false, "boolean", true, List.<String>of("any", "any", "any"), "闭区间包含"),
-        new Function("in", "comparison", 2, 2, false, "boolean", true, List.<String>of("any", "array"), "左侧值是否在右侧数组内"),
+        new Function("in", "comparison", 2, 2, false, "boolean", true, List.<String>of("any", "array"), "左侧值是否在右侧数组内；左侧为数组时判断是否存在交集"),
         new Function("notIn", "comparison", 2, 2, false, "boolean", true, List.<String>of("any", "array"), "取反的 in"),
         new Function("like", "comparison", 2, 2, false, "boolean", true, List.<String>of("string", "string"), "SQL LIKE 语义（% 通配），下推时编译为 ILIKE"),
         new Function("startsWith", "comparison", 2, 2, false, "boolean", true, List.<String>of("string", "string"), "前缀匹配"),

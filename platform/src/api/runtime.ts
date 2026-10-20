@@ -126,6 +126,29 @@ export const runtimeApi = {
     );
     return data;
   },
+
+  async globalNotifications(limit = 20): Promise<NotificationFeed> {
+    const { data } = await http.get<NotificationFeed>("/runtime/notifications", {
+      params: { limit }
+    });
+    return data;
+  },
+
+  async globalUnreadCount(): Promise<number> {
+    const { data } = await http.get<UnreadCount>("/runtime/notifications/unread-count");
+    return data.unread;
+  },
+
+  async readGlobalNotification(id: string): Promise<NotificationItem> {
+    const { data } = await http.post<NotificationItem>(`/runtime/notifications/${id}/read`);
+    return data;
+  },
+
+  async readAllGlobalNotifications(): Promise<NotificationReadResult> {
+    const { data } = await http.post<NotificationReadResult>("/runtime/notifications/read-all");
+    return data;
+  },
+
   async getTask(appId: string, taskId: string): Promise<TaskDetail> {
     const { data } = await http.get<TaskDetail>(`${base(appId)}/tasks/${taskId}`);
     return data;

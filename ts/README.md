@@ -35,6 +35,8 @@ node tools/gen-ts.mjs        # 重新生成 types.ts / guards.ts / registry.ts /
 | `CommonBreakpointKey` | 5 | "xs", "sm", "md", "lg", "xl" |
 | `DataFieldType` | 19 | "string", "text", "richText", "integer", "decimal", "boolean", "date", "datetime", "time", "json", "enum", "ref", "file", "image", "video", "array", "signature", "location", "formula" |
 | `UiPageKind` | 9 | "list", "form", "detail", "dashboard", "approval", "report", "custom", "login", "error" |
+| `LogicNotificationChannel` | 3 | "inApp", "webhook", "email" |
+| `LogicNotificationEvent` | 8 | "processStarted", "taskAssigned", "taskTransferred", "taskReturned", "flowRejected", "flowApproved", "slaWarning", "slaEscalated" |
 | `ComponentKind` | 8 | "layout", "container", "field", "display", "action", "data", "chart", "advanced" |
 | `ComponentPropType` | 33 | "string", "number", "integer", "boolean", "text", "json", "enum", "color", "icon", "cssLength", "url", "dateFormat", "fileAccept", "expr", "slot", "node", "nodeList", "style", "actionRef", "pageRef", "entityRef", "dataSourceRef", "fieldRef", "eventRef", "fieldList", "columnList", "searchFieldList", "optionList", "buttonList", "ruleList", "assignee", "validatorList", "stepList" |
 

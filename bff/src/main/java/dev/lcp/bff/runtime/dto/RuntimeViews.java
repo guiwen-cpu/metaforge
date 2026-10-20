@@ -163,6 +163,7 @@ public final class RuntimeViews {
 
   public record NotificationView(
       String id,
+      String appId,
       String type,
       String title,
       String body,

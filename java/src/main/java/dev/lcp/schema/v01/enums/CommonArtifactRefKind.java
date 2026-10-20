@@ -22,7 +22,8 @@ public enum CommonArtifactRefKind {
     PAGE("page"),
     ENTITY("entity"),
     FIELD("field"),
-    ROLE("role");
+    ROLE("role"),
+    CONNECTION("connection");
 
     private final String value;
 

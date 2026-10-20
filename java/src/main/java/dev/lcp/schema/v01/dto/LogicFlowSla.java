@@ -66,6 +66,17 @@ public class LogicFlowSla {
         this.escalateTo = escalateTo;
     }
 
+    @JsonProperty("notify")
+    private LogicNotificationSpec notify;
+
+    public LogicNotificationSpec getNotify() {
+        return notify;
+    }
+
+    public void setNotify(LogicNotificationSpec notify) {
+        this.notify = notify;
+    }
+
     /**
      * @default "notify"
      */

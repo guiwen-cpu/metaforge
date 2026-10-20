@@ -133,7 +133,7 @@ public class LogicApi {
     }
 
     /**
-     * 引用集成连接（第三方服务的凭证与超时配置），避免把密钥写进 Schema
+     * 引用租户连接器（kind=connection）。连接器保存 baseUrl、超时、公共请求头与默认鉴权，凭证本身仍以密钥库引用表示。API 的 baseUrl 可覆盖连接器默认值。
      */
     @JsonProperty("connectionRef")
     private CommonArtifactRef connectionRef;

@@ -44,12 +44,15 @@ import org.flowable.engine.repository.ProcessDefinition;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.task.api.Task;
 import org.flowable.task.api.history.HistoricTaskInstance;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /** Flowable 运行时：启动实例、解析办理人、办理任务并回写业务单据。 */
 @Service
 public class ProcessRuntimeService {
 
+  private static final Logger log = LoggerFactory.getLogger(ProcessRuntimeService.class);
   private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
 
   private final RepositoryService repositoryService;
@@ -62,6 +65,7 @@ public class ProcessRuntimeService {
   private final BusinessRecordService records;
   private final RuntimeUserDirectory users;
   private final NotificationService notifications;
+  private final NotificationRuleService notificationRules;
   private final PermissionService permissions;
 
   public ProcessRuntimeService(
@@ -75,6 +79,7 @@ public class ProcessRuntimeService {
       BusinessRecordService records,
       RuntimeUserDirectory users,
       NotificationService notifications,
+      NotificationRuleService notificationRules,
       PermissionService permissions) {
     this.repositoryService = repositoryService;
     this.runtimeService = runtimeService;
@@ -86,6 +91,7 @@ public class ProcessRuntimeService {
     this.records = records;
     this.users = users;
     this.notifications = notifications;
+    this.notificationRules = notificationRules;
     this.permissions = permissions;
   }
 
@@ -189,6 +195,11 @@ public class ProcessRuntimeService {
     }
 
     Task next = assignActiveTasks(appId, published.content(), flow, entity, businessId, instance.getId());
+    fireNotification(appId, published, flow, entity, "processStarted",
+        businessId, records.title(entity, business, businessId), business, variables,
+        instance.getId(), null, null, null, "instance", instance.getId(),
+        "/apps/" + appId + "/instances/" + instance.getId(),
+        "流程已启动", "你的申请「" + records.title(entity, business, businessId) + "」已提交。");
     String currentTaskKey = next == null ? null : next.getTaskDefinitionKey();
     String assignee = next == null ? null : next.getAssignee();
     TaskDetail detail = next == null ? null : taskDetail(appId, next.getId());
@@ -393,14 +404,21 @@ public class ProcessRuntimeService {
     JsonNode entity = records.entity(published.content(), flow);
     String businessKey = businessKey(task.getProcessInstanceId(), false);
     markBusiness(entity, businessKey, updates("approver_id", toUserId));
+    Map<String, Object> business = records.get(entity, businessKey);
+    String businessTitle = records.title(entity, business, businessKey);
     if (!toUserId.equals(user())) {
-      String businessTitle = records.title(entity, records.get(entity, businessKey), businessKey);
       notifications.send(appId, toUserId, "task_transferred",
           "任务已转办给你",
           "流程「" + text(flow.path("name"), flow.path("key").asText())
               + "」的单据「" + businessTitle + "」已转交给你处理。",
           "/apps/" + appId + "/approvals/" + taskId, "task", taskId);
     }
+    fireNotification(appId, published, flow, entity, "taskTransferred",
+        businessKey, businessTitle, business, runtimeService.getVariables(task.getProcessInstanceId()),
+        task.getProcessInstanceId(), taskId, text(task.getName(), task.getTaskDefinitionKey()),
+        toUserId, "task", taskId, "/apps/" + appId + "/approvals/" + taskId,
+        "任务已转办给你", "流程「" + text(flow.path("name"), flow.path("key").asText())
+            + "」的单据「" + businessTitle + "」已转交给你处理。");
     return taskDetail(appId, taskId);
   }
 
@@ -470,6 +488,11 @@ public class ProcessRuntimeService {
           "你的申请「" + businessTitle + "」在流程「" + flowName + "」中被驳回。",
           "/apps/" + appId + "/instances/" + task.getProcessInstanceId(),
           "instance", task.getProcessInstanceId());
+      fireNotification(appId, published, flow, entity, "flowRejected",
+          businessKey, businessTitle, business, variables, task.getProcessInstanceId(),
+          taskId, text(task.getName(), task.getTaskDefinitionKey()), user(), "instance",
+          task.getProcessInstanceId(), "/apps/" + appId + "/instances/" + task.getProcessInstanceId(),
+          "流程已驳回", "你的申请「" + businessTitle + "」在流程「" + flowName + "」中被驳回。");
       return taskDetail(appId, taskId);
     }
 
@@ -497,6 +520,11 @@ public class ProcessRuntimeService {
       notifyApplicant(appId, variables, "task_returned", "流程已退回",
           "你的申请「" + businessTitle + "」被退回，请修改后重新提交。",
           returnedLink, returned == null ? "instance" : "task", returnedId);
+      fireNotification(appId, published, flow, entity, "taskReturned",
+          businessKey, businessTitle, business, variables, task.getProcessInstanceId(),
+          returnedId, text(task.getName(), task.getTaskDefinitionKey()), applicant, "task",
+          returnedId, returnedLink, "流程已退回",
+          "你的申请「" + businessTitle + "」被退回，请修改后重新提交。");
       return taskDetail(appId, taskId);
     }
 
@@ -515,6 +543,11 @@ public class ProcessRuntimeService {
           "你的申请「" + businessTitle + "」已通过审批。",
           "/apps/" + appId + "/instances/" + task.getProcessInstanceId(),
           "instance", task.getProcessInstanceId());
+      fireNotification(appId, published, flow, entity, "flowApproved",
+          businessKey, businessTitle, business, variables, task.getProcessInstanceId(),
+          taskId, text(task.getName(), task.getTaskDefinitionKey()), user(), "instance",
+          task.getProcessInstanceId(), "/apps/" + appId + "/instances/" + task.getProcessInstanceId(),
+          "流程已通过", "你的申请「" + businessTitle + "」已通过审批。");
     }
     return taskDetail(appId, taskId);
   }
@@ -555,6 +588,68 @@ public class ProcessRuntimeService {
     notifications.send(appId, applicant, type, title, body, link, bizType, bizId);
   }
 
+  private void fireNotification(
+      UUID appId,
+      PublishedBundle published,
+      JsonNode flow,
+      JsonNode entity,
+      String event,
+      String businessKey,
+      String businessTitle,
+      Map<String, Object> business,
+      Map<String, Object> variables,
+      String processInstanceId,
+      String taskId,
+      String taskName,
+      String assignee,
+      String bizType,
+      String bizId,
+      String link,
+      String defaultTitle,
+      String defaultBody) {
+    try {
+      notificationRules.fire(new NotificationRuleService.Event(
+          event, published, flow, entity, businessKey, businessTitle,
+          business == null ? Map.of() : business,
+          variables == null ? Map.of() : variables,
+          processInstanceId, taskId, taskName, assignee, bizType, bizId, link,
+          defaultTitle, defaultBody));
+    } catch (RuntimeException ex) {
+      log.warn("通知事件 {} 执行失败，app={}: {}", event, appId, ex.getMessage());
+    }
+  }
+
+  private void applyTaskDueDate(JsonNode flow, Task task) {
+    if (task.getDueDate() != null) {
+      return;
+    }
+    JsonNode sla = flow.path("sla");
+    if (!sla.path("dueDateHours").isNumber()) {
+      return;
+    }
+    BigDecimal hours = sla.path("dueDateHours").decimalValue();
+    if (hours.signum() <= 0) {
+      return;
+    }
+    Date start = processStart(task.getProcessInstanceId());
+    if (start == null) {
+      start = task.getCreateTime();
+    }
+    if (start == null) {
+      return;
+    }
+    long millis = hours.multiply(BigDecimal.valueOf(3_600_000L)).longValue();
+    taskService.setDueDate(task.getId(), new Date(start.getTime() + millis));
+  }
+
+  private Date processStart(String processInstanceId) {
+    HistoricProcessInstance instance = historyService.createHistoricProcessInstanceQuery()
+        .processInstanceId(processInstanceId)
+        .processInstanceTenantId(tenant())
+        .singleResult();
+    return instance == null ? null : instance.getStartTime();
+  }
+
   private Task requireTask(String taskId) {
     Task task = taskService.createTaskQuery().taskId(taskId).taskTenantId(tenant()).singleResult();
     if (task == null) {
@@ -589,12 +684,14 @@ public class ProcessRuntimeService {
     Map<String, Object> business = records.get(entity, businessKey);
     String businessTitle = records.title(entity, business, businessKey);
     String flowName = text(flow.path("name"), flow.path("key").asText());
+    PublishedBundle published = bundles.load(appId);
     String firstAssignee = null;
     String firstTaskName = null;
     for (Task task : tasks) {
       JsonNode form = taskForm(flow, task.getTaskDefinitionKey());
       JsonNode spec = form.path("assignee");
       String assignee = users.resolve(appId, spec.path("type").asText(null), spec, business);
+      applyTaskDueDate(flow, task);
       if (assignee != null) {
         taskService.setAssignee(task.getId(), assignee);
         if (!assignee.equals(user())) {
@@ -604,6 +701,13 @@ public class ProcessRuntimeService {
                   + "」等待你处理。",
               "/apps/" + appId + "/approvals/" + task.getId(), "task", task.getId());
         }
+        fireNotification(appId, published, flow, entity, "taskAssigned",
+            businessKey, businessTitle, business, variables, processInstanceId,
+            task.getId(), text(task.getName(), task.getTaskDefinitionKey()), assignee,
+            "task", task.getId(), "/apps/" + appId + "/approvals/" + task.getId(),
+            "待办：" + businessTitle,
+            "流程「" + flowName + "」的节点「" + text(task.getName(), task.getTaskDefinitionKey())
+                + "」等待你处理。");
       }
       if (firstAssignee == null) {
         firstAssignee = assignee == null ? task.getAssignee() : assignee;

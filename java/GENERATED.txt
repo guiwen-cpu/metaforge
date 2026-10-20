@@ -1,6 +1,6 @@
 # tools/gen-java.mjs 的产物清单。每行一个文件路径（相对 java/）。
 # 下一轮生成时，凡是不在本清单里的 .java/.json/.md/.xml/.txt 都会被删掉 —— 不要往 java/ 放手工文件。
-# 文件数：268（含本清单）
+# 文件数：272（含本清单）
 src/main/java/dev/lcp/schema/v01/enums/CommonScope.java
 src/main/java/dev/lcp/schema/v01/dto/CommonChecksum.java
 src/main/java/dev/lcp/schema/v01/dto/CommonText.java
@@ -93,6 +93,10 @@ src/main/java/dev/lcp/schema/v01/dto/LogicDownloadStep.java
 src/main/java/dev/lcp/schema/v01/dto/LogicStartFlowStep.java
 src/main/java/dev/lcp/schema/v01/dto/LogicCompleteTaskStep.java
 src/main/java/dev/lcp/schema/v01/dto/LogicAssigneeSpec.java
+src/main/java/dev/lcp/schema/v01/enums/LogicNotificationChannel.java
+src/main/java/dev/lcp/schema/v01/enums/LogicNotificationEvent.java
+src/main/java/dev/lcp/schema/v01/dto/LogicNotificationSpec.java
+src/main/java/dev/lcp/schema/v01/dto/LogicNotificationRuleConfig.java
 src/main/java/dev/lcp/schema/v01/dto/LogicPrintStep.java
 src/main/java/dev/lcp/schema/v01/dto/LogicTransactionStep.java
 src/main/java/dev/lcp/schema/v01/dto/LogicDelayStep.java

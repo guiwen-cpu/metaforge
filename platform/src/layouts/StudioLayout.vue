@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useSessionStore } from "@/stores/session";
 import { authApi } from "@/api/identity";
+import { runtimeApi } from "@/api/runtime";
 import { errorMessage } from "@/lib/http";
+import { formatDateTime } from "@/lib/format";
 import type { PasswordPolicy } from "@/types/identity";
+import type { NotificationItem } from "@/types/runtime";
 
 const route = useRoute();
 const router = useRouter();
@@ -14,6 +17,11 @@ const passwordOpen = ref(false);
 const passwordSaving = ref(false);
 const passwordPolicy = ref<PasswordPolicy | null>(null);
 const passwordForm = reactive({ current: "", next: "", confirm: "" });
+const notifications = ref<NotificationItem[]>([]);
+const unread = ref(0);
+const notificationOpen = ref(false);
+const notificationLoading = ref(false);
+let unreadTimer: number | undefined;
 
 const inApps = computed(() => route.name === "apps" || route.name === "app-detail");
 const appId = computed(() => (typeof route.params.appId === "string" ? route.params.appId : ""));
@@ -40,6 +48,7 @@ function openDesigner(kind: "model" | "pages" | "logic" | "components") {
   router.push(`/apps/${appId.value}/${suffix}`);
 }
 const pageTitle = computed(() => (route.meta.title as string) || "应用工作台");
+const unreadLabel = computed(() => (unread.value > 99 ? "99+" : String(unread.value)));
 
 const passwordRule = computed(() => {
   const policy = passwordPolicy.value;
@@ -62,6 +71,83 @@ function openApprovals() {
   }
   router.push(`/apps/${appId.value}/approvals`);
 }
+
+function notificationLink(item: NotificationItem): string | null {
+  if (item.link) return item.link;
+  if (item.app_id && item.biz_type === "task" && item.biz_id) {
+    return `/apps/${item.app_id}/approvals/${item.biz_id}`;
+  }
+  if (item.app_id && item.biz_type === "instance" && item.biz_id) {
+    return `/apps/${item.app_id}/instances/${item.biz_id}`;
+  }
+  return null;
+}
+
+async function refreshUnread() {
+  try {
+    unread.value = await runtimeApi.globalUnreadCount();
+  } catch {
+    // 后台轮询失败不打断当前操作，下一次轮询或打开面板时再同步。
+  }
+}
+
+async function loadGlobalNotifications() {
+  notificationLoading.value = true;
+  try {
+    const feed = await runtimeApi.globalNotifications(20);
+    notifications.value = feed.items;
+    unread.value = feed.unread;
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    notificationLoading.value = false;
+  }
+}
+
+async function markNotificationRead(item: NotificationItem) {
+  if (item.read) return;
+  try {
+    const updated = await runtimeApi.readGlobalNotification(item.id);
+    const index = notifications.value.findIndex((entry) => entry.id === item.id);
+    if (index >= 0) notifications.value[index] = updated;
+    unread.value = Math.max(0, unread.value - 1);
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  }
+}
+
+async function openNotification(item: NotificationItem) {
+  notificationOpen.value = false;
+  await markNotificationRead(item);
+  const link = notificationLink(item);
+  if (link) router.push(link);
+}
+
+async function markAllRead() {
+  if (!unread.value) return;
+  try {
+    const result = await runtimeApi.readAllGlobalNotifications();
+    notifications.value = notifications.value.map((item) => ({ ...item, read: true }));
+    unread.value = result.unread;
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  }
+}
+
+onMounted(() => {
+  refreshUnread();
+  unreadTimer = window.setInterval(refreshUnread, 30000);
+});
+
+onBeforeUnmount(() => {
+  if (unreadTimer !== undefined) window.clearInterval(unreadTimer);
+});
+
+watch(notificationOpen, (open) => {
+  if (open) loadGlobalNotifications();
+});
+
+watch(() => route.fullPath, refreshUnread);
 
 async function logout() {
   try {
@@ -258,6 +344,93 @@ async function submitPassword() {
         </div>
 
         <div class="flex items-center gap-2">
+          <el-popover
+            v-model:visible="notificationOpen"
+            placement="bottom-end"
+            :width="390"
+            trigger="click"
+            popper-style="padding: 0"
+          >
+            <template #reference>
+              <button
+                class="relative grid h-9 w-9 place-items-center rounded-full border transition"
+                :class="unread
+                  ? 'border-indigo-200 bg-indigo-50 text-indigo-600 hover:border-indigo-300'
+                  : 'border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-600'"
+                type="button"
+                title="全局通知"
+                aria-label="全局通知"
+              >
+                <span class="text-[16px] leading-none">✉</span>
+                <span
+                  v-if="unread"
+                  class="absolute -right-1.5 -top-1.5 min-w-[17px] rounded-full bg-rose-500 px-1 text-center text-[9px] font-semibold leading-[17px] text-white"
+                >
+                  {{ unreadLabel }}
+                </span>
+              </button>
+            </template>
+
+            <div class="overflow-hidden rounded-xl">
+              <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                <div>
+                  <p class="text-[13px] font-semibold text-slate-800">全局通知</p>
+                  <p class="mt-0.5 text-[10.5px] text-slate-400">
+                    {{ unread ? `${unread} 条未读` : "全部已读" }} · 跨应用汇总
+                  </p>
+                </div>
+                <button
+                  v-if="unread"
+                  class="text-[11.5px] font-medium text-indigo-600 transition hover:text-indigo-700"
+                  type="button"
+                  @click="markAllRead"
+                >
+                  全部已读
+                </button>
+              </div>
+
+              <div
+                v-if="notificationLoading && !notifications.length"
+                class="px-4 py-10 text-center text-[11.5px] text-slate-400"
+              >
+                加载中…
+              </div>
+              <div v-else-if="notifications.length" class="max-h-[420px] overflow-y-auto">
+                <button
+                  v-for="item in notifications"
+                  :key="item.id"
+                  class="flex w-full gap-3 border-b border-slate-50 px-4 py-3 text-left transition last:border-0 hover:bg-slate-50"
+                  type="button"
+                  @click="openNotification(item)"
+                >
+                  <span
+                    class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                    :class="item.read ? 'bg-slate-200' : 'bg-indigo-500'"
+                  />
+                  <span class="min-w-0 flex-1">
+                    <span class="flex items-start justify-between gap-2">
+                      <span
+                        class="truncate text-[12.5px] font-medium"
+                        :class="item.read ? 'text-slate-500' : 'text-slate-800'"
+                      >
+                        {{ item.title }}
+                      </span>
+                      <span class="shrink-0 text-[10px] text-slate-400">
+                        {{ formatDateTime(item.created_at) }}
+                      </span>
+                    </span>
+                    <span v-if="item.body" class="mt-1 block text-[11.5px] leading-relaxed text-slate-500">
+                      {{ item.body }}
+                    </span>
+                  </span>
+                </button>
+              </div>
+              <div v-else class="px-4 py-10 text-center text-[11.5px] text-slate-400">
+                暂无通知
+              </div>
+            </div>
+          </el-popover>
+
           <div
             class="flex items-center gap-3 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-3"
           >

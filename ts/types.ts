@@ -116,7 +116,7 @@ export interface CommonSemanticAiHint {
  * 跨工件引用。version 缺省时解析到所属 snapshot 内该工件的版本 —— 这是「一次发布 = 一个原子快照」的实现基础。
  */
 export interface CommonArtifactRefBase {
-  kind: "dataSchema" | "uiSchema" | "logicSchema" | "component" | "asset" | "enum" | "action" | "api" | "flow" | "page" | "entity" | "field" | "role";
+  kind: "dataSchema" | "uiSchema" | "logicSchema" | "component" | "asset" | "enum" | "action" | "api" | "flow" | "page" | "entity" | "field" | "role" | "connection";
   id?: CommonId | null;
   key?: CommonKey | null;
   version?: CommonVersion | null;
@@ -1475,7 +1475,7 @@ export interface UiMenuItem {
 export type UiSemantic = CommonSemantic;
 
 /* ======================================================================== */
-/* logic.schema.json —— 58 个定义，命名空间前缀 Logic */
+/* logic.schema.json —— 63 个定义，命名空间前缀 Logic */
 /* ======================================================================== */
 
 /** @alias 该定义是 CommonId 的别名，不引入新结构。 */
@@ -2330,6 +2330,81 @@ export interface LogicAssigneeSpec {
   semantic?: LogicSemantic | null;
 }
 
+/**
+ * 通知渠道。inApp 与审批同事务写站内信；webhook/email 走租户连接器与投递 outbox。
+ */
+export type LogicNotificationChannel = "inApp" | "webhook" | "email";
+
+/**
+ * 通知规则可挂载的流程生命周期事件。
+ */
+export type LogicNotificationEvent =
+  | "processStarted"
+  | "taskAssigned"
+  | "taskTransferred"
+  | "taskReturned"
+  | "flowRejected"
+  | "flowApproved"
+  | "slaWarning"
+  | "slaEscalated";
+
+/**
+ * 流程时限通知配置。模板字段支持表达式；外部渠道只入队，失败不回滚审批。
+ */
+export interface LogicNotificationSpec {
+  /**
+   * @minItems 1
+   */
+  channels: LogicNotificationChannel[];
+  title?: LogicExpr | null;
+  body?: LogicExpr | null;
+  link?: LogicExpr | null;
+  connectionRef?: LogicArtifactRef | null;
+  /**
+   * 连接器 baseUrl 下的相对路径
+   */
+  path?: string | null;
+  /**
+   * 投递幂等键；缺省按事件与业务对象生成
+   */
+  idempotencyKey?: LogicExpr | null;
+  semantic?: LogicSemantic | null;
+
+  /** 扩展键：匹配 ^x- 的额外属性，平台原样透传，不参与校验 */
+  [key: string]: unknown;
+}
+
+/**
+ * kind=notification 的规则配置。targets 复用人员选择器，表达式结果可返回用户 ID 或 ID 数组。
+ */
+export interface LogicNotificationRuleConfig {
+  /**
+   * @minItems 1
+   */
+  events?: LogicNotificationEvent[] | null;
+  /**
+   * @minItems 1
+   */
+  channels: LogicNotificationChannel[];
+  targets: LogicAssigneeSpec[];
+  title?: LogicExpr | null;
+  body?: LogicExpr | null;
+  link?: LogicExpr | null;
+  connectionRef?: LogicArtifactRef | null;
+  /**
+   * 连接器 baseUrl 下的相对路径
+   */
+  path?: string | null;
+  /**
+   * 投递幂等键；缺省按规则、事件与业务对象生成
+   */
+  idempotencyKey?: LogicExpr | null;
+  semantic?: LogicSemantic | null;
+
+  /** 扩展键：匹配 ^x- 的额外属性，平台原样透传，不参与校验 */
+  [key: string]: unknown;
+}
+
 export interface LogicPrintStep {
   id: LogicId;
   label?: LogicText | null;
@@ -2649,7 +2724,7 @@ export interface LogicApi {
    */
   baseUrl?: string | null;
   /**
-   * 引用集成连接（第三方服务的凭证与超时配置），避免把密钥写进 Schema
+   * 引用租户连接器（kind=connection）。连接器保存 baseUrl、超时、公共请求头与默认鉴权，凭证本身仍以密钥库引用表示。API 的 baseUrl 可覆盖连接器默认值。
    */
   connectionRef?: LogicArtifactRef | null;
   auth?: LogicApiAuth | null;
@@ -2748,7 +2823,7 @@ export interface LogicApiAuthBearer {
    * @const "bearer"
    */
   type: "bearer";
-  tokenRef?: string | null;
+  tokenRef?: LogicSecretRef | null;
   tokenUrl?: string | null;
   /**
    * @default 60
@@ -2763,7 +2838,7 @@ export interface LogicApiAuthApiKey {
   type: "apiKey";
   name: string;
   in: "header" | "query";
-  valueRef: string;
+  valueRef: LogicSecretRef;
 }
 
 export interface LogicApiAuthBasic {
@@ -2771,8 +2846,8 @@ export interface LogicApiAuthBasic {
    * @const "basic"
    */
   type: "basic";
-  usernameRef: string;
-  passwordRef: string;
+  usernameRef: LogicSecretRef;
+  passwordRef: LogicSecretRef;
 }
 
 export interface LogicApiAuthOauth2 {
@@ -2783,7 +2858,7 @@ export interface LogicApiAuthOauth2 {
   grant: "clientCredentials" | "authorizationCode" | "password";
   provider?: string | null;
   scopes?: string[] | null;
-  tokenRef?: string | null;
+  tokenRef?: LogicSecretRef | null;
 }
 
 export interface LogicApiAuthSignature {
@@ -2792,7 +2867,7 @@ export interface LogicApiAuthSignature {
    */
   type: "signature";
   algorithm: "hmacSha256" | "md5";
-  secretRef: string;
+  secretRef: LogicSecretRef;
   /**
    * 待签名串模板，如 {method}\n{path}\n{timestamp}
    */
@@ -2815,6 +2890,12 @@ export type LogicApiAuth =
   | LogicApiAuthBasic
   | LogicApiAuthOauth2
   | LogicApiAuthSignature;
+
+/**
+ * 租户密钥库引用。推荐写作 secret:<key>；实际值只存服务端密钥库，绝不进入 Bundle。
+ * @pattern ^(secret:)?[a-z][a-z0-9_]{0,63}$
+ */
+export type LogicSecretRef = string;
 
 export interface LogicApiRequest {
   query?: LogicApiParam[] | null;
@@ -3000,6 +3081,7 @@ export interface LogicFlowSla {
    */
   escalateAfterHours?: number | null;
   escalateTo?: LogicAssigneeSpec | null;
+  notify?: LogicNotificationSpec | null;
   /**
    * @default "notify"
    */
@@ -3140,6 +3222,10 @@ export interface LogicRule {
    * @default true
    */
   stopOnFail?: boolean | null;
+  /**
+   * kind=notification 时生效；then 不执行。
+   */
+  notification?: LogicNotificationRuleConfig | null;
   access?: LogicAccess | null;
   semantic?: LogicSemantic | null;
 
