@@ -727,4 +727,16 @@ const taskRows = [
 .ui-node:hover::after {
   display: block;
 }
+
+/* 预览态控件是 disabled 的，让点击穿透到画布节点以便选中 */
+.ui-node :deep(.el-input),
+.ui-node :deep(.el-textarea),
+.ui-node :deep(.el-input-number),
+.ui-node :deep(.el-select),
+.ui-node :deep(.el-date-editor),
+.ui-node :deep(.el-switch),
+.ui-node :deep(.el-radio-group),
+.ui-node :deep(.el-checkbox-group) {
+  pointer-events: none;
+}
 </style>

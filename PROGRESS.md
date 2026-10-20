@@ -100,6 +100,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 页面类型模板（列表/表单/详情/看板/审批/报表）、画布、属性面板、数据源、结构树、校验、JSON、草稿与发布。
 - 组件注册表动态注入：`registerCustomComponents()`。
 - `x-search-form` 画布同时渲染 `searchFieldList` 与默认插槽/子节点，结构树与画布保持一致。
+- 画布预览控件统一点击穿透（`pointer-events: none`），禁用输入框/下拉框不再吞点击，选中落到对应 `x-*` 节点。
 
 ### 6. 逻辑编排设计器
 - `platform/src/pages/LogicDesignerPage.vue`
