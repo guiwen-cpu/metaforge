@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`0737829 feat(runtime): 接入发布态数据源与页面交互渲染`
+> 分支：`dev` ｜ 最新提交：`16507a3 feat(runtime): 新增独立 H5 应用壳与移动端适配`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -37,6 +37,7 @@
 | 运行时导航 | `GET /api/v1/runtime/apps/{appId}/navigation`（发布态菜单 + 可访问页面 + 默认路由） |
 | 运行时页面 | `GET /api/v1/runtime/apps/{appId}/pages/{pageKey}`（按页面 ACL 返回 200 / 403，含动作白名单） |
 | 运行时数据源 | `POST /api/v1/runtime/apps/{appId}/pages/{pageKey}/data-sources/{dataSourceId}/query`（分页 / 搜索 / 排序 / 行级权限） |
+| H5 运行时 | `/m/apps/<appId>/<发布页路径>`；与设计器共用 JWT 会话，独立移动壳、底部导航与更多抽屉，非法路径回退默认路由 |
 
 启动与重建：
 
@@ -72,6 +73,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `3327c49` | 连接器注册表与租户密钥库 | 四种鉴权真实 HTTP 链路 + 权限 403 + CDP 连接器/密钥/引用保存 |
 | `4c7a971` | 外部通知通道、通知规则与 SLA 提醒 | webhook / email outbox + 规则挂载 + SLA 幂等 + 全局通知入口 |
 | `0737829` | 发布态运行时渲染器 | typecheck / build / 容器重建 + v9 列表、详情时间线、动作权限 CDP 实测 |
+| `16507a3` | H5 应用壳与移动端适配 | typecheck / build / 容器重建 + 深链登录回跳、非法路径回退、发起页、底部导航与桌面回归 CDP 实测 |
 
 ## 文档维护
 
@@ -204,6 +206,13 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 修复：Flowable 会把连接 `search_path` 切到 `flowable`，SLA 与 outbox 调度器改为显式调用 `public.lcp_active_tenants()`。
 - 验证：演示任务超期后生成 1 条 escalate 提醒与 1 条 `sla:escalate` 通知（接收人 `principal`），下一扫描周期仍各 1 条；手工插入无 `connectionRef` 的投递后转为 `dead`、`attempts=1`，错误为「外部通知未配置 connectionRef」；`node tools/validate.mjs examples/leave-approval.bundle.json` 通过（仅保留已知监听器警告）。
 
+### 17. Web / H5 应用壳（刚完成）
+- 新增 `/m/apps/:appId/:pathMatch(.*)*` 与 `RuntimeMobilePage`，不挂 `StudioLayout`；复用发布态导航、页面 ACL、数据源与 JWT 会话。
+- 抽出 `runtimeNavigation.ts`，统一动态路由匹配、菜单查找、默认路由与参数拼装，桌面 `RuntimeShellPage` 与 H5 共用。
+- H5 壳提供应用名 / 版本 / 当前页、底部主导航、更多抽屉、用户菜单（切换桌面版 / 退出登录）；未登录深链跳登录后回跳原 H5 地址，非法路径回退默认路由。
+- 桌面运行预览与 H5 预览入口会保留当前发布页；移动端搜索区在 `<=640px` 改为两列，表格改为横向滚动，避免按钮与列被压缩。
+- 验证：typecheck / build 与 web 容器重建通过；iPhone 390×844 下 `/leave/requests`、`/leave/requests/new`、底部导航、退出登录、深链登录回跳、非法路径回退均通过；桌面 `/runtime?path=/leave/requests/new` 正常，搜索区恢复四列，控制台无错误。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -226,7 +235,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 ### 阶段 6 · 多端发布与运行时
 - [x] 6.1 发布态运行时渲染器：读发布件渲染布局、数据源、搜索分页排序、行操作、详情抽屉与流程时间线；按 `allowedActions` 禁用越权动作，不依赖设计器状态。
-- [ ] Web / H5 应用壳与路由、登录态。
+- [x] 6.2 Web / H5 应用壳与路由、登录态：独立移动壳复用同一 SPA、JWT 会话与发布件导航；支持深链回跳、底部导航、桌面/H5 切换与移动端表格横滑。
 - [ ] 小程序端（Taro 或原生）。
 - [ ] 自定义组件远程模块加载（`runtime=remote` + SRI 校验）。
 
@@ -290,6 +299,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 - **运行态查询服务端收口**：数据源只接受发布件声明的实体、字段、算子与排序字段；用户值全部参数绑定，行级权限编译为 SQL 条件，编译失败按拒绝处理。
 - **动作能力随页面下发**：页面响应同时返回定义与当前用户可执行动作，前端仅做展示/禁用，后端执行时仍按同一份权限再次校验。
+- **H5 与桌面共用运行时**：H5 只是独立路由壳，仍读同一发布件与 JWT 会话；不复制页面渲染器，移动适配集中在壳层与通用渲染器的断点样式。
 
 ## 已知边界
 
@@ -304,6 +314,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - SSO 已接入 OIDC / CAS，但未实现 SLO、刷新令牌、IdP 组同步与解绑管理界面；CAS 仅完成协议实现，尚未对真实 IdP 做链路测试。已有 JWT 在改密后不会服务端撤销，需等待过期或前端主动退出。
 - 认证审计暂无分页与保留期策略，`limit` 上限内一次返回。
 - 发布态渲染器已接入实体数据源、搜索/分页/排序、行操作、详情与流程时间线；菜单中的外部链接仍直接新开窗口。
+- H5 应用壳复用同一 SPA 与 JWT 会话，尚未独立部署 / PWA，无离线缓存；窄屏表格采用横向滑动，暂未卡片化重排。
 - 撤回与新建提交仍受未接入的运行时连接器/动作步骤限制：`kind=internal` API、`code`、`startFlow` 与节假日查询 `api_holiday_list` 会返回明确错误，不伪造成功。
 - 通知已覆盖站内信、webhook / email outbox、`Rule.kind=notification` 与 SLA 提醒；`autoApprove` / `autoReject` 仍未实现，通知规则暂无实例规则做端到端实测，outbox 暂无管理界面与保留期策略。
 - 自定义组件只有设计器内联沙箱预览与发布态占位；`runtime=remote` 的远程模块加载与 SRI 校验未实现。
@@ -313,13 +324,13 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 ## 下一步（建议直接开工）
 
-阶段 4、阶段 5 与阶段 6.1 已完成，按以下顺序推进：
+阶段 4、阶段 5 与阶段 6.1 / 6.2 已完成，按以下顺序推进：
 
-1. Web / H5 应用壳与路由、登录态：复用运行时导航与权限，把当前 `RuntimeShellPage` 拆成可独立部署、移动端可用的应用壳。
-2. 运行时动作补齐：接入 `kind=internal` API、`code` / `startFlow` 与节假日 API，跑通“新建请假 → 提交 → 撤回”完整业务闭环。
-3. 自定义组件远程加载：实现 `runtime=remote` 的模块加载、版本锁定与 SRI 校验，替换当前占位。
-4. 连接器扩展：database / GraphQL / SOAP 与 `oauth2`、签名鉴权，并补连接器变更审计与 DNS rebinding 加固。
-5. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
+1. 运行时动作补齐：接入 `kind=internal` API、`code` / `startFlow` 与节假日 API，跑通“新建请假 → 提交 → 撤回”完整业务闭环。
+2. 自定义组件远程加载：实现 `runtime=remote` 的模块加载、版本锁定与 SRI 校验，替换当前占位。
+3. 连接器扩展：database / GraphQL / SOAP 与 `oauth2`、签名鉴权，并补连接器变更审计与 DNS rebinding 加固。
+4. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
+5. 小程序端（Taro 或原生）：复用发布件导航与页面渲染契约，补齐原生登录态与移动能力。
 
 ## 恢复上下文的顺序
 
