@@ -55,7 +55,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `bb628fb` | 接手上下文文档 | — |
 | `b069720` | 动作回写与运行日志 | API 回写/失败重放 + CDP 动作日志面板 |
 | `644b473` | 身份与权限：JWT / 组织架构 / 行级与字段权限 | 四账号登录 + 403 越权 + 字段白名单 + CDP 登录/退出 |
-| 本轮提交 | 认证安全：密码策略 / 登录锁定 / 认证审计 | typecheck / build + 弱密码 400 + 锁定与重置 + 审计 403 + CDP 改密 |
+| `d35afe5` | 认证安全：密码策略 / 登录锁定 / 认证审计 | typecheck / build + 弱密码 400 + 锁定与重置 + 审计 403 + CDP 改密 |
 
 ## 文档维护
 
