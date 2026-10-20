@@ -59,6 +59,7 @@ public class ActionExecutor {
   private final ConnectorRuntime connectors;
   private final XmlJson xml;
   private final RuntimeActionGateway gateway;
+  private final RuntimeTransactionRunner transactionRunner;
 
   public ActionExecutor(
       dev.lcp.bff.runtime.PublishedBundleService bundles,
@@ -67,7 +68,8 @@ public class ActionExecutor {
       ConnectionService connections,
       ConnectorRuntime connectors,
       XmlJson xml,
-      RuntimeActionGateway gateway) {
+      RuntimeActionGateway gateway,
+      RuntimeTransactionRunner transactionRunner) {
     this.bundles = bundles;
     this.expressions = expressions;
     this.json = json;
@@ -75,6 +77,7 @@ public class ActionExecutor {
     this.connectors = connectors;
     this.xml = xml;
     this.gateway = gateway;
+    this.transactionRunner = transactionRunner;
   }
 
   public ActionExecutionResult execute(UUID appId, String actionKey, ExecuteActionRequest request) {
@@ -504,8 +507,10 @@ public class ActionExecutor {
       case "loop" -> StepOutcome.done(loop(step, scope, children, deadline));
       case "parallel" -> StepOutcome.done(parallel(step, scope, children, deadline));
       case "callAction" -> StepOutcome.done(callAction(step, scope, children, deadline));
-      case "transaction" -> StepOutcome.done(
-          executeSteps(step.path("steps"), scope, children, deadline));
+      case "transaction" -> StepOutcome.done(transactionRunner.execute(
+          step.path("isolation").asText("readCommitted"),
+          step.path("readOnly").asBoolean(false),
+          () -> executeSteps(step.path("steps"), scope, children, deadline)));
       case "delay" -> StepOutcome.done(delay(step, scope));
       case "log" -> StepOutcome.done(log(step, scope));
       case "emit" -> StepOutcome.done(emit(step, scope));

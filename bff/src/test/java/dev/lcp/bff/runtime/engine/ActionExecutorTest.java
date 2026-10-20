@@ -12,6 +12,7 @@ import dev.lcp.bff.tenant.TenantContext;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,9 +23,10 @@ class ActionExecutorTest {
   private final ExpressionEngine expressions =
       new ExpressionEngine(new ExpressionCatalog(json), json, List.of());
   private final FakeGateway gateway = new FakeGateway(json);
+  private final RecordingTransactionRunner transactionRunner = new RecordingTransactionRunner();
   private final ActionExecutor executor =
       new ActionExecutor(new PublishedBundleService(null, null), expressions, json, null, null, null,
-          gateway);
+          gateway, transactionRunner);
 
   @BeforeEach
   void setUp() {
@@ -478,6 +480,48 @@ class ActionExecutorTest {
     assertThat(writeback.has("success")).isFalse();
   }
 
+  @Test
+  void runsTransactionStepInsideConfiguredSavepoint() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {
+              "key": "atomic", "steps": [
+                {"id": "t1", "type": "transaction", "isolation": "serializable", "readOnly": true,
+                 "steps": [
+                   {"id": "t1a", "type": "assign", "target": "vars.saved",
+                    "value": {"$lit": "yes"}}
+                 ]}
+              ]
+            }
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(
+        bundle, "atomic", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.vars().path("saved").asText()).isEqualTo("yes");
+    assertThat(transactionRunner.calls).isEqualTo(1);
+    assertThat(transactionRunner.isolation).isEqualTo("serializable");
+    assertThat(transactionRunner.readOnly).isTrue();
+  }
+
+  private static final class RecordingTransactionRunner implements RuntimeTransactionRunner {
+
+    int calls;
+    String isolation;
+    boolean readOnly;
+
+    @Override
+    public JsonNode execute(String isolation, boolean readOnly, Supplier<JsonNode> work) {
+      calls++;
+      this.isolation = isolation;
+      this.readOnly = readOnly;
+      return work.get();
+    }
+  }
   private static final class FakeGateway implements RuntimeActionGateway {
 
     private final ObjectMapper json;
