@@ -5,7 +5,8 @@ import type {
   DataSourceQueryResult,
   ExecuteActionPayload,
   RuntimeNavigation,
-  RuntimePageView
+  RuntimePageView,
+  RuntimeApiInvokePayload
 } from "@/types/runtime";
 
 function base(appId: string): string {
@@ -45,6 +46,21 @@ export const runtimeApi = {
   ): Promise<ActionExecutionResult> {
     return request<ActionExecutionResult>({
       path: `${base(appId)}/actions/${encodeURIComponent(actionKey)}/execute`,
+      method: "POST",
+      data: payload
+    });
+  },
+
+  invokePageApi(
+    appId: string,
+    pageKey: string,
+    apiKey: string,
+    payload: RuntimeApiInvokePayload
+  ): Promise<unknown> {
+    return request<unknown>({
+      path: `${base(appId)}/pages/${encodeURIComponent(pageKey)}/apis/${encodeURIComponent(
+        apiKey
+      )}/invoke`,
       method: "POST",
       data: payload
     });

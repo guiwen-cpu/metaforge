@@ -334,6 +334,12 @@ export interface ExecuteActionPayload {
   event?: Record<string, unknown>;
 }
 
+export interface RuntimeApiInvokePayload {
+  params?: Record<string, unknown>;
+  context?: Record<string, unknown>;
+  resultPath?: string | null;
+}
+
 export interface ActionRunSummary {
   id: string;
   action_key: string;

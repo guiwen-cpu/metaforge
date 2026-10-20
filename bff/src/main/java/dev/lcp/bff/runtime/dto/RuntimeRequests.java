@@ -36,6 +36,13 @@ public final class RuntimeRequests {
       Map<String, Object> event) {
   }
 
+  /** 小程序按页面调用 API 工件；页面 ACL 与引用关系由服务端复核。 */
+  public record RuntimeApiInvokeRequest(
+      Map<String, Object> params,
+      Map<String, Object> context,
+      String resultPath) {
+  }
+
   /** 发布态数据源查询。filters 只传搜索区实际生效的字段，服务端再做白名单与类型校验。 */
   public record DataSourceFilter(String field, String op, Object value) {
   }

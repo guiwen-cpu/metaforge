@@ -245,7 +245,7 @@ public class RuntimeNavigationService {
     return false;
   }
 
-  private boolean pageAllowed(UUID appId, JsonNode bundle, Set<String> roles, String pageKey) {
+  public boolean pageAllowed(UUID appId, JsonNode bundle, Set<String> roles, String pageKey) {
     JsonNode page = findPage(bundle, pageKey);
     if (page == null) {
       return false;

@@ -5,6 +5,7 @@ import dev.lcp.bff.runtime.RuntimeNavigationService.PageView;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.CompleteTaskRequest;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.DataSourceQueryRequest;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.ExecuteActionRequest;
+import dev.lcp.bff.runtime.dto.RuntimeRequests.RuntimeApiInvokeRequest;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.StartInstanceRequest;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.TransferTaskRequest;
 import dev.lcp.bff.runtime.dto.RuntimeViews.ActionExecutionResult;
@@ -41,18 +42,21 @@ public class RuntimeController {
   private final NotificationService notificationService;
   private final RuntimeNavigationService runtimeNavigation;
   private final RuntimeDataSourceService dataSources;
+  private final RuntimeApiInvocationService apiInvocations;
 
   public RuntimeController(
       ProcessRuntimeService runtime,
       ActionRunService actionRuns,
       NotificationService notifications,
       RuntimeNavigationService runtimeNavigation,
-      RuntimeDataSourceService dataSources) {
+      RuntimeDataSourceService dataSources,
+      RuntimeApiInvocationService apiInvocations) {
     this.runtime = runtime;
     this.actionRuns = actionRuns;
     this.notificationService = notifications;
     this.runtimeNavigation = runtimeNavigation;
     this.dataSources = dataSources;
+    this.apiInvocations = apiInvocations;
   }
 
   @GetMapping("/navigation")
@@ -73,6 +77,15 @@ public class RuntimeController {
       @PathVariable("dataSourceId") String dataSourceId,
       @RequestBody(required = false) DataSourceQueryRequest body) {
     return dataSources.query(appId, pageKey, dataSourceId, body);
+  }
+
+  @PostMapping("/pages/{pageKey}/apis/{apiKey}/invoke")
+  public com.fasterxml.jackson.databind.JsonNode invokePageApi(
+      @PathVariable("appId") UUID appId,
+      @PathVariable("pageKey") String pageKey,
+      @PathVariable("apiKey") String apiKey,
+      @RequestBody(required = false) RuntimeApiInvokeRequest body) {
+    return apiInvocations.invoke(appId, pageKey, apiKey, body);
   }
 
   @PostMapping("/actions/{actionKey}/execute")

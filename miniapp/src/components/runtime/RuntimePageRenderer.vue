@@ -3,7 +3,7 @@ import { computed, onMounted, provide, reactive, ref, watch } from "vue";
 import { runtimeApi } from "@/api/runtime";
 import { errorMessage } from "@/api/request";
 import { getSession } from "@/lib/session";
-import { evalDeep, setPath, truthy } from "@/lib/runtimeExpression";
+import { evalDeep, getPath, setPath, truthy } from "@/lib/runtimeExpression";
 import {
   buildSearchFilters,
   dataSourceSnapshot,
@@ -283,9 +283,43 @@ async function runSteps(
       case "closeDialog":
         closeDialog(String(step.dialogKey ?? ""));
         break;
-      case "apiCall":
-        console.warn("[runtime] 小程序端暂未执行 apiCall：", step.apiRef);
+      case "apiCall": {
+        const apiKey = String((step.apiRef as Record<string, unknown> | undefined)?.key ?? "");
+        if (!apiKey) throw new Error("apiCall 缺少 apiRef.key");
+        const stepParams = (evaluate(step.params, stepScope, params) ?? {}) as Record<
+          string,
+          unknown
+        >;
+        const result = await runtimeApi.invokePageApi(
+          props.appId,
+          props.view.key,
+          apiKey,
+          {
+            params: stepParams,
+            context: {
+              page: {
+                state,
+                params: routeParams.value,
+                query: routeQuery.value
+              },
+              route: {
+                path: props.view.path ?? page.value.route?.path ?? "",
+                params: routeParams.value,
+                query: routeQuery.value
+              },
+              form: stepScope.form ?? state.form ?? {},
+              row: stepScope.row ?? {},
+              rows: stepScope.rows ?? [],
+              data: dataSourceSnapshot(data),
+              event: stepScope.event ?? {}
+            }
+          }
+        );
+        const resultPath = String(step.resultPath ?? "");
+        const output = resultPath ? getPath(result, resultPath) : result;
+        assignTarget(String(step.assignTo ?? ""), output, stepScope, params);
         break;
+      }
       default:
         break;
     }

@@ -82,6 +82,44 @@ public class ActionExecutor {
     return execute(bundle, actionKey, request);
   }
 
+  /** 直接调用发布件中的 API 工件，仅供受页面 ACL 约束的运行时入口使用。 */
+  public JsonNode invokeApi(
+      PublishedBundle bundle,
+      String apiKey,
+      Map<String, Object> params,
+      Map<String, Object> context,
+      String resultPath) {
+    long started = System.nanoTime();
+    JsonNode api = bundles.api(bundle.content(), apiKey);
+    if (api == null) {
+      throw PlatformException.notFound("API " + apiKey + " 不存在于当前发布件");
+    }
+
+    ObjectNode syntheticAction = json.createObjectNode();
+    syntheticAction.put("key", "__runtime_api__");
+    syntheticAction.put("timeoutMs", api.path("timeoutMs").asLong(30000));
+    ObjectNode input = params == null ? json.createObjectNode() : json.valueToTree(params);
+    ExecuteActionRequest request = new ExecuteActionRequest(params, context, null);
+    ExpressionEngine.Scope scope = scopeFor(bundle, syntheticAction, request, input);
+    scope.attach("bundle", bundle.content());
+    scope.attach("appId", bundle.appId());
+    scope.attach("versionNo", bundle.versionNo());
+    scope.attach("events", json.createArrayNode());
+    scope.attach("depth", 0);
+    long deadline = started + Math.max(1, syntheticAction.path("timeoutMs").asLong()) * 1_000_000L;
+    scope.attach("deadline", deadline);
+
+    ObjectNode step = json.createObjectNode();
+    step.put("type", "apiCall");
+    step.putObject("apiRef").put("key", apiKey);
+    step.set("params", input);
+    if (resultPath != null && !resultPath.isBlank()) {
+      step.put("resultPath", resultPath);
+    }
+    JsonNode result = apiCall(step, scope, new ArrayList<>(), deadline);
+    return result == null ? json.nullNode() : result;
+  }
+
   /** 便于单测直接传入发布件，不经过数据库。 */
   public ActionExecutionResult execute(
       PublishedBundle bundle, String actionKey, ExecuteActionRequest request) {

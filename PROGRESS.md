@@ -245,6 +245,12 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 路由守卫：未登录访问业务页跳转 `/login?redirect=<原地址>`；已登录访问登录页回到目标页；刷新时用 Bearer 令牌恢复会话，令牌失效自动清空并回登录页。
 - 布局：显示真实姓名、部门与角色，退出登录回到 `/login`；不再自动创建演示会话。
 - 验证：生成工程 `typecheck` / `build` 通过；CDP 实测未登录深链跳转、`alice` 登录、跨刷新恢复（角色 `student`、部门 `计算机系`）、列表数据与退出登录回登录页。
+
+### 21. 小程序受控 apiCall（刚完成）
+- 新增 `POST /api/v1/runtime/apps/{appId}/pages/{pageKey}/apis/{apiKey}/invoke`：先校验页面 ACL，再沿页面 `apiRef` 与可执行 `actionRef` 引用链确认 API 归属，未引用直接 403。
+- `ActionExecutor.invokeApi` 复用发布件、连接器、鉴权、mock、GraphQL / SOAP / database / internal 分派与 `resultPath`，小程序不接触连接器地址或密钥。
+- 小程序 `runSteps` 的 `apiCall` 已执行真实请求，支持表达式参数、页面 / 路由 / 表单 / 行数据上下文、`resultPath` 与 `assignTo`；失败沿用动作错误提示，不再静默警告。
+- 验证：`miniapp` typecheck 与 BFF 编译通过；受控入口将用演示页面 API 做 200 / 未引用 403 冒烟。
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -350,7 +356,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 认证审计暂无分页与保留期策略，`limit` 上限内一次返回。
 - 发布态渲染器已接入实体数据源、搜索/分页/排序、行操作、详情与流程时间线；菜单中的外部链接仍直接新开窗口。
 - H5 应用壳复用同一 SPA 与 JWT 会话，尚未独立部署 / PWA，无离线缓存；窄屏表格采用横向滑动，暂未卡片化重排。
-- 小程序端尚未执行交互步骤中的 `apiCall`：编辑态改由实体数据源回填，其他 `apiCall` 只记录警告；附件上传与审批时间线仍为明确占位。
+- 小程序端已执行交互步骤中的 `apiCall`（受页面引用链与 ACL 约束）；附件上传与审批时间线仍为明确占位。
 - 微信小程序构建需用微信开发者工具导入 `miniapp/dist/build/mp-weixin`；尚未配置 AppID、真机域名与体验版上传。非 H5 默认 API 为 `http://127.0.0.1:8080/api/v1`，真机联调需设置 `VITE_API_BASE_URL` 并使用可访问的局域网地址或 HTTPS 域名。
 - “新建请假 → 提交 → 撤回”已跑通：`startFlow`、`completeTask`、内部实体读写与流程终止可用；节假日 API 仅对占位地址降级为空日历并记警告，接入真实服务前工作日不扣除法定节假日。`transaction` 仍是顺序执行，未包真实数据库事务。
 - 通知已覆盖站内信、webhook / email outbox、`Rule.kind=notification` 与 SLA 提醒；`autoApprove` / `autoReject` 仍未实现，通知规则暂无实例规则做端到端实测，outbox 暂无管理界面与保留期策略。
@@ -363,7 +369,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4、阶段 5 与阶段 6.1 / 6.2 / 6.3 / 6.4 已完成，按以下顺序推进：
 
-1. 小程序能力深化：补 `apiCall`、附件上传、审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
+1. 小程序能力深化：附件上传、审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
 2. 运行时深化：真实数据库事务、`custom` 代码钩子与其余内部 API 分派，接入真实节假日服务。
 
 ## 恢复上下文的顺序
