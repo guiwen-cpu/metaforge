@@ -1,9 +1,11 @@
 package dev.lcp.bff.identity;
 
 import dev.lcp.bff.auth.PasswordHasher;
+import dev.lcp.bff.auth.PasswordPolicy;
 import dev.lcp.bff.identity.IdentityRequests.DepartmentRequest;
 import dev.lcp.bff.identity.IdentityRequests.PositionRequest;
 import dev.lcp.bff.identity.IdentityRequests.UserRequest;
+import dev.lcp.bff.identity.IdentityViews.AuthAuditView;
 import dev.lcp.bff.identity.IdentityViews.DepartmentView;
 import dev.lcp.bff.identity.IdentityViews.OverviewView;
 import dev.lcp.bff.identity.IdentityViews.PositionView;
@@ -35,16 +37,19 @@ public class IdentityService {
   private final boolean allowAll;
   private final PublishedBundleService bundles;
   private final RoleSyncService roleSync;
+  private final PasswordPolicy passwords;
 
   public IdentityService(
       NamedParameterJdbcTemplate jdbc,
       @Value("${lcp.identity.allow-all:false}") boolean allowAll,
       PublishedBundleService bundles,
-      RoleSyncService roleSync) {
+      RoleSyncService roleSync,
+      PasswordPolicy passwords) {
     this.jdbc = jdbc;
     this.allowAll = allowAll;
     this.bundles = bundles;
     this.roleSync = roleSync;
+    this.passwords = passwords;
   }
 
   // ------------------------------------------------------------ 当前用户
@@ -134,6 +139,41 @@ public class IdentityService {
     if (!keys.contains("tenant_admin") && !keys.contains("school_admin")) {
       throw PlatformException.forbidden("需要租户管理员权限");
     }
+  }
+
+  // ------------------------------------------------------------ 认证审计
+
+  public List<AuthAuditView> authAudits(
+      String eventType, String username, Boolean success, int limit) {
+    requireAdmin();
+    StringBuilder sql = new StringBuilder("""
+        select id, user_id, username, event_type, success, reason,
+               auth_method, ip, user_agent, created_at
+          from lcp_auth_audit
+         where tenant_id = :tenant
+        """);
+    MapSqlParameterSource params = params();
+    String event = trim(eventType);
+    if (event != null) {
+      sql.append(" and event_type = :event");
+      params.addValue("event", event);
+    }
+    String loginName = trim(username);
+    if (loginName != null) {
+      sql.append(" and username ilike :username");
+      params.addValue("username", "%" + loginName + "%");
+    }
+    if (success != null) {
+      sql.append(" and success = :success");
+      params.addValue("success", success);
+    }
+    sql.append(" order by created_at desc limit :limit");
+    params.addValue("limit", Math.max(1, Math.min(limit, 500)));
+    return jdbc.query(sql.toString(), params, (rs, row) -> new AuthAuditView(
+        rs.getObject("id", UUID.class).toString(), rs.getString("user_id"),
+        rs.getString("username"), rs.getString("event_type"), rs.getBoolean("success"),
+        rs.getString("reason"), rs.getString("auth_method"), rs.getString("ip"),
+        rs.getString("user_agent"), rs.getTimestamp("created_at").toInstant()));
   }
 
   // ------------------------------------------------------------ 总览
@@ -416,10 +456,8 @@ public class IdentityService {
       throw PlatformException.badRequest("user_invalid", "登录名与显示名不能为空");
     }
     String id = trim(request.id()) == null ? username : trim(request.id());
-    String password = trim(request.password());
-    if (password == null || password.length() < 6) {
-      throw PlatformException.badRequest("password_invalid", "初始密码至少 6 位");
-    }
+    String password = request.password();
+    passwords.validate(password, username, displayName);
     try {
       jdbc.update("""
           insert into lcp_user
@@ -444,8 +482,12 @@ public class IdentityService {
   @Transactional
   public UserView updateUser(String id, UserRequest request) {
     requireAdmin();
-    requireProfile(id);
-    String password = trim(request.password());
+    UserView existing = requireProfile(id);
+    String rawPassword = request.password();
+    String password = rawPassword == null || rawPassword.isBlank() ? null : rawPassword;
+    if (password != null) {
+      passwords.validate(password, existing.username(), existing.displayName());
+    }
     jdbc.update("""
         update lcp_user set
           display_name = coalesce(:name, display_name),
@@ -462,6 +504,13 @@ public class IdentityService {
         .addValue("hash", password == null ? null : PasswordHasher.hash(password))
         .addValue("dept", trim(request.deptId())).addValue("position", trim(request.positionId()))
         .addValue("status", trim(request.status())));
+    if (password != null) {
+      jdbc.update("""
+          update lcp_user
+             set failed_login_count = 0, locked_until = null, password_changed_at = now()
+           where tenant_id = :tenant and id = :id
+          """, params().addValue("id", id));
+    }
     if (request.appId() != null && request.roleKeys() != null) {
       setUserRoles(id, request.appId(), request.roleKeys());
     }

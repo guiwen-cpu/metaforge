@@ -60,6 +60,35 @@ export interface IdentityOverview {
   roles: RoleView[];
 }
 
+export interface PasswordPolicy {
+  min_length: number;
+  max_length: number;
+  require_uppercase: boolean;
+  require_lowercase: boolean;
+  require_digit: boolean;
+  require_symbol: boolean;
+}
+
+export interface AuthAudit {
+  id: string;
+  user_id?: string | null;
+  username: string;
+  event_type: string;
+  success: boolean;
+  reason?: string | null;
+  auth_method: string;
+  ip?: string | null;
+  user_agent?: string | null;
+  created_at: string;
+}
+
+export interface AuthAuditQuery {
+  eventType?: string;
+  username?: string;
+  success?: boolean;
+  limit?: number;
+}
+
 export interface LoginResponse {
   token: string;
   expires_at: string;

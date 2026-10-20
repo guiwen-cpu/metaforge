@@ -2,14 +2,16 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { identityApi } from "@/api/identity";
+import { authApi, identityApi } from "@/api/identity";
 import { platformApi } from "@/api/platform";
 import { errorMessage } from "@/lib/http";
 import type { AppView } from "@/types/platform";
 import type {
+  AuthAudit,
   DepartmentPayload,
   IdentityOverview,
   IdentityUser,
+  PasswordPolicy,
   PositionPayload,
   UserPayload
 } from "@/types/identity";
@@ -23,12 +25,32 @@ const activeTab = ref("users");
 const overview = ref<IdentityOverview | null>(null);
 const apps = ref<AppView[]>([]);
 const appId = ref(typeof route.query.appId === "string" ? route.query.appId : "");
+const passwordPolicy = ref<PasswordPolicy | null>(null);
+const audits = ref<AuthAudit[]>([]);
+const auditLoading = ref(false);
+const auditUsername = ref("");
+const auditEvent = ref("");
+const auditSuccess = ref("");
 
 const departments = computed(() => overview.value?.departments ?? []);
 const positions = computed(() => overview.value?.positions ?? []);
 const users = computed(() => overview.value?.users ?? []);
 const tenantRoles = computed(() => (overview.value?.roles ?? []).filter((role) => !role.app_id));
 const appRoles = computed(() => (overview.value?.roles ?? []).filter((role) => !!role.app_id));
+
+const passwordRule = computed(() => {
+  const policy = passwordPolicy.value;
+  const min = policy?.min_length ?? 8;
+  const max = policy?.max_length ?? 128;
+  const requirements = [
+    policy?.require_lowercase ? "小写字母" : "",
+    policy?.require_uppercase ? "大写字母" : "",
+    policy?.require_digit ? "数字" : "",
+    policy?.require_symbol ? "符号" : ""
+  ].filter(Boolean);
+  const content = requirements.length ? `，需包含${requirements.join("、")}` : "";
+  return `密码 ${min}-${max} 位${content}；不能包含空白字符、登录名或显示名`;
+});
 
 async function load() {
   loading.value = true;
@@ -53,6 +75,63 @@ async function loadApps() {
 function changeApp() {
   router.replace({ name: "identity", query: appId.value ? { appId: appId.value } : {} });
   load();
+}
+
+async function loadPasswordPolicy() {
+  try {
+    passwordPolicy.value = await authApi.passwordPolicy();
+  } catch {
+    passwordPolicy.value = null;
+  }
+}
+
+async function loadAudits() {
+  auditLoading.value = true;
+  try {
+    audits.value = await identityApi.authAudits({
+      username: auditUsername.value.trim() || undefined,
+      eventType: auditEvent.value || undefined,
+      success: auditSuccess.value === "" ? undefined : auditSuccess.value === "true",
+      limit: 100
+    });
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    auditLoading.value = false;
+  }
+}
+
+function changeTab(name: string | number) {
+  if (name === "audits") loadAudits();
+}
+
+function formatTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function auditEventLabel(value: string) {
+  return value === "login_success"
+    ? "登录成功"
+    : value === "login_failure"
+      ? "登录失败"
+      : value === "password_change"
+        ? "修改密码"
+        : value;
+}
+
+function auditReasonLabel(value?: string | null) {
+  if (!value) return "—";
+  return (
+    {
+      user_not_found: "用户不存在",
+      user_disabled: "账号已停用",
+      account_locked: "账号已锁定",
+      bad_password: "密码错误",
+      profile_missing: "用户档案缺失",
+      bad_current_password: "当前密码错误"
+    }[value] ?? value
+  );
 }
 
 // ------------------------------------------------------------ 部门
@@ -223,8 +302,13 @@ async function saveUser() {
     ElMessage.warning("请填写显示名");
     return;
   }
-  if (!userEditing.value && (!userForm.username.trim() || userForm.password.length < 6)) {
-    ElMessage.warning("新建用户需要登录名与至少 6 位密码");
+  const minPasswordLength = passwordPolicy.value?.min_length ?? 8;
+  if (!userEditing.value && (!userForm.username.trim() || userForm.password.length < minPasswordLength)) {
+    ElMessage.warning(`新建用户需要登录名与至少 ${minPasswordLength} 位密码`);
+    return;
+  }
+  if (userEditing.value && userForm.password && userForm.password.length < minPasswordLength) {
+    ElMessage.warning(`重置密码至少 ${minPasswordLength} 位`);
     return;
   }
   const payload: UserPayload = {
@@ -310,7 +394,7 @@ function roleSummary(row: IdentityUser) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadApps(), load()]);
+  await Promise.all([loadApps(), load(), loadPasswordPolicy()]);
 });
 </script>
 
@@ -332,7 +416,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <el-tabs v-model="activeTab" class="rounded-xl border border-slate-200 bg-white px-5 py-4">
+    <el-tabs v-model="activeTab" class="rounded-xl border border-slate-200 bg-white px-5 py-4" @tab-change="changeTab">
       <el-tab-pane label="用户" name="users">
         <div class="mb-3 flex items-center justify-between">
           <p class="text-[12px] text-slate-500">共 {{ users.length }} 个用户</p>
@@ -414,6 +498,46 @@ onMounted(async () => {
               <el-button link type="primary" @click="openPos(row)">编辑</el-button>
               <el-button link type="danger" @click="removePos(row)">删除</el-button>
             </template>
+          </el-table-column>
+        </el-table>
+      </el-tab-pane>
+
+      <el-tab-pane label="认证审计" name="audits">
+        <div class="mb-3 flex flex-wrap items-center gap-2">
+          <el-input v-model="auditUsername" class="w-[180px]" clearable placeholder="登录名" />
+          <el-select v-model="auditEvent" class="w-[150px]" clearable placeholder="全部事件">
+            <el-option label="登录成功" value="login_success" />
+            <el-option label="登录失败" value="login_failure" />
+            <el-option label="修改密码" value="password_change" />
+          </el-select>
+          <el-select v-model="auditSuccess" class="w-[120px]" placeholder="全部结果">
+            <el-option label="全部结果" value="" />
+            <el-option label="成功" value="true" />
+            <el-option label="失败" value="false" />
+          </el-select>
+          <el-button type="primary" size="small" @click="loadAudits">查询</el-button>
+          <span class="text-[11px] text-slate-400">最近 100 条</span>
+        </div>
+        <el-table v-loading="auditLoading" :data="audits" size="small">
+          <el-table-column label="时间" width="175">
+            <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column prop="username" label="登录名" width="130" />
+          <el-table-column label="事件" width="105">
+            <template #default="{ row }">{{ auditEventLabel(row.event_type) }}</template>
+          </el-table-column>
+          <el-table-column label="结果" width="80">
+            <template #default="{ row }">
+              <span :class="row.success ? 'text-emerald-600' : 'text-rose-500'">
+                {{ row.success ? "成功" : "失败" }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="原因" min-width="130">
+            <template #default="{ row }">{{ auditReasonLabel(row.reason) }}</template>
+          </el-table-column>
+          <el-table-column label="IP" width="145">
+            <template #default="{ row }">{{ row.ip || "—" }}</template>
           </el-table-column>
         </el-table>
       </el-tab-pane>
@@ -502,6 +626,7 @@ onMounted(async () => {
         </div>
         <el-form-item :label="userEditing ? '重置密码（留空不变）' : '初始密码'">
           <el-input v-model="userForm.password" type="password" show-password />
+          <p class="mt-1 text-[11px] leading-5 text-slate-400">{{ passwordRule }}</p>
         </el-form-item>
         <div class="grid grid-cols-2 gap-3">
           <el-form-item label="部门">

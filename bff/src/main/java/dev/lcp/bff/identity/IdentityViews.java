@@ -1,5 +1,6 @@
 package dev.lcp.bff.identity;
 
+import java.time.Instant;
 import java.util.List;
 
 /** 组织与身份 API 的响应体。字段名统一由 Jackson SNAKE_CASE 输出。 */
@@ -61,6 +62,19 @@ public final class IdentityViews {
       boolean builtin,
       String description,
       String appId) {
+  }
+
+  public record AuthAuditView(
+      String id,
+      String userId,
+      String username,
+      String eventType,
+      boolean success,
+      String reason,
+      String authMethod,
+      String ip,
+      String userAgent,
+      Instant createdAt) {
   }
 
   public record OverviewView(

@@ -53,6 +53,16 @@ lcp:
     ttl-hours: ${LCP_AUTH_TTL_HOURS:12}
     # 仅开发环境：允许网关注入的 X-Tenant-Id / X-User-Id 兜底，生产必须关闭。
     dev-headers: ${LCP_AUTH_DEV_HEADERS:false}
+    password:
+      min-length: ${LCP_PASSWORD_MIN_LENGTH:8}
+      max-length: ${LCP_PASSWORD_MAX_LENGTH:128}
+      require-uppercase: ${LCP_PASSWORD_REQUIRE_UPPERCASE:false}
+      require-lowercase: ${LCP_PASSWORD_REQUIRE_LOWERCASE:true}
+      require-digit: ${LCP_PASSWORD_REQUIRE_DIGIT:true}
+      require-symbol: ${LCP_PASSWORD_REQUIRE_SYMBOL:false}
+    lockout:
+      max-failed-attempts: ${LCP_AUTH_MAX_FAILED_ATTEMPTS:5}
+      minutes: ${LCP_AUTH_LOCK_MINUTES:15}
   identity:
     # 仅开发环境：跳过组织管理员校验；生产设为 false。
     allow-all: ${LCP_IDENTITY_ALLOW_ALL:false}

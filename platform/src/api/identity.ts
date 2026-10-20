@@ -1,9 +1,12 @@
 import { http } from "@/lib/http";
 import type {
+  AuthAudit,
+  AuthAuditQuery,
   DepartmentPayload,
   IdentityOverview,
   IdentityUser,
   LoginResponse,
+  PasswordPolicy,
   PositionPayload,
   UserPayload
 } from "@/types/identity";
@@ -11,6 +14,19 @@ import type {
 export const authApi = {
   async login(tenant: string, username: string, password: string): Promise<LoginResponse> {
     const { data } = await http.post<LoginResponse>("/auth/login", { tenant, username, password });
+    return data;
+  },
+
+  async passwordPolicy(): Promise<PasswordPolicy> {
+    const { data } = await http.get<PasswordPolicy>("/auth/password-policy");
+    return data;
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<IdentityUser> {
+    const { data } = await http.post<IdentityUser>("/auth/password", {
+      current_password: currentPassword,
+      new_password: newPassword
+    });
     return data;
   },
 
@@ -25,6 +41,18 @@ export const authApi = {
 };
 
 export const identityApi = {
+  async authAudits(query: AuthAuditQuery = {}): Promise<AuthAudit[]> {
+    const { data } = await http.get<AuthAudit[]>("/platform/identity/auth-audits", {
+      params: {
+        eventType: query.eventType || undefined,
+        username: query.username || undefined,
+        success: query.success,
+        limit: query.limit
+      }
+    });
+    return data;
+  },
+
   async overview(appId?: string): Promise<IdentityOverview> {
     const { data } = await http.get<IdentityOverview>("/platform/identity/overview", {
       params: appId ? { appId } : undefined

@@ -4,10 +4,12 @@ import dev.lcp.bff.identity.IdentityRequests.DepartmentRequest;
 import dev.lcp.bff.identity.IdentityRequests.PositionRequest;
 import dev.lcp.bff.identity.IdentityRequests.UserRequest;
 import dev.lcp.bff.identity.IdentityRequests.UserRolesRequest;
+import dev.lcp.bff.identity.IdentityViews.AuthAuditView;
 import dev.lcp.bff.identity.IdentityViews.DepartmentView;
 import dev.lcp.bff.identity.IdentityViews.OverviewView;
 import dev.lcp.bff.identity.IdentityViews.PositionView;
 import dev.lcp.bff.identity.IdentityViews.UserView;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -36,6 +38,15 @@ public class IdentityController {
       @RequestParam(name = "appId", required = false) UUID appId) {
     identity.requireAdmin();
     return identity.overview(appId);
+  }
+
+  @GetMapping("/auth-audits")
+  public List<AuthAuditView> authAudits(
+      @RequestParam(name = "eventType", required = false) String eventType,
+      @RequestParam(name = "username", required = false) String username,
+      @RequestParam(name = "success", required = false) Boolean success,
+      @RequestParam(name = "limit", defaultValue = "100") int limit) {
+    return identity.authAudits(eventType, username, success, limit);
   }
 
   @PostMapping("/departments")

@@ -29,4 +29,8 @@ public class AuthException extends RuntimeException {
   public static AuthException forbidden(String message) {
     return new AuthException(HttpStatus.FORBIDDEN, "forbidden", message);
   }
+
+  public static AuthException badRequest(String code, String message) {
+    return new AuthException(HttpStatus.BAD_REQUEST, code, message);
+  }
 }

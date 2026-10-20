@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-20
-> 分支：`dev` ｜ 最新提交：`90a86bc fix(designer): 字段改名同步标题字段等引用`
+> 分支：`dev` ｜ 最新提交：`b457c8e docs: 同步字段改名修复提交号`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -23,6 +23,8 @@
 | 站内通知 | `GET /notifications`、`GET /notifications/unread-count`；`POST /notifications/{id}/read`、`POST /notifications/read-all` |
 | 登录入口 | `http://localhost:8080/login`；账号 `alice/alice123`、`bob/bob123`、`principal/principal123`、`hr/hr123` |
 | 身份 API | `POST /api/v1/auth/login`、`GET /api/v1/auth/me`、`GET /api/v1/platform/identity/overview?appId=<id>` |
+| 认证安全 API | `GET /api/v1/auth/password-policy`、`POST /api/v1/auth/password`、`GET /api/v1/platform/identity/auth-audits`（管理员，支持 `eventType` / `username` / `success` / `limit`） |
+| 登录保护 | 连续失败 5 次锁定 15 分钟；密码 8–128 位，须含小写字母与数字，禁止空白及登录名/显示名 |
 | 权限模式 | 开发：`LCP_AUTH_DEV_HEADERS=true`、`LCP_IDENTITY_ALLOW_ALL=true`；staging/prod 覆盖层已置 `false` |
 
 启动与重建：
@@ -53,6 +55,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `bb628fb` | 接手上下文文档 | — |
 | `b069720` | 动作回写与运行日志 | API 回写/失败重放 + CDP 动作日志面板 |
 | `644b473` | 身份与权限：JWT / 组织架构 / 行级与字段权限 | 四账号登录 + 403 越权 + 字段白名单 + CDP 登录/退出 |
+| 本轮提交 | 认证安全：密码策略 / 登录锁定 / 认证审计 | typecheck / build + 弱密码 400 + 锁定与重置 + 审计 403 + CDP 改密 |
 
 ## 文档维护
 
@@ -141,6 +144,14 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 开发兜底：`X-Tenant-Id` / `X-User-Id` 仅在 `LCP_AUTH_DEV_HEADERS=true` 时生效；`LCP_IDENTITY_ALLOW_ALL` 仅用于本地绕过管理员校验。
 - 验证：四账号登录与 `me` 通过；Alice 仅见本人字段、Bob 部门范围、HR 全校但无 `reason`、Principal 完整字段；Carol（数学系教师）读 Alice 实例 403；Alice 签收 Bob 任务 403；`leave_cleanup_stale` 403；Alice 发起 → Bob 签收 → 通过全链路通过；CDP 登录、退出、受保护路由跳转通过。
 
+### 12. 认证安全（刚完成）
+- 数据库：`32_auth_security.sql` 为 `lcp_user` 增加失败次数、锁定截止、密码变更时间、最近登录时间/IP；新建 `lcp_auth_audit` 记录登录成功、登录失败与改密，启用租户 RLS。
+- 密码策略：`PasswordPolicy` 默认 8–128 位，须含小写字母与数字，禁止空白字符，禁止包含登录名或显示名；策略可读接口供前端提示。
+- 登录保护：同一账号连续失败 5 次锁定 15 分钟；成功登录、管理员重置、自助改密后清零失败计数与锁定。
+- 审计：登录成功/失败与改密写入 `lcp_auth_audit`；`GET /api/v1/platform/identity/auth-audits` 仅管理员可读，支持事件类型、用户名、成功标记与条数过滤。
+- 前端：`IdentityPage` 增加「认证审计」页签与筛选；顶栏新增「修改密码」弹窗并展示密码策略，改密成功后退出重登。
+- 验证：弱密码新建用户返回 `400 password_policy_violation`；连续 5 次错误后正确密码仍 401，管理员重置后恢复；旧密码改密后 401、新密码 200；Principal 查审计 200、Alice 403；CDP 审计页签与改密弹窗正常。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（进行中）
@@ -159,6 +170,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 5.4 JWT 登录与 Bearer 会话，替换演示会话头；请求头仅保留开发兜底。
 - [ ] 5.5 菜单权限：Bundle `menu/page` 授权已建模，控制平面入口已按角色显隐；运行时菜单渲染待阶段 6。
 - [ ] 5.6 SSO（OIDC / CAS）接入。
+- [x] 5.7 密码策略、登录锁定与认证审计：策略校验、失败锁定、自助改密与管理员审计查询已完成。
 
 ### 阶段 6 · 多端发布与运行时
 - [ ] 发布态运行时渲染器（读 Bundle 渲染，不依赖设计器）。
@@ -207,6 +219,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - **角色绑定与权限定义分离**：组织表只回答「谁拥有哪个角色」，角色、权限、字段白名单与行级条件全部来自发布件；运行时不在代码里硬编码角色。
 - **字段权限取并集**：同一用户命中多个授权时，可读字段取并集；显式字段白名单优先于角色默认范围；写入同样过白名单，避免审批表单放大权限。
 - **动作授权**：流程启动校验 `onSubmit` 对应 action 的 `execute`，审批校验 `onApprove` 的 outcome；动作执行器校验 action 的 `execute`，越权统一 403。
+- **密码与锁定参数化**：策略长度/字符要求与失败阈值、锁定时长走 `lcp.auth.password-policy.*` / `lcp.auth.lockout.*` 配置，默认值可直接用于演示环境。
+- **审计与认证同事务**：登录成功、失败与改密在同一事务写入 `lcp_auth_audit`，失败记录不阻断原异常返回；审计读取仅限管理员并受租户隔离。
 
 ## 已知边界
 
@@ -217,7 +231,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 动作日志按租户隔离并可按实例/动作/状态查询，暂无跨应用全局检索与保留期策略；重放不撤销已发生的业务/流程副作用。
 - 办理人解析优先查组织架构（部门负责人 / 角色成员），静态目录仅在 `LCP_RUNTIME_FALLBACK_DIRECTORY=true` 时兜底。
 - 提交 / 审批 / 动作执行已做按钮级授权；加签尚未实现，任务归属仍由 Flowable `assignee` 控制。
-- SSO 未接入，控制平面登录仍是账号密码 + JWT；密码策略、强制改密、登录审计未做。
+- SSO 未接入，控制平面登录仍是账号密码 + JWT；已有 JWT 在改密后不会服务端撤销，需等待过期或前端主动退出。
+- 认证审计暂无分页与保留期策略，`limit` 上限内一次返回。
 - Bundle 的 `menu/page` 授权尚未在运行时渲染器消费；当前只影响控制平面入口显隐。
 - 通知仅覆盖任务分派、转办、退回、驳回、通过；邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口未接入。
 - 自定义组件只有设计器内联沙箱预览；发布态远程组件加载未实现。
@@ -229,7 +244,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4 与阶段 5 主体已完成，按以下顺序推进：
 
-1. 阶段 5 收尾：SSO（OIDC / CAS）、密码策略与登录审计；把 Bundle `menu/page` 授权接到运行时菜单。
+1. 阶段 5 收尾：SSO（OIDC / CAS）；把 Bundle `menu/page` 授权接到运行时菜单。
 2. 补连接器注册表与租户密钥库，再开放 internal / database / GraphQL / SOAP 与 bearer/apiKey 鉴权。
 3. 扩展通知：邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口。
 4. 阶段 6 发布态运行时渲染器与自定义组件远程加载。

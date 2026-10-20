@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useSessionStore } from "@/stores/session";
 import { authApi } from "@/api/identity";
+import { errorMessage } from "@/lib/http";
+import type { PasswordPolicy } from "@/types/identity";
 
 const route = useRoute();
 const router = useRouter();
 const sessionStore = useSessionStore();
+const passwordOpen = ref(false);
+const passwordSaving = ref(false);
+const passwordPolicy = ref<PasswordPolicy | null>(null);
+const passwordForm = reactive({ current: "", next: "", confirm: "" });
 
 const inApps = computed(() => route.name === "apps" || route.name === "app-detail");
 const appId = computed(() => (typeof route.params.appId === "string" ? route.params.appId : ""));
@@ -34,6 +40,20 @@ function openDesigner(kind: "model" | "pages" | "logic" | "components") {
 }
 const pageTitle = computed(() => (route.meta.title as string) || "应用工作台");
 
+const passwordRule = computed(() => {
+  const policy = passwordPolicy.value;
+  const min = policy?.min_length ?? 8;
+  const max = policy?.max_length ?? 128;
+  const requirements = [
+    policy?.require_lowercase ? "小写字母" : "",
+    policy?.require_uppercase ? "大写字母" : "",
+    policy?.require_digit ? "数字" : "",
+    policy?.require_symbol ? "符号" : ""
+  ].filter(Boolean);
+  const content = requirements.length ? `，需包含${requirements.join("、")}` : "";
+  return `密码 ${min}-${max} 位${content}；不能包含空白字符、登录名或显示名`;
+});
+
 function openApprovals() {
   if (!appId.value) {
     ElMessage.info("请先进入一个应用");
@@ -50,6 +70,50 @@ async function logout() {
   }
   sessionStore.logout();
   router.replace("/login");
+}
+
+function resetPasswordForm() {
+  passwordForm.current = "";
+  passwordForm.next = "";
+  passwordForm.confirm = "";
+}
+
+async function openPassword() {
+  resetPasswordForm();
+  passwordOpen.value = true;
+  try {
+    passwordPolicy.value = await authApi.passwordPolicy();
+  } catch {
+    passwordPolicy.value = null;
+  }
+}
+
+async function submitPassword() {
+  if (!passwordForm.current || !passwordForm.next) {
+    ElMessage.warning("请填写当前密码与新密码");
+    return;
+  }
+  if (passwordForm.next !== passwordForm.confirm) {
+    ElMessage.warning("两次输入的新密码不一致");
+    return;
+  }
+  const minLength = passwordPolicy.value?.min_length ?? 8;
+  if (passwordForm.next.length < minLength) {
+    ElMessage.warning(`新密码至少 ${minLength} 位`);
+    return;
+  }
+  passwordSaving.value = true;
+  try {
+    await authApi.changePassword(passwordForm.current, passwordForm.next);
+    passwordOpen.value = false;
+    sessionStore.logout();
+    ElMessage.success("密码已修改，请重新登录");
+    router.replace("/login");
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    passwordSaving.value = false;
+  }
 }
 </script>
 
@@ -203,6 +267,13 @@ async function logout() {
             </span>
           </div>
           <button
+            class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] text-slate-500 transition hover:border-indigo-200 hover:text-indigo-600"
+            type="button"
+            @click="openPassword"
+          >
+            修改密码
+          </button>
+          <button
             class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] text-slate-500 transition hover:border-rose-200 hover:text-rose-500"
             type="button"
             @click="logout"
@@ -216,6 +287,27 @@ async function logout() {
         <router-view />
       </main>
     </div>
+
+    <el-dialog v-model="passwordOpen" title="修改密码" width="460px" @closed="resetPasswordForm">
+      <el-form label-position="top">
+        <el-form-item label="当前密码">
+          <el-input v-model="passwordForm.current" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="passwordForm.next" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="passwordForm.confirm" type="password" show-password />
+        </el-form-item>
+        <p class="rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-500">
+          {{ passwordRule }}
+        </p>
+      </el-form>
+      <template #footer>
+        <el-button @click="passwordOpen = false">取消</el-button>
+        <el-button type="primary" :loading="passwordSaving" @click="submitPassword">确认修改</el-button>
+      </template>
+    </el-dialog>
 
   </div>
 </template>
