@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：本提交（`feat(miniapp): 接入微信登录`）
+> 分支：`dev` ｜ 最新提交：本提交（`docs: 同步小程序真机与体验版发布说明`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -83,7 +83,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `2ae386c` | 小程序受控 apiCall | typecheck + H5 / mp-weixin 构建 + 受控调用与 ACL 冒烟 |
 | `ad477be` | 小程序附件上传与附件列表 | typecheck + H5 / mp-weixin 构建 + 上传/列表/下载/软删/类型与页面校验冒烟 |
 | `cd4bd8e` | 小程序审批时间线 | typecheck + H5 实测待办/已办时间线与审批意见 |
-| 本提交 | 小程序微信登录 | BFF 编译 + typecheck + H5/mp-weixin 构建 + 假微信服务成功/未绑定/关闭降级 |
+| `621319a` | 小程序微信登录 | BFF 编译 + typecheck + H5/mp-weixin 构建 + 假微信服务成功/未绑定/关闭降级 |
+| 本提交 | 小程序真机与体验版发布说明 | 文档命令/产物/配置核对 + `git diff --check` |
 
 ## 文档维护
 
@@ -274,6 +275,10 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 配置接口只返回启用状态、AppID、租户与显示名，AppSecret 不进入响应；请求租户必须与 `LCP_WECHAT_TENANT` 一致。微信接口默认仅允许 HTTPS，本地假服务需显式 `LCP_WECHAT_ALLOW_INSECURE_HTTP=true`。
 - 小程序登录页支持 `uni.login({provider:"weixin"})` 一键登录；配置未启用时保留账号密码入口并明确提示，不阻塞 H5 构建。
 - 验证：BFF 镜像编译、`miniapp` typecheck 与 H5 / mp-weixin 构建通过；假 `jscode2session` 覆盖成功登录与 `/auth/me`、错误 code 400、未绑定 403、租户不匹配 403、关闭后 400，配置响应不含 secret。
+### 25. 小程序真机与体验版发布说明（刚完成）
+- 新增 `miniapp/RELEASE.md`：覆盖 AppID、HTTPS 合法域名（request / uploadFile / downloadFile）、服务端 `LCP_WECHAT_*`、局域网真机调试、体验版上传与正式发布、常见错误与上线清单。
+- 新增 `miniapp/.env.example` 并重写 `miniapp/README.md`，修正已过期的能力边界（`apiCall`、附件、审批时间线与微信登录均已完成）。
+- 验证：文档路径与实际命令、产物目录、配置项逐项核对；`git diff --check` 通过。
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -302,6 +307,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 6.5 自定义组件远程模块加载：`runtime=remote` 的 https 模块按 `{version}` 锁定版本，加载前校验 SRI，模块 `meta` 与契约不一致时拒绝渲染；设计器按真实模块内容生成 integrity。
 - [x] 6.6 运行时附件：页面级 ACL 上传 / 列表 / 受控下载 / 软删除，本地卷存储与类型白名单；小程序上传控件与附件列表已接入。
 - [x] 6.7 小程序微信登录：`jscode2session`、外部身份绑定、配置脱敏与登录页一键登录；未配置时账号密码降级。
+- [x] 6.8 小程序真机与体验版发布：AppID、合法域名、HTTPS、局域网调试、体验版/正式发布文档与排障清单。
 
 ### 阶段 7 · 出码引擎完整化
 - [ ] Bundle → 完整可运行工程（前端 + BFF + 迁移脚本）。
@@ -392,11 +398,11 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 ## 下一步（建议直接开工）
 
-阶段 4、阶段 5 与阶段 6.1–6.7 已完成，按以下顺序推进：
+阶段 4、阶段 5 与阶段 6.1–6.8 已完成，按以下顺序推进：
 
-1. 小程序真机联调与体验版发布文档（下一项）。
-2. 运行时深化：真实数据库事务、并发安全、`custom` / `code` 钩子、其余内部 API 与真实节假日服务。
-3. 阶段 7 出码引擎完整化，随后阶段 8 集成与阶段 9 市场。
+1. 运行时深化：真实数据库事务、`parallel` 并发安全、`custom` / `code` 钩子、其余内部 API 与真实节假日服务。
+2. 阶段 7 出码引擎完整化：完整工程、CLI 参数化与增量导出、在线版本 diff。
+3. 阶段 8 集成与阶段 9 市场。
 
 ## 恢复上下文的顺序
 
