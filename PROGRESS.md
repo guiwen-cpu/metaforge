@@ -130,6 +130,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 契约编辑：属性、插槽、事件、能力、容器规则、沙箱策略、`x-previewHtml` / `x-previewScript`。
 - 沙箱：`iframe srcdoc` + `sandbox="allow-scripts"`，无 same-origin，CSP 默认 `default-src 'none'`。
 - 与页面设计器打通：物料面板、`createNode`、`canAccept`、画布渲染、校验。
+- 远程运行时：`lib/remoteComponent.ts` + `RemoteComponentHost.vue`；`source` 必须含 `{version}` 占位，加载前按 integrity 校验 SHA-256/384/512，模块可导出 `meta.name` / `meta.version` 做二次核对；缓存按 URL + SRI + 版本隔离，失败不缓存；设计器“生成 integrity”会下载真实模块内容计算。
 
 ### 8. 部署
 - `deploy/compose.yaml`（dev）、`compose.staging.yaml`、`compose.prod.yaml`。
@@ -250,7 +251,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 6.2 Web / H5 应用壳与路由、登录态：独立移动壳复用同一 SPA、JWT 会话与发布件导航；支持深链回跳、底部导航、桌面/H5 切换与移动端表格横滑。
 - [x] 6.3 uni-app 小程序运行时：独立登录态与运行时壳，复用发布件导航、页面、数据源与动作契约；移动端列表卡片化、表单与详情抽屉已接入。
 - [x] 6.4 运行时动作补齐：`kind=internal` 实体 save/get/patch 与流程终止、`startFlow` / `completeTask`、注册入口 `calcWorkdays`、服务端 `validate` 已接入；请假“新建 → 提交 → 撤回”端到端通过。
-- [ ] 自定义组件远程模块加载（`runtime=remote` + SRI 校验）。
+- [x] 6.5 自定义组件远程模块加载：`runtime=remote` 的 https 模块按 `{version}` 锁定版本，加载前校验 SRI，模块 `meta` 与契约不一致时拒绝渲染；设计器按真实模块内容生成 integrity。
 
 ### 阶段 7 · 出码引擎完整化
 - [ ] Bundle → 完整可运行工程（前端 + BFF + 迁移脚本）。
@@ -333,7 +334,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 微信小程序构建需用微信开发者工具导入 `miniapp/dist/build/mp-weixin`；尚未配置 AppID、真机域名与体验版上传。非 H5 默认 API 为 `http://127.0.0.1:8080/api/v1`，真机联调需设置 `VITE_API_BASE_URL` 并使用可访问的局域网地址或 HTTPS 域名。
 - “新建请假 → 提交 → 撤回”已跑通：`startFlow`、`completeTask`、内部实体读写与流程终止可用；节假日 API 仅对占位地址降级为空日历并记警告，接入真实服务前工作日不扣除法定节假日。`transaction` 仍是顺序执行，未包真实数据库事务。
 - 通知已覆盖站内信、webhook / email outbox、`Rule.kind=notification` 与 SLA 提醒；`autoApprove` / `autoReject` 仍未实现，通知规则暂无实例规则做端到端实测，outbox 暂无管理界面与保留期策略。
-- 自定义组件只有设计器内联沙箱预览与发布态占位；`runtime=remote` 的远程模块加载与 SRI 校验未实现。
+- 自定义组件已支持内联沙箱与 `runtime=remote` 远程模块；远程模块需自行保证可跨域访问，且模块必须自包含（blob import 不解析相对依赖）。设计器仍以内联预览为主，远程模块在工作台无网络时回退为明确错误态。
 - OSS STS 临时凭证服务未实现，生成代码里只有直传骨架。
 - 生成前端示例仍使用演示会话；控制平面已切 JWT，但出码模板未同步。
 - 校验器残留警告：内联枚举与共享枚举取值不一致；流程监听器未限定 `taskKey`。
@@ -342,11 +343,10 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4、阶段 5 与阶段 6.1 / 6.2 / 6.3 / 6.4 已完成，按以下顺序推进：
 
-1. 自定义组件远程加载：实现 `runtime=remote` 的模块加载、版本锁定与 SRI 校验，替换当前占位。
-2. 连接器扩展：database / GraphQL / SOAP 与 `oauth2`、签名鉴权，并补连接器变更审计与 DNS rebinding 加固。
-3. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
-4. 小程序能力深化：补 `apiCall`、附件上传、审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
-5. 运行时深化：真实数据库事务、`custom` 代码钩子与其余内部 API 分派，接入真实节假日服务。
+1. 连接器扩展：database / GraphQL / SOAP 与 `oauth2`、签名鉴权，并补连接器变更审计与 DNS rebinding 加固。
+2. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
+3. 小程序能力深化：补 `apiCall`、附件上传、审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
+4. 运行时深化：真实数据库事务、`custom` 代码钩子与其余内部 API 分派，接入真实节假日服务。
 
 ## 恢复上下文的顺序
 

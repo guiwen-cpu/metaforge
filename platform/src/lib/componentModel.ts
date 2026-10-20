@@ -423,11 +423,15 @@ export function componentPreviewHtml(component: ComponentDef, overrideProps: Rec
 </html>`;
 }
 
-export async function sha384Integrity(text: string): Promise<string> {
-  const bytes = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-384", bytes);
+export async function integrityOfBytes(bytes: BufferSource, algorithm: "SHA-256" | "SHA-384" | "SHA-512" = "SHA-384"): Promise<string> {
+  const digest = await crypto.subtle.digest(algorithm, bytes);
   const binary = Array.from(new Uint8Array(digest), (byte) => String.fromCharCode(byte)).join("");
-  return `sha384-${btoa(binary)}`;
+  const prefix = algorithm.toLowerCase().replace("sha-", "sha");
+  return `${prefix}-${btoa(binary)}`;
+}
+
+export async function sha384Integrity(text: string): Promise<string> {
+  return integrityOfBytes(new TextEncoder().encode(text));
 }
 
 export function componentGroupsOf(components: ComponentDef[]): Array<{ label: string; items: ComponentDef[] }> {
@@ -508,6 +512,9 @@ export function validateComponents(components: ComponentDef[], builtinNames: str
       if (!component.integrity?.trim()) push("error", where, "远程组件必须提供 integrity（SRI）");
       if (component.source && !/^https:\/\//.test(component.source)) {
         push("error", where, "远程组件 source 必须是 https:// 地址");
+      }
+      if (component.source && !component.source.includes("{version}")) {
+        push("error", where, "远程组件 source 必须包含 {version} 占位，用于锁定模块版本");
       }
     }
     if (component.integrity && !/^(sha256|sha384|sha512)-[A-Za-z0-9+/=]+$/.test(component.integrity)) {

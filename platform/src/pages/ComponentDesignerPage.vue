@@ -20,6 +20,7 @@ import {
   createPresetComponent,
   defaultCapabilities,
   defaultSandbox,
+  integrityOfBytes,
   normalizeComponent,
   sanitizeComponentName,
   sha384Integrity,
@@ -585,6 +586,30 @@ function refreshPreview() {
 async function regenerateIntegrity() {
   const current = activeComponent.value;
   if (!current) return;
+  if ((current.runtime ?? "sandbox") === "remote") {
+    const source = String(current.source ?? "").trim();
+    if (!/^https:\/\//.test(source) || !source.includes("{version}")) {
+      ElMessage.error("远程组件 source 必须是 https:// 且包含 {version} 占位");
+      return;
+    }
+    const url = source.replaceAll("{version}", encodeURIComponent(String(current.version)));
+    try {
+      const response = await fetch(url, {
+        cache: "no-store",
+        credentials: "omit",
+        referrerPolicy: "no-referrer"
+      });
+      if (!response.ok) {
+        ElMessage.error(`下载远程模块失败（HTTP ${response.status}）`);
+        return;
+      }
+      current.integrity = await integrityOfBytes(await response.arrayBuffer());
+      ElMessage.success("已根据远程模块真实内容生成 SRI");
+    } catch (cause) {
+      ElMessage.error(`下载远程模块失败：${errorMessage(cause)}`);
+    }
+    return;
+  }
   const payload = `${current["x-previewHtml"] ?? ""}\n${current["x-previewScript"] ?? ""}`;
   current.integrity = await sha384Integrity(payload);
   ElMessage.success("已根据内联预览内容生成 SRI");
@@ -875,7 +900,7 @@ onMounted(load);
                 </el-select>
               </el-form-item>
               <el-form-item label="来源 source">
-                <el-input :model-value="activeComponent.source ?? ''" placeholder="inline://name 或 https://cdn/module.js" @update:model-value="setActiveString('source', $event)" />
+                <el-input :model-value="activeComponent.source ?? ''" placeholder="inline://name 或 https://cdn/module-{version}.js" @update:model-value="setActiveString('source', $event)" />
               </el-form-item>
               <el-form-item label="完整性 integrity（SRI）">
                 <div class="flex w-full gap-2">
@@ -1035,7 +1060,7 @@ onMounted(load);
             <div class="rounded-lg border border-slate-200 p-3 text-[10.5px] text-slate-500">
               <p>source：<span class="font-mono">{{ activeComponent.source || '—' }}</span></p>
               <p class="mt-1 break-all">integrity：<span class="font-mono">{{ activeComponent.integrity || '—' }}</span></p>
-              <p class="mt-1">remote 运行时必须使用 https:// 且提供 SRI。</p>
+              <p class="mt-1">remote 运行时必须使用 https://、包含 {version} 占位并提供 SRI；发布后按锁定版本加载。</p>
             </div>
           </template>
 

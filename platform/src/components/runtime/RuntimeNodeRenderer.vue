@@ -19,6 +19,7 @@ import type { UINode } from "@/types/uiModel";
 import { componentOf, isBuiltinComponent } from "@/lib/uiModel";
 import SandboxFrame from "@/components/component/SandboxFrame.vue";
 import RuntimeApprovalTimeline from "./RuntimeApprovalTimeline.vue";
+import RemoteComponentHost from "./RemoteComponentHost.vue";
 
 defineOptions({ name: "RuntimeNodeRenderer" });
 
@@ -71,6 +72,7 @@ const customDef = computed(() => {
     ?? componentOf(props.node.component);
 });
 const customTitle = computed(() => propText(customDef.value?.title) || customDef.value?.name || props.node.component);
+const customRuntime = computed(() => customDef.value?.runtime ?? "sandbox");
 
 function customEvent(name: string, payload: unknown): void {
   void api.runHandler(props.node, name, { name, payload }, scope.value);
@@ -1027,7 +1029,17 @@ const attachmentBizId = computed(() => {
         <span class="truncate text-[10.5px] font-medium text-indigo-600">{{ customTitle }}</span>
         <span class="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-medium text-indigo-500">自定义组件</span>
       </div>
+      <RemoteComponentHost
+        v-if="customRuntime === 'remote'"
+        :component="customDef"
+        :override-props="nodeProps"
+        :api="api"
+        :height="96"
+        @event="customEvent"
+        @error="(message) => api.notify(message, 'error')"
+      />
       <SandboxFrame
+        v-else
         :component="customDef"
         :override-props="nodeProps"
         :interactive="true"
