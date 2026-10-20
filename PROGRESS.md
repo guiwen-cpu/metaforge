@@ -32,6 +32,15 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 cd platform; npm run typecheck; npm run build
 ```
 
+本地直连 BFF（跳过 Nginx，可选）：
+
+```powershell
+docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.bff-dev.yaml up -d bff
+# 宿主机 http://localhost:8081/actuator/health/readiness；业务接口仍需租户/用户头
+```
+
+`compose.bff-dev.yaml` 只追加 `BFF_DEV_PORT`（默认 8081）端口映射，PostgreSQL/Redis 仍留在 `data` 内网。
+
 ## 里程碑提交
 
 | 提交 | 模块 | 验证 |

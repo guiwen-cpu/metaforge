@@ -1,0 +1,10 @@
+# BFF 开发用覆盖层：把 API 端口直接映射到宿主机，跳过 Nginx 调试。
+# 用法（仅作用于 bff，不影响其他服务）：
+#   docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.bff-dev.yaml up -d bff
+#   Invoke-RestMethod http://localhost:8081/actuator/health/readiness
+# 注意：直连 BFF 不走 Nginx，业务接口仍需 X-Tenant-Id / X-User-Id 请求头。
+# PostgreSQL / Redis 仍留在 data 内网，不对外暴露。
+services:
+  bff:
+    ports:
+      - "${BFF_DEV_PORT:-8081}:8080"

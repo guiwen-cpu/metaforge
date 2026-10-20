@@ -41,6 +41,7 @@ web（nginx-unprivileged）
 | `deploy/compose.yaml` | 基础编排（构建 + 全栈服务） |
 | `deploy/compose.staging.yaml` | staging 覆盖层：GHCR 镜像 |
 | `deploy/compose.prod.yaml` | prod 覆盖层：GHCR 镜像 + 资源上限 |
+| `deploy/compose.bff-dev.yaml` | 本地开发可选覆盖层：BFF 映射宿主机 `BFF_DEV_PORT`（默认 8081） |
 | `deploy/.env.example` | 本地开发模板 |
 | `deploy/.env.staging.example` | staging 模板 |
 | `deploy/.env.prod.example` | prod 模板 |
