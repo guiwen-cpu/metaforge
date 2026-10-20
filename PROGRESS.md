@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`a8b1fa7 docs: 同步通知模块提交号与进度`
+> 分支：`dev` ｜ 最新提交：`0737829 feat(runtime): 接入发布态数据源与页面交互渲染`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -71,6 +71,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `20e3eb9` | 统一身份登录（OIDC / CAS） | OIDC 端到端 + 票据/state 重放 + 未绑定 403 + CDP 登录 |
 | `3327c49` | 连接器注册表与租户密钥库 | 四种鉴权真实 HTTP 链路 + 权限 403 + CDP 连接器/密钥/引用保存 |
 | `4c7a971` | 外部通知通道、通知规则与 SLA 提醒 | webhook / email outbox + 规则挂载 + SLA 幂等 + 全局通知入口 |
+| `0737829` | 发布态运行时渲染器 | typecheck / build / 容器重建 + v9 列表、详情时间线、动作权限 CDP 实测 |
 
 ## 文档维护
 
