@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`604d3d8`（`feat(codegen): 增加统一 CLI 与增量导出`）
+> 分支：`dev` ｜ 最新功能提交：`0b3afaa`（`feat(codegen): 增加导出包与在线版本 diff`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -98,7 +98,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `b87a62a` | 真实节假日服务 | BFF 测试 + 真实页面 API + 请假工作日计算 + Redis 缓存 |
 | `de7b00a` | 出码完整可运行工程 | 独立 server 编译 + Compose 端到端 CRUD + RLS 租户隔离 |
 | `604d3d8` | 出码 CLI、参数化与增量导出 | dry-run / 参数覆盖 / 二次生成 0 变更 + 生成工程编译 |
-| 本提交 | 导出包与在线版本 diff | zip 外部解压校验 + 平台 v8↔v9 diff 200 条逐条一致 |
+| `0b3afaa` | 导出包与在线版本 diff | zip 外部解压校验 + 平台 v8↔v9 diff 200 条逐条一致 |
 
 ## 文档维护
 
