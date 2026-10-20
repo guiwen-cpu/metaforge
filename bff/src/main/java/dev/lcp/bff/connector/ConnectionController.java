@@ -1,5 +1,6 @@
 package dev.lcp.bff.connector;
 
+import dev.lcp.bff.connector.ConnectorDtos.ConnectionAuditView;
 import dev.lcp.bff.connector.ConnectorDtos.ConnectionView;
 import dev.lcp.bff.connector.ConnectorDtos.CreateConnectionRequest;
 import dev.lcp.bff.connector.ConnectorDtos.UpdateConnectionRequest;
@@ -51,6 +52,11 @@ public class ConnectionController {
   public ConnectionView patch(
       @PathVariable("id") UUID id, @RequestBody UpdateConnectionRequest body) {
     return service.patch(id, body);
+  }
+
+  @GetMapping("/{id}/audits")
+  public List<ConnectionAuditView> audits(@PathVariable("id") UUID id) {
+    return service.audits(id);
   }
 
   @DeleteMapping("/{id}")

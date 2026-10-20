@@ -7,9 +7,6 @@ import dev.lcp.bff.tenant.TenantContext;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -29,21 +26,19 @@ public class OutboundHttpClient {
   private final SecretService secrets;
   private final OutboundUrlPolicy urls;
   private final ObjectMapper json;
-  private final HttpClient http;
+  private final PinnedHttpTransport http;
 
   public OutboundHttpClient(
       ConnectionService connections,
       SecretService secrets,
       OutboundUrlPolicy urls,
+      PinnedHttpTransport http,
       ObjectMapper json) {
     this.connections = connections;
     this.secrets = secrets;
     this.urls = urls;
     this.json = json;
-    this.http = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(5))
-        .followRedirects(HttpClient.Redirect.NEVER)
-        .build();
+    this.http = http;
   }
 
   public DeliveryResult postJson(String connectionRef, String path, JsonNode payload) {
@@ -54,11 +49,6 @@ public class OutboundHttpClient {
       throw new DeliveryException(0, "连接器 " + connection.key() + " 未配置 baseUrl", false);
     }
     URI uri = uri(baseUrl, path, config.path("auth"));
-    try {
-      urls.validate(uri);
-    } catch (OutboundUrlPolicy.PolicyViolation ex) {
-      throw new DeliveryException(0, "出站地址被拒绝：" + ex.getMessage(), false);
-    }
 
     Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     for (JsonNode header : config.path("headers")) {
@@ -73,15 +63,11 @@ public class OutboundHttpClient {
     headers.put("Accept", "application/json");
 
     long timeout = Math.max(1, Math.min(120_000, config.path("timeoutMs").asLong(10_000)));
-    HttpRequest.Builder request = HttpRequest.newBuilder(uri)
-        .timeout(Duration.ofMillis(timeout))
-        .POST(HttpRequest.BodyPublishers.ofString(
-            payload == null ? "{}" : payload.toString(), StandardCharsets.UTF_8));
-    headers.forEach(request::setHeader);
     try {
-      HttpResponse<String> response = http.send(
-          request.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-      int status = response.statusCode();
+      PinnedHttpTransport.Response response = http.send(
+          uri, "POST", headers, (payload == null ? "{}" : payload.toString())
+              .getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(5), Duration.ofMillis(timeout));
+      int status = response.status();
       if (status >= 200 && status < 300) {
         return new DeliveryResult(status, response.body());
       }
@@ -91,9 +77,6 @@ public class OutboundHttpClient {
     } catch (IOException ex) {
       throw new DeliveryException(0,
           "网络请求失败（" + ex.getClass().getSimpleName() + "）", true);
-    } catch (InterruptedException ex) {
-      Thread.currentThread().interrupt();
-      throw new DeliveryException(0, "投递被中断", true);
     }
   }
 

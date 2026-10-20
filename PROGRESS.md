@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`47f92e0 feat(runtime): 补齐内部动作与流程编排`
+> 分支：`dev` ｜ 最新提交：`3f93e44 feat(connector): 扩展 GraphQL/SOAP/数据库连接器与 OAuth2 签名鉴权`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -30,6 +30,7 @@
 | 统一身份 API | `GET /api/v1/auth/sso/config`、`GET /api/v1/auth/sso/start?redirect=/...`、`GET /api/v1/auth/sso/callback`、`POST /api/v1/auth/sso/exchange` |
 | SSO 配置 | `LCP_SSO_ENABLED`、`LCP_SSO_MODE`（`oidc` / `cas`）及 `LCP_SSO_*`；本地默认关闭，staging/prod 通过环境变量注入 |
 | 连接器 API | `GET/POST /api/v1/platform/connections`；`PATCH/DELETE /api/v1/platform/connections/{id}` |
+| 连接器审计 | `GET /api/v1/platform/connections/{id}/audits`（`create` / `update` / `delete`，请求头与凭据脱敏） |
 | 密钥 API | `GET/POST /api/v1/platform/secrets`；`PATCH/DELETE /api/v1/platform/secrets/{id}`（密钥只写不读） |
 | 连接器配置 | `LCP_SECRET_MASTER_KEY`、`LCP_CONNECTOR_ALLOW_PRIVATE_NETWORKS`、`LCP_CONNECTOR_ALLOW_INSECURE_HTTP`；本地冒烟临时开启私网与 HTTP |
 | 登录保护 | 连续失败 5 次锁定 15 分钟；密码 8–128 位，须含小写字母与数字，禁止空白及登录名/显示名 |
@@ -75,6 +76,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `0737829` | 发布态运行时渲染器 | typecheck / build / 容器重建 + v9 列表、详情时间线、动作权限 CDP 实测 |
 | `16507a3` | H5 应用壳与移动端适配 | typecheck / build / 容器重建 + 深链登录回跳、非法路径回退、发起页、底部导航与桌面回归 CDP 实测 |
 | `3bee549` | uni-app 小程序运行时壳 | typecheck + H5 / mp-weixin 构建 + H5 390×844 登录、列表、搜索、分页、详情与表单回填 CDP 实测 |
+| `3f93e44` | 连接器扩展（GraphQL / SOAP / database / OAuth2 / 签名 / 审计） | typecheck / build / BFF 测试 + 审计落库与脱敏 + 私网 HTTP 链路冒烟 |
 
 ## 文档维护
 
@@ -226,6 +228,15 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 构建：`npm run build:h5` 产物在 `miniapp/dist/build/h5`；`npm run build:mp-weixin` 产物在 `miniapp/dist/build/mp-weixin`。
 - 验证：`typecheck`、H5 构建、mp-weixin 构建均通过；H5 390×844 实测登录、列表 13 条、状态筛选 1 条、翻页到 2/2、详情抽屉、新建与编辑表单回填及底部按钮。
 
+### 19. 连接器扩展：GraphQL / SOAP / 数据库 / OAuth2 / 签名（刚完成）
+- 协议：`ApiAuth` 增加 `oauth2`（`tokenUrl`、`grant`、`clientIdRef`、`clientSecretRef`、`usernameRef`、`passwordRef`、`refreshTokenRef`、`clientAuth`、`refreshBeforeSec`）与 `signature`（`secretRef`、`algorithm`、`encoding`、`template`、`headerName`、`timestampHeader`、`timestampUnit`）；连接器 `kind` 扩展为 `rest` / `graphql` / `soap` / `database` / `internal`。
+- 运行时：`ConnectorRuntime` 统一解析 none / tenant / bearer / apiKey / basic / oauth2 / signature；OAuth2 按租户与客户端缓存令牌并提前刷新；签名支持 HMAC-SHA256 / MD5 与 hex / base64；`ActionExecutor` 按 `kind` 分派 REST、GraphQL、SOAP、database、internal，GraphQL 检查 `errors`、SOAP 识别 Fault、`kind` 不匹配返回 `CONNECTION_KIND_MISMATCH`。
+- 数据库连接器：仅允许 PostgreSQL JDBC；只读 `SELECT` / `WITH`、单条语句、参数化绑定、只读事务、超时与行数上限；连接地址不得带查询参数。
+- 出站加固：`PinnedHttpTransport` 解析后固定 DNS 并直连 IP，防 DNS rebinding；禁止重定向、校验证书主机名、响应体上限 8 MB。`PinnedSocketFactory` 让 PostgreSQL JDBC 复用同一套地址校验。
+- 审计：`36_connection_audits.sql` 新建 `lcp_connection_audit`（RLS + 索引 + 动作约束）；连接器创建 / 更新 / 删除写入前后快照，请求头与鉴权值脱敏为 `***`。
+- 前端：连接器页支持 database / soap / oauth2 / signature 配置、审计弹窗与「其他配置 JSON」；`baseUrl` 对 REST / GraphQL / SOAP 改为可选（可由 API 自带地址）。
+- 验证：`node tools/validate.mjs` 通过；`npm run typecheck` / `npm run build` 通过；BFF 测试覆盖 URL 策略、XML 安全解析、SOAP Fault、GraphQL 与连接器分派；审计冒烟产生 `create` / `update` / `delete` 三条记录，快照请求头值为 `***`。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -259,7 +270,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [ ] 导出包与在线版本的 diff。
 
 ### 阶段 8 · 集成与扩展
-- [x] 连接器注册表（首版 REST / HTTP；数据库、GraphQL、SOAP 仍保留明确不支持）。
+- [x] 连接器注册表：REST / GraphQL / SOAP / PostgreSQL database / internal；OAuth2、签名鉴权、变更审计与 DNS pinning 已接入。
 - [x] 租户级密钥与凭证管理：AES-256-GCM 加密存储、只写不读、轮换与租户隔离。
 - [ ] 自定义 TS 代码钩子（页面生命周期、逻辑步骤）。
 - [ ] AI 辅助：自然语言生成表单/页面/流程（语义字段已预留）。
@@ -320,8 +331,9 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 - 三个设计器只负责元数据编辑、校验与发布，不含运行时执行。
 - 动作执行器已支持同步 REST / mock 与分支、循环、子动作；`parallel` 仍顺序执行，`transaction` 未包数据库事务。
-- 连接器首版只支持 REST/HTTP；内部、数据库、GraphQL、SOAP 连接器仍返回明确不支持，不执行裸 SQL。`oauth2` 与签名类鉴权尚未接入。
-- 密钥没有历史版本，轮换会直接覆盖旧密文；主密钥丢失后已有密钥无法解密。SSRF 防护已覆盖字面地址与解析结果，但仍有 DNS rebinding 的边界，连接器变更也暂无审计日志。
+- 数据库连接器只支持 PostgreSQL 只读查询；不提供写入、事务脚本或多语句执行。
+- 签名模板只提供常用占位符（`{method}` / `{path}` / `{body}` / `{timestamp}` / `{tenant}`），不支持自定义签名算法插件。
+- 密钥没有历史版本，轮换会直接覆盖旧密文；主密钥丢失后已有密钥无法解密。连接器审计保留最近变更，暂无自动归档策略。
 - `validate` 已在服务端执行；前端交互步骤仍记为 skipped。`code` 仅放行注册入口 `calcWorkdays`，`custom` 仍明确报未接入。`kind=internal` 目前只分派实体 save/get/patch 与流程终止，`findStale` / `findOverlap` 等其余内部 API 尚未接入。
 - 动作日志按租户隔离并可按实例/动作/状态查询，暂无跨应用全局检索与保留期策略；重放不撤销已发生的业务/流程副作用。
 - 办理人解析优先查组织架构（部门负责人 / 角色成员），静态目录仅在 `LCP_RUNTIME_FALLBACK_DIRECTORY=true` 时兜底。
@@ -343,10 +355,9 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4、阶段 5 与阶段 6.1 / 6.2 / 6.3 / 6.4 已完成，按以下顺序推进：
 
-1. 连接器扩展：database / GraphQL / SOAP 与 `oauth2`、签名鉴权，并补连接器变更审计与 DNS rebinding 加固。
-2. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
-3. 小程序能力深化：补 `apiCall`、附件上传、审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
-4. 运行时深化：真实数据库事务、`custom` 代码钩子与其余内部 API 分派，接入真实节假日服务。
+1. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
+2. 小程序能力深化：补 `apiCall`、附件上传、审批时间线、微信登录、真机联调与体验版发布；保持与 H5 / 桌面同一份发布件。
+3. 运行时深化：真实数据库事务、`custom` 代码钩子与其余内部 API 分派，接入真实节假日服务。
 
 ## 恢复上下文的顺序
 

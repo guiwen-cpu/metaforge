@@ -2581,6 +2581,36 @@
             },
             "tokenRef": {
               "$ref": "#/$defs/SecretRef"
+            },
+            "tokenUrl": {
+              "type": "string",
+              "description": "OAuth2 令牌端点；clientCredentials / password / refresh_token 均向此地址换取 access token。"
+            },
+            "clientIdRef": {
+              "$ref": "#/$defs/SecretRef"
+            },
+            "clientSecretRef": {
+              "$ref": "#/$defs/SecretRef"
+            },
+            "usernameRef": {
+              "$ref": "#/$defs/SecretRef"
+            },
+            "passwordRef": {
+              "$ref": "#/$defs/SecretRef"
+            },
+            "refreshTokenRef": {
+              "$ref": "#/$defs/SecretRef"
+            },
+            "clientAuth": {
+              "enum": [
+                "basic",
+                "post"
+              ],
+              "default": "basic"
+            },
+            "refreshBeforeSec": {
+              "type": "integer",
+              "default": 60
             }
           },
           "required": [
@@ -2606,11 +2636,30 @@
             },
             "template": {
               "type": "string",
-              "description": "待签名串模板，如 {method}\\n{path}\\n{timestamp}"
+              "description": "待签名串模板，支持 {method} {path} {query} {body} {timestamp} {tenant} 占位，如 {method}\\n{path}\\n{timestamp}"
             },
             "headerName": {
               "type": "string",
               "default": "X-Signature"
+            },
+            "timestampHeader": {
+              "type": "string",
+              "default": "X-Timestamp",
+              "description": "时间戳请求头；留空表示不注入。"
+            },
+            "timestampUnit": {
+              "enum": [
+                "seconds",
+                "millis"
+              ],
+              "default": "seconds"
+            },
+            "encoding": {
+              "enum": [
+                "hex",
+                "base64"
+              ],
+              "default": "hex"
             }
           },
           "required": [

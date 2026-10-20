@@ -11,7 +11,8 @@ import org.springframework.stereotype.Component;
 /**
  * 出站地址策略。写入连接器与每次运行时请求都会校验，防止 SSRF 与明文外发。
  *
- * <p>即使本地允许私网联调，也始终拦截云元数据与链路本地地址。
+ * <p>解析结果通过 {@link PinnedTarget} 交给传输层直接连接，避免校验后再次解析造成 DNS
+ * rebinding。即使本地允许私网联调，也始终拦截云元数据与链路本地地址。
  */
 @Component
 public class OutboundUrlPolicy {
@@ -37,6 +38,11 @@ public class OutboundUrlPolicy {
   }
 
   public void validate(URI uri) {
+    resolve(uri);
+  }
+
+  /** 解析并校验一次，返回固定目标；调用方必须直连 address，不能按主机名再次解析。 */
+  public PinnedTarget resolve(URI uri) {
     if (uri == null || uri.getScheme() == null) {
       throw new PolicyViolation("地址必须包含协议");
     }
@@ -57,9 +63,60 @@ public class OutboundUrlPolicy {
     if (host == null || host.isBlank()) {
       throw new PolicyViolation("地址缺少主机名");
     }
-    if (uri.getPort() == 0) {
+    int port = uri.getPort();
+    if (port != -1 && (port < 1 || port > 65535)) {
       throw new PolicyViolation("端口非法");
     }
+    if (port == -1) {
+      port = "https".equals(scheme) ? 443 : 80;
+    }
+    return resolveHost(host, port, "https".equals(scheme));
+  }
+
+  /** 校验 JDBC authority（host[:port][/database]）并固定解析结果。 */
+  public void validateJdbcHost(String authority) {
+    if (authority == null || authority.isBlank()) {
+      throw new PolicyViolation("JDBC 地址缺少主机名");
+    }
+    URI uri;
+    try {
+      uri = URI.create("postgresql://" + authority.trim());
+    } catch (IllegalArgumentException ex) {
+      throw new PolicyViolation("JDBC 地址格式非法");
+    }
+    String host = uri.getHost();
+    if (host == null || host.isBlank()) {
+      throw new PolicyViolation("JDBC 地址缺少主机名");
+    }
+    int port = uri.getPort() <= 0 ? 5432 : uri.getPort();
+    resolveHost(host, port, true);
+  }
+
+  public PinnedTarget resolveJdbc(String jdbcUrl) {
+    String prefix = "jdbc:postgresql://";
+    if (jdbcUrl == null || !jdbcUrl.startsWith(prefix)) {
+      throw new PolicyViolation("JDBC 地址必须使用 jdbc:postgresql://");
+    }
+    String authority = jdbcUrl.substring(prefix.length());
+    int slash = authority.indexOf('/');
+    if (slash >= 0) {
+      authority = authority.substring(0, slash);
+    }
+    URI uri;
+    try {
+      uri = URI.create("postgresql://" + authority);
+    } catch (IllegalArgumentException ex) {
+      throw new PolicyViolation("JDBC 地址格式非法");
+    }
+    String host = uri.getHost();
+    if (host == null || host.isBlank()) {
+      throw new PolicyViolation("JDBC 地址缺少主机名");
+    }
+    int port = uri.getPort() <= 0 ? 5432 : uri.getPort();
+    return resolveHost(host, port, true);
+  }
+
+  private PinnedTarget resolveHost(String host, int port, boolean secure) {
     String normalized = host.toLowerCase(Locale.ROOT);
     if (normalized.endsWith(".")) {
       normalized = normalized.substring(0, normalized.length() - 1);
@@ -73,6 +130,9 @@ public class OutboundUrlPolicy {
     } catch (UnknownHostException ex) {
       throw new PolicyViolation("无法解析主机名：" + normalized);
     }
+    if (addresses.length == 0) {
+      throw new PolicyViolation("主机名没有可用地址：" + normalized);
+    }
     for (InetAddress address : addresses) {
       if (isMetadata(address)) {
         throw new PolicyViolation("禁止访问云元数据服务");
@@ -81,6 +141,7 @@ public class OutboundUrlPolicy {
         throw new PolicyViolation("禁止访问回环、私网或链路本地地址");
       }
     }
+    return new PinnedTarget(normalized, port, secure, addresses[0]);
   }
 
   private static boolean isMetadata(InetAddress address) {
@@ -106,9 +167,20 @@ public class OutboundUrlPolicy {
           || (first == 198 && (second == 18 || second == 19));
     }
     if (address instanceof Inet6Address && bytes.length == 16) {
+      boolean mapped = true;
+      for (int i = 0; i < 10; i++) {
+        mapped &= bytes[i] == 0;
+      }
+      mapped &= (bytes[10] & 0xff) == 0xff && (bytes[11] & 0xff) == 0xff;
+      if (mapped) {
+        return true;
+      }
       return (bytes[0] & 0xfe) == 0xfc;
     }
     return false;
+  }
+
+  public record PinnedTarget(String host, int port, boolean secure, InetAddress address) {
   }
 
   public static class PolicyViolation extends RuntimeException {

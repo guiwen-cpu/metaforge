@@ -16,6 +16,7 @@ set -eu
   cat /migrations/33_sso.sql
   cat /migrations/34_connections.sql
   cat /migrations/35_notification_channels.sql
+  cat /migrations/36_connection_audits.sql
   cat /sql/*.sql
   cat /migrations/99_grants.sql
   echo "select pg_advisory_unlock(918273645);"

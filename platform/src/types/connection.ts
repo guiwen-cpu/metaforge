@@ -4,11 +4,25 @@ export interface ConnectionHeader {
 }
 
 export interface ConnectionAuth {
-  type: "none" | "tenant" | "bearer" | "apiKey" | "basic" | string;
+  type: "none" | "tenant" | "bearer" | "apiKey" | "basic" | "oauth2" | "signature" | string;
   tokenRef?: string;
   valueRef?: string;
   usernameRef?: string;
   passwordRef?: string;
+  tokenUrl?: string;
+  grant?: "clientCredentials" | "authorizationCode" | "password" | string;
+  clientIdRef?: string;
+  clientSecretRef?: string;
+  refreshTokenRef?: string;
+  clientAuth?: "basic" | "post";
+  refreshBeforeSec?: number;
+  scopes?: string[];
+  secretRef?: string;
+  algorithm?: "hmacSha256" | "md5";
+  timestampHeader?: string;
+  timestampUnit?: string;
+  encoding?: "hex" | "base64";
+  template?: string;
   name?: string;
   in?: "header" | "query";
   headerName?: string;
@@ -43,6 +57,17 @@ export interface ConnectionPayload {
   base_url?: string | null;
   config: ConnectionConfig;
   enabled: boolean;
+}
+
+export interface ConnectionAuditView {
+  id: string;
+  connection_id: string;
+  connection_key: string;
+  action: string;
+  actor: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  created_at: string;
 }
 
 export interface SecretView {

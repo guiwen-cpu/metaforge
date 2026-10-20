@@ -185,6 +185,7 @@ curl -X POST http://localhost:8080/api/v1/platform/apps/$APP_ID/versions/1/rollb
 基础路径：
 
 - `/api/v1/platform/connections`：连接器注册表，支持 `GET` / `POST`，子路径 `/{id}` 支持 `PATCH` / `DELETE`。
+- `/api/v1/platform/connections/{id}/audits`：连接器变更审计，返回 `create` / `update` / `delete` 前后快照；请求头与鉴权凭据在快照中脱敏为 `***`。
 - `/api/v1/platform/secrets`：租户密钥库，支持 `GET` / `POST`，子路径 `/{id}` 支持 `PATCH` / `DELETE`。
 
 连接器与密钥都按 `tenant_id` 隔离，写操作要求租户管理员权限。密钥值只写不读：列表与更新响应只返回 key、名称、说明、版本和轮换时间。
@@ -204,7 +205,19 @@ API 绑定连接器后，运行时按以下优先级合并：
 3. 请求头：连接器公共头为基础，同名 API 头覆盖；
 4. 鉴权：API `auth` 缺省或为 `null` 时继承连接器默认鉴权；显式 `{ "type": "none" }` 才关闭。
 
-支持 `bearer`、`apiKey`（`header` / `query`）与 `basic`。`oauth2` 与签名鉴权尚未接入。
+连接器 `kind` 支持 `rest`、`graphql`、`soap`、`database`、`internal`。`database` / `internal` 不使用 `baseUrl`，其中数据库地址写在 `config.jdbcUrl`。
+
+鉴权支持 `none`、`tenant`、`bearer`、`apiKey`（`header` / `query`）、`basic`、`oauth2` 与 `signature`：
+
+- `oauth2`：`grant` 支持 `clientCredentials` / `authorizationCode` / `password`；从 `tokenUrl` 取令牌，`clientIdRef` / `clientSecretRef` / `usernameRef` / `passwordRef` / `refreshTokenRef` 均引用密钥库；`clientAuth` 可选 `basic`（默认）或 `post`；令牌按租户与客户端缓存，`refreshBeforeSec` 默认 60 秒。
+- `signature`：默认按 `{method}\n{path}\n{timestamp}` 模板签名，`algorithm` 支持 `hmacSha256`（默认）与 `md5`，`encoding` 支持 `hex`（默认）与 `base64`；签名头默认 `X-Signature`，时间戳头默认 `X-Timestamp`，时间单位支持 `seconds`（默认）/ `millis`。
+
+### 数据库连接器
+
+- 仅允许 PostgreSQL JDBC 地址（`jdbc:postgresql://`），驱动固定为 PostgreSQL，地址不得携带查询参数。
+- SQL 只允许 `SELECT` / `WITH`，单条语句、参数化绑定，禁止写操作关键字。
+- 连接强制只读事务，查询超时默认 15 秒（上限 60），返回行数默认 5000（上限 5000）。
+- `graphql` 调用自动检查响应 `errors`；`soap` 调用识别 SOAP Fault 并作为业务失败返回。
 
 ### 出站安全
 
@@ -213,5 +226,4 @@ API 绑定连接器后，运行时按以下优先级合并：
 - 只允许 HTTP/HTTPS；HTTP 默认拒绝，需 `LCP_CONNECTOR_ALLOW_INSECURE_HTTP=true`。
 - 默认拒绝回环、私网、链路本地、多播与云元数据地址；本地联调需 `LCP_CONNECTOR_ALLOW_PRIVATE_NETWORKS=true`。
 - 地址不得包含 userinfo 或 fragment。
-
-连接器首版只支持 REST/HTTP；内部、数据库、GraphQL、SOAP 仍返回明确不支持。
+- 运行时先解析并固定 DNS，再直连解析出的 IP，防止 DNS rebinding；不支持重定向，HTTPS 校验主机名，响应体上限 8 MB。

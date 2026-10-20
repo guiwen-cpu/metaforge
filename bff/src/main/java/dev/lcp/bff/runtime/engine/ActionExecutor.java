@@ -5,8 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.lcp.bff.connector.ConnectionService;
-import dev.lcp.bff.connector.OutboundUrlPolicy;
-import dev.lcp.bff.connector.SecretService;
+import dev.lcp.bff.connector.ConnectorRuntime;
+import dev.lcp.bff.connector.PinnedHttpTransport;
+import dev.lcp.bff.connector.XmlJson;
 import dev.lcp.bff.platform.PlatformException;
 import dev.lcp.bff.runtime.PublishedBundleService.PublishedBundle;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.ExecuteActionRequest;
@@ -17,12 +18,7 @@ import dev.lcp.bff.tenant.TenantContext;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -59,10 +55,9 @@ public class ActionExecutor {
   private final dev.lcp.bff.runtime.PublishedBundleService bundles;
   private final ExpressionEngine expressions;
   private final ObjectMapper json;
-  private final HttpClient http;
   private final ConnectionService connections;
-  private final SecretService secrets;
-  private final OutboundUrlPolicy outboundUrls;
+  private final ConnectorRuntime connectors;
+  private final XmlJson xml;
   private final RuntimeActionGateway gateway;
 
   public ActionExecutor(
@@ -70,20 +65,16 @@ public class ActionExecutor {
       ExpressionEngine expressions,
       ObjectMapper json,
       ConnectionService connections,
-      SecretService secrets,
-      OutboundUrlPolicy outboundUrls,
+      ConnectorRuntime connectors,
+      XmlJson xml,
       RuntimeActionGateway gateway) {
     this.bundles = bundles;
     this.expressions = expressions;
     this.json = json;
     this.connections = connections;
-    this.secrets = secrets;
-    this.outboundUrls = outboundUrls;
+    this.connectors = connectors;
+    this.xml = xml;
     this.gateway = gateway;
-    this.http = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(5))
-        .followRedirects(HttpClient.Redirect.NEVER)
-        .build();
   }
 
   public ActionExecutionResult execute(UUID appId, String actionKey, ExecuteActionRequest request) {
@@ -1191,8 +1182,27 @@ public class ActionExecutor {
           log.warn("节假日日历使用占位服务，API {} 已降级为空日历", apiKey);
           response = emptyResponse();
         } else {
-          response = invokeRest(api, apiKey, callParams, apiScope, retry, deadline);
+          response = invokeHttp(api, "rest", apiKey, callParams, apiScope, retry, deadline);
         }
+      } else if ("graphql".equals(kind)) {
+        JsonNode retry = step.has("retry") ? step.get("retry") : api.path("retry");
+        response = invokeHttp(api, "graphql", apiKey, callParams, apiScope, retry, deadline);
+        JsonNode errors = response.path("body").path("errors");
+        if (errors.isArray() && !errors.isEmpty()) {
+          throw new BusinessFailure("API_GRAPHQL_ERROR",
+              "API " + apiKey + " GraphQL 返回错误：" + abbreviate(errors.toString()),
+              List.of(), false);
+        }
+      } else if ("soap".equals(kind)) {
+        JsonNode retry = step.has("retry") ? step.get("retry") : api.path("retry");
+        response = invokeSoap(api, apiKey, callParams, apiScope, retry, deadline);
+        String fault = xml.faultMessage(response.path("body"));
+        if (fault != null) {
+          throw new BusinessFailure("API_SOAP_FAULT",
+              "API " + apiKey + " SOAP Fault：" + fault, List.of(), false);
+        }
+      } else if ("database".equals(kind)) {
+        response = invokeDatabase(api, apiKey, apiScope, callParams);
       } else {
         throw new BusinessFailure("UNSUPPORTED_API",
             "API " + apiKey + " 的 kind=" + kind + " 尚未接入运行时连接器", List.of(), false);
@@ -1291,11 +1301,12 @@ public class ActionExecutor {
     return values;
   }
 
-  private JsonNode invokeRest(
-      JsonNode api, String apiKey, ObjectNode callParams, ExpressionEngine.Scope apiScope,
-      JsonNode retry, long deadline) {
-    String method = api.path("method").asText("GET").toUpperCase(Locale.ROOT);
-    ConnectionService.RuntimeConnection connection = resolveConnection(api, apiKey);
+  private JsonNode invokeHttp(
+      JsonNode api, String kind, String apiKey, ObjectNode callParams,
+      ExpressionEngine.Scope apiScope, JsonNode retry, long deadline) {
+    String method = "graphql".equals(kind)
+        ? "POST" : api.path("method").asText("GET").toUpperCase(Locale.ROOT);
+    ConnectionService.RuntimeConnection connection = resolveConnection(api, apiKey, kind);
     JsonNode connectionConfig = connection == null
         ? json.createObjectNode() : connection.config();
     String baseUrl = api.path("baseUrl").asText("");
@@ -1311,45 +1322,37 @@ public class ActionExecutor {
     JsonNode apiAuth = api.path("auth");
     JsonNode auth = apiAuth.isMissingNode() || apiAuth.isNull()
         ? connectionConfig.path("auth") : apiAuth;
-    AuthResolution authResolution = resolveAuth(auth, apiKey);
+    ConnectorRuntime.AuthResult authResult = connectors.auth(auth, apiKey);
     URI uri = buildUri(
         baseUrl, path, api.path("request").path("query"), callParams, apiScope, apiKey,
-        authResolution.query());
-    try {
-      outboundUrls.validate(uri);
-    } catch (OutboundUrlPolicy.PolicyViolation ex) {
-      throw new BusinessFailure("API_URL_BLOCKED", "API " + apiKey + " 地址被拒绝：" + ex.getMessage(),
-          List.of(), false);
-    }
+        authResult.query());
 
     long defaultTimeout = connectionConfig.path("timeoutMs").asLong(10_000);
     long timeout = Math.max(1, api.has("timeoutMs")
         ? api.path("timeoutMs").asLong(defaultTimeout) : defaultTimeout);
     timeout = remainingMillis(deadline, timeout);
-    HttpRequest.Builder request = HttpRequest.newBuilder(uri).timeout(Duration.ofMillis(timeout));
-    HttpPayload payload = requestPayload(api, apiScope);
+    HttpPayload payload = "graphql".equals(kind)
+        ? graphqlPayload(api, apiScope) : requestPayload(api, apiScope);
 
     Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     addConnectionHeaders(connectionConfig.path("headers"), headers);
     addApiHeaders(api.path("request").path("headers"), callParams, apiScope, headers);
     if (payload != null) {
       headers.put("Content-Type", payload.contentType());
-      request.method(method, HttpRequest.BodyPublishers.ofString(payload.body(), StandardCharsets.UTF_8));
-    } else {
-      request.method(method, HttpRequest.BodyPublishers.noBody());
     }
-    headers.forEach(request::setHeader);
-    authResolution.headers().forEach(request::setHeader);
+    headers.putAll(authResult.headers());
+    connectors.sign(auth, method, uri.getRawPath(), uri.getRawQuery(),
+        payload == null ? "" : payload.body(), headers);
 
     int maxAttempts = Math.max(1, Math.min(10, retry.path("maxAttempts").asInt(1)));
     String backoff = retry.path("backoff").asText("none");
     List<Integer> retryOn = retryStatuses(retry);
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        HttpResponse<String> response = http.send(
-            request.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        PinnedHttpTransport.Response response = connectors.send(
+            uri, method, headers, payload == null ? null : payload.body(), timeout);
         JsonNode envelope = responseNode(response);
-        if (attempt < maxAttempts && retryOn.contains(response.statusCode())) {
+        if (attempt < maxAttempts && retryOn.contains(response.status())) {
           sleep(backoffMillis(backoff, attempt));
           continue;
         }
@@ -1361,9 +1364,6 @@ public class ActionExecutor {
               List.of(), false);
         }
         sleep(backoffMillis(backoff, attempt));
-      } catch (InterruptedException ex) {
-        Thread.currentThread().interrupt();
-        throw new BusinessFailure("ACTION_INTERRUPTED", "API 请求被中断", List.of(), false);
       } catch (IllegalArgumentException ex) {
         throw new BusinessFailure("API_REQUEST",
             "API " + apiKey + " 请求构造失败，请检查地址与请求头", List.of(), false);
@@ -1372,9 +1372,141 @@ public class ActionExecutor {
     throw new BusinessFailure("API_IO", "API " + apiKey + " 请求失败", List.of(), false);
   }
 
-  private ConnectionService.RuntimeConnection resolveConnection(JsonNode api, String apiKey) {
+  private JsonNode invokeSoap(
+      JsonNode api, String apiKey, ObjectNode callParams, ExpressionEngine.Scope apiScope,
+      JsonNode retry, long deadline) {
+    ConnectionService.RuntimeConnection connection = resolveConnection(api, apiKey, "soap");
+    JsonNode config = connection == null ? json.createObjectNode() : connection.config();
+    String baseUrl = api.path("baseUrl").asText("");
+    if (baseUrl.isBlank() && connection != null && connection.baseUrl() != null) {
+      baseUrl = connection.baseUrl();
+    }
+    if (baseUrl.isBlank()) {
+      throw new BusinessFailure("API_NO_BASE_URL",
+          "API " + apiKey + " 未配置 SOAP 地址", List.of(), false);
+    }
+    String path = applyPathParams(api.path("path").asText(""),
+        pathValues(api, callParams, apiScope), apiKey);
+    URI uri = buildUri(baseUrl, path, json.createArrayNode(), json.createObjectNode(), apiScope,
+        apiKey, List.of());
+    String body = soapBody(api, apiScope, apiKey);
+    JsonNode apiAuth = api.path("auth");
+    JsonNode auth = apiAuth.isMissingNode() || apiAuth.isNull() ? config.path("auth") : apiAuth;
+    ConnectorRuntime.AuthResult authResult = connectors.auth(auth, apiKey);
+    Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    addConnectionHeaders(config.path("headers"), headers);
+    addApiHeaders(api.path("request").path("headers"), callParams, apiScope, headers);
+    headers.put("Content-Type", "text/xml; charset=utf-8");
+    headers.put("Accept", "text/xml, application/soap+xml");
+    String action = api.path("x-soapAction").asText(config.path("soapAction").asText(""));
+    if (!action.isBlank()) {
+      headers.put("SOAPAction", action);
+    }
+    headers.putAll(authResult.headers());
+    connectors.sign(auth, "POST", uri.getRawPath(), uri.getRawQuery(), body, headers);
+
+    long timeout = remainingMillis(deadline, api.has("timeoutMs")
+        ? api.path("timeoutMs").asLong(10_000) : config.path("timeoutMs").asLong(10_000));
+    int maxAttempts = Math.max(1, Math.min(10, retry.path("maxAttempts").asInt(1)));
+    String backoff = retry.path("backoff").asText("none");
+    List<Integer> retryOn = retryStatuses(retry);
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        PinnedHttpTransport.Response response = connectors.send(
+            uri, "POST", headers, body, timeout);
+        ObjectNode envelope = json.createObjectNode();
+        envelope.put("status", response.status());
+        envelope.set("body", xml.parse(response.body()));
+        ObjectNode responseHeaders = envelope.putObject("headers");
+        response.headers().forEach((name, values) -> responseHeaders.put(name,
+            String.join(",", values)));
+        if (attempt < maxAttempts && retryOn.contains(response.status())) {
+          sleep(backoffMillis(backoff, attempt));
+          continue;
+        }
+        return envelope;
+      } catch (IOException ex) {
+        if (attempt >= maxAttempts) {
+          throw new BusinessFailure("API_IO",
+              "API " + apiKey + " SOAP 请求失败（" + ex.getClass().getSimpleName() + "）",
+              List.of(), false);
+        }
+        sleep(backoffMillis(backoff, attempt));
+      }
+    }
+    throw new BusinessFailure("API_IO", "API " + apiKey + " SOAP 请求失败", List.of(), false);
+  }
+
+  private JsonNode invokeDatabase(
+      JsonNode api, String apiKey, ExpressionEngine.Scope apiScope, ObjectNode callParams) {
+    ConnectionService.RuntimeConnection connection = resolveConnection(api, apiKey, "database");
+    if (connection == null) {
+      throw new BusinessFailure("API_NO_CONNECTION",
+          "API " + apiKey + " 的 database 调用必须引用连接器", List.of(), false);
+    }
+    JsonNode request = expressions.deepValue(api.path("request").path("body").path("mapping"), apiScope);
+    if (request == null || !request.isObject()) {
+      request = json.createObjectNode();
+    }
+    ObjectNode body = json.createObjectNode();
+    body.put("status", 200);
+    body.set("body", connectors.queryDatabase(connection, request, apiKey));
+    body.set("headers", json.createObjectNode());
+    return body;
+  }
+
+  private HttpPayload graphqlPayload(JsonNode api, ExpressionEngine.Scope apiScope) {
+    JsonNode body = api.path("request").path("body");
+    JsonNode raw = body.has("raw") ? expressions.eval(body.get("raw"), apiScope) : null;
+    JsonNode mapping = body.has("mapping")
+        ? expressions.deepValue(body.get("mapping"), apiScope) : null;
+    ObjectNode payload = json.createObjectNode();
+    if (raw != null && !raw.isNull()) {
+      if (raw.isObject() && raw.has("query")) {
+        payload = (ObjectNode) raw.deepCopy();
+      } else {
+        payload.put("query", raw.isTextual() ? raw.asText() : raw.toString());
+      }
+    } else if (mapping != null && mapping.isObject()) {
+      payload = (ObjectNode) mapping.deepCopy();
+      if (!payload.has("query") && payload.has("queryText")) {
+        payload.set("query", payload.remove("queryText"));
+      }
+    }
+    if (payload.path("query").asText("").isBlank()) {
+      throw new BusinessFailure("API_GRAPHQL_QUERY",
+          "GraphQL API 必须在 request.body.raw 或 mapping 中提供 query", List.of(), false);
+    }
+    try {
+      return new HttpPayload("application/json", json.writeValueAsString(payload));
+    } catch (Exception ex) {
+      throw new BusinessFailure("API_BODY", "GraphQL 请求体序列化失败", List.of(), false);
+    }
+  }
+
+  private String soapBody(JsonNode api, ExpressionEngine.Scope apiScope, String apiKey) {
+    JsonNode body = api.path("request").path("body");
+    JsonNode raw = body.has("raw") ? expressions.eval(body.get("raw"), apiScope) : null;
+    if (raw == null || raw.isNull()) {
+      JsonNode mapping = body.has("mapping")
+          ? expressions.deepValue(body.get("mapping"), apiScope) : null;
+      raw = mapping == null ? null : mapping.get("envelope");
+    }
+    if (raw == null || raw.isNull() || raw.asText("").isBlank()) {
+      throw new BusinessFailure("API_SOAP_BODY",
+          "API " + apiKey + " 必须在 request.body 中提供 XML envelope", List.of(), false);
+    }
+    return raw.isTextual() ? raw.asText() : raw.toString();
+  }
+
+  private ConnectionService.RuntimeConnection resolveConnection(
+      JsonNode api, String apiKey, String expectedKind) {
     JsonNode ref = api.path("connectionRef");
     if (ref.isMissingNode() || ref.isNull() || ref.isTextual() && ref.asText().isBlank()) {
+      if ("database".equals(expectedKind)) {
+        throw new BusinessFailure("API_NO_CONNECTION",
+            "API " + apiKey + " 的 database 调用必须引用连接器", List.of(), false);
+      }
       return null;
     }
     String kind = ref.isTextual() ? "connection" : ref.path("kind").asText("connection");
@@ -1399,9 +1531,10 @@ public class ActionExecutor {
       throw new BusinessFailure("CONNECTION_DISABLED",
           "连接器 " + value + " 已停用", List.of(), false);
     }
-    if (!"rest".equals(connection.kind())) {
-      throw new BusinessFailure("UNSUPPORTED_CONNECTION",
-          "连接器 " + value + " 的 kind=" + connection.kind() + " 尚未接入运行时", List.of(), false);
+    if (!expectedKind.equals(connection.kind())) {
+      throw new BusinessFailure("CONNECTION_KIND_MISMATCH",
+          "API " + apiKey + " 的 kind=" + expectedKind + " 与连接器 " + value
+              + " 的 kind=" + connection.kind() + " 不一致", List.of(), false);
     }
     return connection;
   }
@@ -1494,7 +1627,8 @@ public class ActionExecutor {
 
   private URI buildUri(
       String baseUrl, String path, JsonNode queryDefs, ObjectNode callParams,
-      ExpressionEngine.Scope apiScope, String apiKey, List<QueryParam> authQuery) {
+      ExpressionEngine.Scope apiScope, String apiKey,
+      List<ConnectorRuntime.QueryParam> authQuery) {
     StringBuilder url = new StringBuilder(baseUrl.endsWith("/")
         ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl);
     if (path != null && !path.isEmpty()) {
@@ -1517,7 +1651,7 @@ public class ActionExecutor {
           .append('=')
           .append(URLEncoder.encode(stringValue(value), StandardCharsets.UTF_8));
     }
-    for (QueryParam param : authQuery) {
+    for (ConnectorRuntime.QueryParam param : authQuery) {
       if (query.length() > 0) {
         query.append('&');
       }
@@ -1575,75 +1709,12 @@ public class ActionExecutor {
         "请求体类型 " + contentType + " 尚未接入", List.of(), false);
   }
 
-  private AuthResolution resolveAuth(JsonNode auth, String apiKey) {
-    Map<String, String> headers = new LinkedHashMap<>();
-    List<QueryParam> query = new ArrayList<>();
-    if (auth == null || auth.isMissingNode() || auth.isNull()) {
-      return new AuthResolution(headers, query);
-    }
-    String type = auth.path("type").asText("none");
-    switch (type) {
-      case "", "none" -> { }
-      case "tenant" -> {
-        String name = auth.path("headerName").asText("X-Tenant-Id");
-        String tenant = TenantContext.tenantId();
-        if (tenant == null || tenant.isBlank()) {
-          throw new BusinessFailure("API_AUTH", "缺少租户上下文，无法注入租户头", List.of(), false);
-        }
-        headers.put(name, tenant);
-      }
-      case "bearer" -> {
-        String token = secretValue(auth.path("tokenRef").asText(""), apiKey);
-        headers.put("Authorization", "Bearer " + token);
-      }
-      case "apiKey" -> {
-        String name = auth.path("name").asText("");
-        String value = secretValue(auth.path("valueRef").asText(""), apiKey);
-        if (name.isBlank()) {
-          throw new BusinessFailure("API_AUTH", "API " + apiKey + " 的 apiKey.name 不能为空",
-              List.of(), false);
-        }
-        if ("query".equals(auth.path("in").asText("header"))) {
-          query.add(new QueryParam(name, value));
-        } else {
-          headers.put(name, value);
-        }
-      }
-      case "basic" -> {
-        String username = secretValue(auth.path("usernameRef").asText(""), apiKey);
-        String password = secretValue(auth.path("passwordRef").asText(""), apiKey);
-        String encoded = Base64.getEncoder().encodeToString(
-            (username + ":" + password).getBytes(StandardCharsets.UTF_8));
-        headers.put("Authorization", "Basic " + encoded);
-      }
-      default -> throw new BusinessFailure("UNSUPPORTED_AUTH",
-          "鉴权方式 " + type + " 尚未接入运行时，当前支持 none / tenant / bearer / apiKey / basic",
-          List.of(), false);
-    }
-    return new AuthResolution(headers, query);
-  }
-
-  private String secretValue(String ref, String apiKey) {
-    if (ref == null || ref.isBlank()) {
-      throw new BusinessFailure("API_AUTH_REF", "API " + apiKey + " 缺少密钥引用", List.of(), false);
-    }
-    try {
-      return secrets.value(ref);
-    } catch (PlatformException ex) {
-      throw new BusinessFailure(ex.code(), "API " + apiKey + " 鉴权失败：" + ex.getMessage(),
-          List.of(), false);
-    } catch (RuntimeException ex) {
-      throw new BusinessFailure("API_AUTH", "API " + apiKey + " 鉴权失败", List.of(), false);
-    }
-  }
-
-  private JsonNode responseNode(HttpResponse<String> response) {
+  private JsonNode responseNode(PinnedHttpTransport.Response response) {
     ObjectNode out = json.createObjectNode();
-    out.put("status", response.statusCode());
-    out.set("body", parseBody(response.body(),
-        response.headers().firstValue("content-type").orElse("")));
+    out.put("status", response.status());
+    out.set("body", parseBody(response.body(), response.firstHeader("content-type")));
     ObjectNode headers = json.createObjectNode();
-    response.headers().map().forEach((name, values) -> {
+    response.headers().forEach((name, values) -> {
       if (values == null || values.isEmpty()) {
         headers.put(name, "");
       } else if (values.size() == 1) {
@@ -1656,6 +1727,14 @@ public class ActionExecutor {
     });
     out.set("headers", headers);
     return out;
+  }
+
+  private static String abbreviate(String value) {
+    if (value == null) {
+      return "";
+    }
+    String compact = value.replaceAll("\\s+", " ").trim();
+    return compact.length() <= 300 ? compact : compact.substring(0, 300) + "…";
   }
 
   private JsonNode parseBody(String raw, String contentType) {
@@ -1822,11 +1901,5 @@ public class ActionExecutor {
   }
 
   private record HttpPayload(String contentType, String body) {
-  }
-
-  private record QueryParam(String name, String value) {
-  }
-
-  private record AuthResolution(Map<String, String> headers, List<QueryParam> query) {
   }
 }

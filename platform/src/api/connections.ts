@@ -1,5 +1,6 @@
 import { http } from "@/lib/http";
 import type {
+  ConnectionAuditView,
   ConnectionPayload,
   ConnectionView,
   SecretPayload,
@@ -27,6 +28,13 @@ export const connectionsApi = {
 
   async deleteConnection(id: string): Promise<void> {
     await http.delete(`/platform/connections/${encodeURIComponent(id)}`);
+  },
+
+  async listConnectionAudits(id: string): Promise<ConnectionAuditView[]> {
+    const { data } = await http.get<ConnectionAuditView[]>(
+      `/platform/connections/${encodeURIComponent(id)}/audits`
+    );
+    return data;
   },
 
   async listSecrets(): Promise<SecretView[]> {

@@ -39,6 +39,17 @@ public final class ConnectorDtos {
       OffsetDateTime updatedAt) {
   }
 
+  public record ConnectionAuditView(
+      String id,
+      String connectionId,
+      String connectionKey,
+      String action,
+      String actor,
+      JsonNode before,
+      JsonNode after,
+      OffsetDateTime createdAt) {
+  }
+
   public record CreateSecretRequest(
       String key,
       String name,
