@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-20
-> 分支：`dev` ｜ 最新提交：`3327c49 feat(connector): 新增连接器注册表与租户密钥库`
+> 分支：`dev` ｜ 最新提交：`4c7a971 feat(notification): 新增 webhook / email 通道、通知规则与 SLA 提醒`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -20,7 +20,10 @@
 | 动作执行 | `POST /api/v1/runtime/apps/{appId}/actions/{actionKey}/execute` |
 | 动作日志 | `GET /api/v1/runtime/apps/{appId}/action-runs`（按 `processInstanceId` / `actionKey` / `status` 过滤）；详情 `GET .../action-runs/{id}` |
 | 失败重放 | `POST /api/v1/runtime/apps/{appId}/action-runs/{id}/replay` |
-| 站内通知 | `GET /notifications`、`GET /notifications/unread-count`；`POST /notifications/{id}/read`、`POST /notifications/read-all` |
+| 站内通知 | 应用内：`/api/v1/runtime/apps/{appId}/notifications`（含 `unread-count`、`{id}/read`、`read-all`）；全局：`/api/v1/runtime/notifications` 同组接口，跨应用聚合 |
+| 外部通知 | `lcp_notification_delivery` outbox：`webhook` / `email` 复用连接器 `connectionRef`，15 秒轮询、指数退避（上限 1 小时，5 次后 `dead`） |
+| SLA 提醒 | `lcp_sla_reminder` 按 `(tenant, task, stage)` 幂等；warning / escalate 定时扫描并按通知模板发送 |
+| 通知规则 | 发布件 `logicSchemas[].rules[].kind=notification`：`when` 过滤、目标用户表达式、渠道与模板；规则失败只记日志 |
 | 登录入口 | `http://localhost:8080/login`；账号 `alice/alice123`、`bob/bob123`、`principal/principal123`、`hr/hr123` |
 | 身份 API | `POST /api/v1/auth/login`、`GET /api/v1/auth/me`、`GET /api/v1/platform/identity/overview?appId=<id>` |
 | 认证安全 API | `GET /api/v1/auth/password-policy`、`POST /api/v1/auth/password`、`GET /api/v1/platform/identity/auth-audits`（管理员，支持 `eventType` / `username` / `success` / `limit`） |
@@ -66,6 +69,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `1565955` | 运行时菜单与页面权限 | 四账号导航过滤 + 页面 200/403 + CDP 菜单切换与动态路由 |
 | `20e3eb9` | 统一身份登录（OIDC / CAS） | OIDC 端到端 + 票据/state 重放 + 未绑定 403 + CDP 登录 |
 | `3327c49` | 连接器注册表与租户密钥库 | 四种鉴权真实 HTTP 链路 + 权限 403 + CDP 连接器/密钥/引用保存 |
+| `4c7a971` | 外部通知通道、通知规则与 SLA 提醒 | webhook / email outbox + 规则挂载 + SLA 幂等 + 全局通知入口 |
 
 ## 文档维护
 
@@ -188,15 +192,25 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 健壮性：逻辑设计器加载草稿时归一化缺失的 `actions/apis/flows/rules` 数组，避免旧草稿或外部导入 Bundle 打开即报错。
 - 验证：typecheck / build 与 BFF 镜像构建通过；管理员连接器/密钥接口 200，Alice 读连接器 200、写连接器与读密钥 403；密钥响应不含明文/密文/IV；四种鉴权真实 HTTP 链路分别返回预期结果，错误密钥 401 且日志无明文；CDP 验证连接器列表、密钥轮换状态、逻辑设计器连接器继承与草稿 r4 回读。
 
+### 16. 外部通知、通知规则与 SLA 提醒（刚完成）
+- 协议：`logic.schema.json` 增加 `NotificationChannel` / `NotificationEvent` / `NotificationSpec` / `NotificationRuleConfig`；`Flow.sla` 支持 warning / escalate 通知，`Rule` 增加 `kind=notification` 与 `notification` 载荷；TS / Java 双端类型同步。
+- 数据库：`35_notification_channels.sql` 新建 `lcp_notification_delivery`（外部渠道 outbox）与 `lcp_sla_reminder`（任务阶段幂等），均启用租户 RLS；新增 `public.lcp_active_tenants()` 供无请求上下文的后台调度器发现租户。
+- BFF：`NotificationRuleService` 读取发布件规则，按 `when` 求值并解析目标用户；站内信直接写 `lcp_notification`，webhook / email 写 outbox 后由 `NotificationDispatcher` 投递。
+- 投递：复用连接器 `connectionRef` 与密钥库；15 秒轮询、`for update skip locked` 抢占、指数退避（上限 1 小时），成功 `sent`、可重试 `failed`、超限或不可重试 `dead`，payload 入队即冻结。
+- SLA：`SlaReminderService` 定时扫描发布态流程的 `sla` 配置，warning / escalate 各提醒一次；提醒记录与通知关联，重复扫描不重复发送。
+- 全局通知：新增 `GET /api/v1/runtime/notifications`、`/unread-count`、`/{id}/read`、`/read-all`；前端顶栏铃铛跨应用聚合，30 秒轮询、未读角标、点击直达业务页面。
+- 修复：Flowable 会把连接 `search_path` 切到 `flowable`，SLA 与 outbox 调度器改为显式调用 `public.lcp_active_tenants()`。
+- 验证：演示任务超期后生成 1 条 escalate 提醒与 1 条 `sla:escalate` 通知（接收人 `principal`），下一扫描周期仍各 1 条；手工插入无 `connectionRef` 的投递后转为 `dead`、`attempts=1`，错误为「外部通知未配置 connectionRef」；`node tools/validate.mjs examples/leave-approval.bundle.json` 通过（仅保留已知监听器警告）。
+
 ## 剩余路线图
 
-### 阶段 4 · 运行时与工作流（进行中）
+### 阶段 4 · 运行时与工作流（已完成）
 - [x] 4.1 Flowable 运行时：发布时部署 BPMN（来自 `logicSchemas.flows`），实例启动/查询已通；挂起/激活未做。
 - [x] 4.2 任务 API：待办/已办/我发起、签收、完成、转办、变量、历史时间线已完成；加签未做。
 - [x] 4.3 逻辑执行器：动作步骤同步执行（assign / branch / loop / parallel 串行兼容 / callAction / transaction 顺序 / delay / log / emit / fail），REST 与 mock API 已接入，支持超时、重试、路径/查询/头/体、`successWhen`、响应映射、`resultPath` / `assignTo`；内部/数据库 API 与脚本类步骤明确失败。
 - [x] 4.4 表达式引擎：按注册表白名单求值 97 个函数、14 个取值根；支持 `$lit/$ref/$fn/$tpl/$if`、路径、`filter/map` 子作用域、`$now` 冻结；未知函数、错误元数、未知根均抛错。
 - [x] 4.5 审批页：审批中心（待办/已办/我发起）、详情（表单 + 时间线 + 审批动作）已完成；办理人解析已接组织架构，静态目录仅作兜底。
-- [x] 4.6 运行时事件与回调：流程状态回写已完成；站内通知（任务分派 / 转办 / 退回 / 驳回 / 通过）落库，支持未读数、单条已读、全部已读；审批中心增加通知面板与未读角标。邮件 / webhook 通道未接入。
+- [x] 4.6 运行时事件与回调：流程状态回写；站内通知（任务分派 / 转办 / 退回 / 驳回 / 通过）与审批同事务落库，支持未读数、单条 / 全部已读；审批中心通知面板 + 顶栏全局铃铛（跨应用、30 秒轮询、点击跳转）。外部渠道（webhook / email）走 outbox，复用连接器、幂等、指数退避与 `dead` 终态；`Rule.kind=notification` 规则挂载与 SLA warning / escalate 幂等提醒已接入。
 - [x] 4.7 动作回写与运行日志：动作结果可回写流程变量/业务字段并按成功/失败声明推进任务；运行日志持久化，支持实例/动作/状态查询、详情与失败重放；结束实例变量可从历史表读取。
 
 ### 阶段 5 · 权限体系
@@ -249,7 +263,11 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - **动作日志与重放**：每次执行落一行 `lcp_action_run`，保存原始入参/上下文/事件与 trace；重放复用原始输入并写 `replayed_from`，不撤销上一次副作用。
 - **API 单点收口**：动作不内联 URL，只引用 Api 工件；REST 直连，内部/数据库等待连接器与密钥库。
 - **表达式安全**：白名单函数 + 注册取值根，叠加步数、调用层级、动作超时与延迟上限。
-- **通知首版只做站内信**：通知与审批动作同事务写入，按「租户 + 用户 + 类型 + 业务对象」对未读去重；邮件 / webhook 需要连接器与密钥库，暂不阻塞审批。
+- **通知分通道落库**：站内信与审批动作同事务写入，按「租户 + 用户 + 类型 + 业务对象」对未读去重；webhook / email 只写 outbox，payload 入队即冻结，投递失败不回滚审批。
+- **外部通知幂等与退避**：`(tenant_id, idempotency_key, channel, recipient)` 唯一；调度器 15 秒轮询，指数退避上限 1 小时，5 次后置 `dead`。
+- **SLA 提醒幂等**：`lcp_sla_reminder` 以 `(tenant_id, task_id, stage)` 唯一，同一任务同一阶段只提醒一次；warning 与 escalate 复用通知模板，不重复写规则。
+- **通知规则复用逻辑发布件**：`Rule.kind=notification` 与动作规则同在 `logicSchemas`，按 `when` 过滤、目标用户由表达式求值；单条规则失败只记日志，不阻断审批。
+- **调度器显式限定 schema**：Flowable 会覆盖连接 `search_path`，后台调度器统一调用 `public.lcp_active_tenants()`，避免在不同 `search_path` 下找不到函数。
 - **通知触发点跟随业务事务**：任务分派、转办、退回、驳回、通过由 `ProcessRuntimeService` 显式触发，不在 Flowable 监听器里直接写库。
 - **JWT 是唯一生产身份源**：`TenantFilter` 校验 Bearer JWT 后写入 `TenantContext`；`X-Tenant-Id` / `X-User-Id` 只在 `lcp.auth.dev-headers=true` 时兜底，staging/prod 覆盖层显式关闭。
 - **角色绑定与权限定义分离**：组织表只回答「谁拥有哪个角色」，角色、权限、字段白名单与行级条件全部来自发布件；运行时不在代码里硬编码角色。
@@ -281,7 +299,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - SSO 已接入 OIDC / CAS，但未实现 SLO、刷新令牌、IdP 组同步与解绑管理界面；CAS 仅完成协议实现，尚未对真实 IdP 做链路测试。已有 JWT 在改密后不会服务端撤销，需等待过期或前端主动退出。
 - 认证审计暂无分页与保留期策略，`limit` 上限内一次返回。
 - 运行预览当前只渲染发布页面布局；数据绑定、表单动作与交互渲染留待阶段 6，菜单中的外部链接直接新开窗口。
-- 通知仅覆盖任务分派、转办、退回、驳回、通过；邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口未接入。
+- 通知已覆盖站内信、webhook / email outbox、`Rule.kind=notification` 与 SLA 提醒；`autoApprove` / `autoReject` 仍未实现，通知规则暂无实例规则做端到端实测，outbox 暂无管理界面与保留期策略。
 - 自定义组件只有设计器内联沙箱预览；发布态远程组件加载未实现。
 - OSS STS 临时凭证服务未实现，生成代码里只有直传骨架。
 - 生成前端示例仍使用演示会话；控制平面已切 JWT，但出码模板未同步。
@@ -291,8 +309,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4 与阶段 5 已完成，按以下顺序推进：
 
-1. 扩展通知：复用连接器与密钥库接邮件 / webhook 通道，补 `Rule.kind=notification` 挂载、SLA 超时提醒与全局未读入口。
-2. 阶段 6 发布态运行时渲染器：在现有只读布局上接数据查询、表单动作与组件交互，再做自定义组件远程加载。
+1. 阶段 6 发布态运行时渲染器：在现有只读布局上接数据查询、表单动作与组件交互，再做自定义组件远程加载。
+2. Web / H5 应用壳与路由、登录态：复用运行时导航与权限，把当前 `RuntimeShellPage` 拆成可独立部署的应用壳。
 3. 连接器扩展：internal / database / GraphQL / SOAP 与 `oauth2`、签名鉴权，并补连接器变更审计与 DNS rebinding 加固。
 4. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
 
