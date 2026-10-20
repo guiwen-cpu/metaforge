@@ -129,6 +129,16 @@ public class ExpressionEngine {
     public Map<String, JsonNode> roots() {
       return roots;
     }
+
+    /** 从根到当前层展开所有作用域，用于并行分支的快照与差异合并。 */
+    public Map<String, JsonNode> flattenedRoots() {
+      Map<String, JsonNode> all = new LinkedHashMap<>();
+      if (parent != null) {
+        all.putAll(parent.flattenedRoots());
+      }
+      all.putAll(roots);
+      return all;
+    }
   }
 
   public Scope newScope() {

@@ -28,12 +28,23 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -51,6 +62,7 @@ public class ActionExecutor {
   private static final int MAX_DEPTH = 8;
   private static final int MAX_STEPS = 5000;
   private static final long MAX_DELAY_MS = 10_000L;
+  private static final int MAX_PARALLEL = 20;
 
   private final dev.lcp.bff.runtime.PublishedBundleService bundles;
   private final ExpressionEngine expressions;
@@ -108,6 +120,7 @@ public class ActionExecutor {
     scope.attach("appId", bundle.appId());
     scope.attach("versionNo", bundle.versionNo());
     scope.attach("events", json.createArrayNode());
+    scope.attach("counter", new AtomicInteger());
     scope.attach("depth", 0);
     long deadline = started + Math.max(1, syntheticAction.path("timeoutMs").asLong()) * 1_000_000L;
     scope.attach("deadline", deadline);
@@ -138,6 +151,7 @@ public class ActionExecutor {
     scope.attach("appId", bundle.appId());
     scope.attach("versionNo", bundle.versionNo());
     scope.attach("events", events);
+    scope.attach("counter", new AtomicInteger());
     scope.attach("depth", 0);
 
     long timeoutMs = action.path("timeoutMs").asLong(30000);
@@ -420,16 +434,21 @@ public class ActionExecutor {
     return last;
   }
 
+  private AtomicInteger sharedCounter(ExpressionEngine.Scope scope) {
+    Object existing = scope.attachment("counter");
+    if (existing instanceof AtomicInteger counter) {
+      return counter;
+    }
+    AtomicInteger counter = new AtomicInteger();
+    scope.attach("counter", counter);
+    return counter;
+  }
   private JsonNode executeStep(
       JsonNode step, ExpressionEngine.Scope scope, List<StepTrace> traces, long deadline) {
     String type = step.path("type").asText("");
     String label = step.path("label").asText(type);
-    int[] counter = (int[]) scope.attachment("counter");
-    if (counter == null) {
-      counter = new int[1];
-      scope.attach("counter", counter);
-    }
-    if (++counter[0] > MAX_STEPS) {
+    AtomicInteger counter = sharedCounter(scope);
+    if (counter.incrementAndGet() > MAX_STEPS) {
       throw new BusinessFailure("STEP_LIMIT", "动作步骤超过上限 " + MAX_STEPS, List.of(), true);
     }
     if (deadline > 0 && System.nanoTime() > deadline) {
@@ -614,31 +633,243 @@ public class ActionExecutor {
 
   private JsonNode parallel(
       JsonNode step, ExpressionEngine.Scope scope, List<StepTrace> children, long deadline) {
+    long parallelStart = System.nanoTime();
+    List<JsonNode> branches = new ArrayList<>();
+    step.path("branches").forEach(branches::add);
+    if (branches.isEmpty()) {
+      return json.createArrayNode();
+    }
+    long timeoutMs = step.path("timeoutMs").asLong(0);
+    long branchDeadline = deadline;
+    if (timeoutMs > 0) {
+      long local = System.nanoTime() + timeoutMs * 1_000_000L;
+      branchDeadline = branchDeadline > 0 ? Math.min(branchDeadline, local) : local;
+    }
+    final long branchLimit = branchDeadline;
     boolean failFast = step.path("failFast").asBoolean(true);
-    ArrayNode results = json.createArrayNode();
-    for (JsonNode branch : step.path("branches")) {
-      long start = System.nanoTime();
-      List<StepTrace> branchTrace = new ArrayList<>();
-      ExpressionEngine.Scope child = forkScope(scope);
-      String name = branch.path("name").asText("branch");
-      try {
-        JsonNode value = executeSteps(branch.path("steps"), child, branchTrace, deadline);
-        results.add(value == null ? json.nullNode() : value);
-        children.add(new StepTrace("", "branch", name, "completed",
-            millis(start), null, value, branchTrace));
-      } catch (RuntimeException ex) {
-        BusinessFailure failure = toFailure(ex);
-        results.add(json.nullNode());
-        children.add(new StepTrace("", "branch", name, "failed",
-            millis(start), failure.getMessage(), null, branchTrace));
-        if (failFast) {
-          throw failure;
+    Map<String, JsonNode> baseline = snapshotRoots(scope);
+    String tenantId = TenantContext.tenantId();
+    String userId = TenantContext.userId();
+    int threads = Math.min(branches.size(), MAX_PARALLEL);
+    ExecutorService pool = Executors.newFixedThreadPool(threads, runnable -> {
+      Thread thread = new Thread(runnable, "runtime-parallel");
+      thread.setDaemon(true);
+      return thread;
+    });
+    ExecutorCompletionService<BranchOutcome> completion = new ExecutorCompletionService<>(pool);
+    List<Future<BranchOutcome>> futures = new ArrayList<>();
+    BranchOutcome[] outcomes = new BranchOutcome[branches.size()];
+    int completed = 0;
+    int failureIndex = -1;
+    boolean timedOut = false;
+    try {
+      for (int i = 0; i < branches.size(); i++) {
+        int index = i;
+        JsonNode branch = branches.get(i);
+        String name = branch.path("name").asText("branch");
+        JsonNode steps = branch.path("steps");
+        futures.add(completion.submit(
+            () -> runBranch(index, name, steps, scope, baseline, tenantId, userId, branchLimit)));
+      }
+      while (completed < branches.size()) {
+        Future<BranchOutcome> done = awaitBranch(completion, branchLimit);
+        if (done == null) {
+          timedOut = true;
+          cancelAll(futures);
+          break;
+        }
+        BranchOutcome outcome = done.get();
+        outcomes[outcome.index()] = outcome;
+        completed++;
+        if (outcome.failure() != null && failFast) {
+          failureIndex = outcome.index();
+          cancelAll(futures);
+          break;
         }
       }
+    } catch (InterruptedException ex) {
+      Thread.currentThread().interrupt();
+      cancelAll(futures);
+      throw new BusinessFailure("ACTION_INTERRUPTED", "并行步骤等待被中断", List.of(), true);
+    } catch (ExecutionException ex) {
+      cancelAll(futures);
+      Throwable cause = ex.getCause();
+      if (cause instanceof RuntimeException runtime) {
+        throw toFailure(runtime);
+      }
+      throw new BusinessFailure("PARALLEL_ERROR", "并行分支执行异常：" + cause, List.of(), true);
+    } finally {
+      pool.shutdownNow();
+    }
+
+    ArrayNode parentEvents = (ArrayNode) scope.attachment("events");
+    ArrayNode results = json.createArrayNode();
+    for (int i = 0; i < branches.size(); i++) {
+      String name = branches.get(i).path("name").asText("branch");
+      BranchOutcome outcome = outcomes[i];
+      if (outcome == null) {
+        children.add(new StepTrace("", "branch", name, "cancelled",
+            millis(parallelStart), "并行分支已取消", null, List.of()));
+        continue;
+      }
+      if (parentEvents != null && outcome.events() != null) {
+        parentEvents.addAll(outcome.events());
+      }
+      if (outcome.failure() == null) {
+        results.add(outcome.value() == null ? json.nullNode() : outcome.value());
+      } else {
+        results.add(json.nullNode());
+      }
+      boolean merge = outcome.failure() == null && !timedOut
+          && (failureIndex < 0 || i < failureIndex);
+      if (merge) {
+        mergeRoots(baseline, outcome.roots(), scope);
+      }
+      children.add(new StepTrace(
+          "", "branch", name,
+          outcome.failure() == null ? "completed" : "failed",
+          millis(outcome.started()),
+          outcome.failure() == null ? null : outcome.failure().getMessage(),
+          outcome.failure() == null ? outcome.value() : null,
+          outcome.trace()));
+    }
+    if (timedOut) {
+      throw new BusinessFailure("PARALLEL_TIMEOUT", "并行步骤执行超时", List.of(), true);
+    }
+    if (failureIndex >= 0) {
+      throw outcomes[failureIndex].failure();
     }
     return results;
   }
 
+  /**
+   * 并行分支各自使用独立作用域与事务。分支写库在分支事务内提交，不随父动作后续失败回滚；
+   * 变量/表单变更在全部完成后按声明顺序做一次根节点差异合并，数组整体替换，后者覆盖前者。
+   */
+  private BranchOutcome runBranch(
+      int index,
+      String name,
+      JsonNode steps,
+      ExpressionEngine.Scope parent,
+      Map<String, JsonNode> baseline,
+      String tenantId,
+      String userId,
+      long deadline) {
+    long started = System.nanoTime();
+    List<StepTrace> trace = new ArrayList<>();
+    ArrayNode events = json.createArrayNode();
+    ExpressionEngine.Scope child = isolateScope(parent, baseline);
+    child.attach("events", events);
+    try {
+      if (tenantId != null) {
+        TenantContext.set(tenantId, userId);
+      }
+      JsonNode value = transactionRunner == null
+          ? executeSteps(steps, child, trace, deadline)
+          : transactionRunner.execute("readCommitted", false,
+              () -> executeSteps(steps, child, trace, deadline));
+      return new BranchOutcome(index, name, value, trace, events,
+          snapshotRoots(child), null, started);
+    } catch (RuntimeException ex) {
+      return new BranchOutcome(index, name, null, trace, events,
+          snapshotRoots(child), toFailure(ex), started);
+    } finally {
+      TenantContext.clear();
+    }
+  }
+
+  private ExpressionEngine.Scope isolateScope(
+      ExpressionEngine.Scope parent, Map<String, JsonNode> baseline) {
+    ExpressionEngine.Scope child = parent.child();
+    for (Map.Entry<String, JsonNode> entry : baseline.entrySet()) {
+      child.put(entry.getKey(), entry.getValue().deepCopy());
+    }
+    return child;
+  }
+
+  private static Map<String, JsonNode> snapshotRoots(ExpressionEngine.Scope scope) {
+    Map<String, JsonNode> snapshot = new LinkedHashMap<>();
+    for (Map.Entry<String, JsonNode> entry : scope.flattenedRoots().entrySet()) {
+      snapshot.put(entry.getKey(), entry.getValue() == null
+          ? null : entry.getValue().deepCopy());
+    }
+    return snapshot;
+  }
+
+  private void mergeRoots(
+      Map<String, JsonNode> baseline,
+      Map<String, JsonNode> current,
+      ExpressionEngine.Scope parent) {
+    if (current == null) {
+      return;
+    }
+    for (Map.Entry<String, JsonNode> entry : current.entrySet()) {
+      String name = entry.getKey();
+      JsonNode now = entry.getValue();
+      JsonNode before = baseline.get(name);
+      JsonNode target = parent.root(name);
+      if (target instanceof ObjectNode object && now != null && now.isObject()) {
+        mergeObject(object, before, now, name);
+      } else if (!Objects.equals(before, now)) {
+        parent.put(name, now == null ? json.nullNode() : now.deepCopy());
+      }
+    }
+  }
+
+  private void mergeObject(ObjectNode target, JsonNode before, JsonNode current, String root) {
+    Set<String> keys = new LinkedHashSet<>();
+    current.fieldNames().forEachRemaining(keys::add);
+    if (before != null && before.isObject()) {
+      before.fieldNames().forEachRemaining(keys::add);
+    }
+    for (String key : keys) {
+      if ("ctx".equals(root) && ("result".equals(key) || "error".equals(key))) {
+        continue;
+      }
+      JsonNode now = current.get(key);
+      if (now == null) {
+        target.remove(key);
+        continue;
+      }
+      JsonNode previous = before != null && before.isObject() ? before.get(key) : null;
+      JsonNode existing = target.get(key);
+      if (existing != null && existing.isObject() && now.isObject()) {
+        mergeObject((ObjectNode) existing, previous, now, root + "." + key);
+      } else if (!Objects.equals(previous, now)) {
+        target.set(key, now.deepCopy());
+      }
+    }
+  }
+
+  private Future<BranchOutcome> awaitBranch(
+      ExecutorCompletionService<BranchOutcome> completion, long deadline)
+      throws InterruptedException {
+    if (deadline <= 0) {
+      return completion.take();
+    }
+    long remaining = deadline - System.nanoTime();
+    if (remaining <= 0) {
+      return null;
+    }
+    return completion.poll(remaining, TimeUnit.NANOSECONDS);
+  }
+
+  private static void cancelAll(List<Future<BranchOutcome>> futures) {
+    for (Future<BranchOutcome> future : futures) {
+      future.cancel(true);
+    }
+  }
+
+  private record BranchOutcome(
+      int index,
+      String name,
+      JsonNode value,
+      List<StepTrace> trace,
+      ArrayNode events,
+      Map<String, JsonNode> roots,
+      BusinessFailure failure,
+      long started) {
+  }
   private JsonNode callAction(
       JsonNode step, ExpressionEngine.Scope scope, List<StepTrace> children, long deadline) {
     String actionKey = step.path("actionRef").path("key").asText("");

@@ -508,6 +508,137 @@ class ActionExecutorTest {
     assertThat(transactionRunner.readOnly).isTrue();
   }
 
+  @Test
+  void runsParallelBranchesConcurrentlyWithIsolatedVarsAndOrderedEvents() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "fanout", "steps": [
+              {"id": "p1", "type": "parallel", "failFast": true, "branches": [
+                {"name": "a", "steps": [
+                  {"id": "a1", "type": "delay", "ms": 300},
+                  {"id": "a2", "type": "assign", "target": "vars.x", "value": {"$lit": "a"}},
+                  {"id": "a3", "type": "assign", "target": "vars.xa",
+                   "value": {"$ref": "$ctx.vars.x"}},
+                  {"id": "a4", "type": "emit", "event": "branch:a"}
+                ]},
+                {"name": "b", "steps": [
+                  {"id": "b1", "type": "assign", "target": "vars.x", "value": {"$lit": "b"}},
+                  {"id": "b2", "type": "delay", "ms": 300},
+                  {"id": "b3", "type": "emit", "event": "branch:b"}
+                ]}
+              ]}
+            ]}
+          ]
+        }
+        """);
+
+    long started = System.nanoTime();
+    ActionExecutionResult result = executor.execute(
+        bundle, "fanout", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+    long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
+
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.vars().path("xa").asText()).isEqualTo("a");
+    assertThat(result.vars().path("x").asText()).isEqualTo("b");
+    assertThat(result.events()).hasSize(2);
+    assertThat(result.events().get(0).path("event").asText()).isEqualTo("branch:a");
+    assertThat(result.events().get(1).path("event").asText()).isEqualTo("branch:b");
+    assertThat(result.trace().get(0).children()).hasSize(2);
+    assertThat(elapsedMs).isLessThan(550L);
+  }
+
+  @Test
+  void parallelFailFastKeepsTraceAndCancelsRemainingBranches() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "fanout", "steps": [
+              {"id": "p1", "type": "parallel", "failFast": true, "branches": [
+                {"name": "slow", "steps": [
+                  {"id": "s1", "type": "delay", "ms": 2000},
+                  {"id": "s2", "type": "assign", "target": "vars.slow", "value": {"$lit": true}}
+                ]},
+                {"name": "bad", "steps": [
+                  {"id": "b1", "type": "fail", "code": "BAD_BRANCH",
+                   "message": "分支失败", "rollback": false}
+                ]}
+              ]}
+            ]}
+          ]
+        }
+        """);
+
+    long started = System.nanoTime();
+    ActionExecutionResult result = executor.execute(
+        bundle, "fanout", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+    long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
+
+    assertThat(result.status()).isEqualTo("failed");
+    assertThat(result.error().code()).isEqualTo("BAD_BRANCH");
+    assertThat(result.trace().get(0).children()).hasSize(2);
+    assertThat(result.trace().get(0).children().get(0).status()).isEqualTo("cancelled");
+    assertThat(result.trace().get(0).children().get(1).status()).isEqualTo("failed");
+    assertThat(elapsedMs).isLessThan(1000L);
+  }
+
+  @Test
+  void parallelWithoutFailFastKeepsSuccessfulBranches() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "soft", "steps": [
+              {"id": "p1", "type": "parallel", "failFast": false, "branches": [
+                {"name": "bad", "steps": [
+                  {"id": "b1", "type": "fail", "code": "SOFT_FAIL",
+                   "message": "可忽略失败", "rollback": false}
+                ]},
+                {"name": "good", "steps": [
+                  {"id": "g1", "type": "assign", "target": "vars.ok", "value": {"$lit": true}},
+                  {"id": "g2", "type": "emit", "event": "branch:good"}
+                ]}
+              ]}
+            ]}
+          ]
+        }
+        """);
+
+    ActionExecutionResult result = executor.execute(
+        bundle, "soft", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+
+    assertThat(result.status()).isEqualTo("completed");
+    assertThat(result.result().get(0).isNull()).isTrue();
+    assertThat(result.result().get(1).path("event").asText()).isEqualTo("branch:good");
+    assertThat(result.vars().path("ok").asBoolean()).isTrue();
+    assertThat(result.events()).hasSize(1);
+    assertThat(result.trace().get(0).children().get(0).status()).isEqualTo("failed");
+    assertThat(result.trace().get(0).children().get(1).status()).isEqualTo("completed");
+  }
+
+  @Test
+  void parallelTimeoutFailsTheStep() {
+    PublishedBundle bundle = bundle("""
+        {
+          "key": "logic", "actions": [
+            {"key": "slow", "steps": [
+              {"id": "p1", "type": "parallel", "timeoutMs": 200, "branches": [
+                {"name": "a", "steps": [{"id": "a1", "type": "delay", "ms": 2000}]},
+                {"name": "b", "steps": [{"id": "b1", "type": "delay", "ms": 2000}]}
+              ]}
+            ]}
+          ]
+        }
+        """);
+
+    long started = System.nanoTime();
+    ActionExecutionResult result = executor.execute(
+        bundle, "slow", new ExecuteActionRequest(Map.of(), Map.of(), Map.of()));
+    long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
+
+    assertThat(result.status()).isEqualTo("failed");
+    assertThat(result.error().code()).isEqualTo("PARALLEL_TIMEOUT");
+    assertThat(elapsedMs).isLessThan(1200L);
+  }
   private static final class RecordingTransactionRunner implements RuntimeTransactionRunner {
 
     int calls;
