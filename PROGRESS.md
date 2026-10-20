@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`f5bcd54 feat(connector): 扩展 GraphQL/SOAP/数据库连接器与 OAuth2 签名鉴权`
+> 分支：`dev` ｜ 最新提交：`4d28ed6 feat(codegen): 出码模板接入 JWT 登录与组织权限`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -77,7 +77,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `16507a3` | H5 应用壳与移动端适配 | typecheck / build / 容器重建 + 深链登录回跳、非法路径回退、发起页、底部导航与桌面回归 CDP 实测 |
 | `3bee549` | uni-app 小程序运行时壳 | typecheck + H5 / mp-weixin 构建 + H5 390×844 登录、列表、搜索、分页、详情与表单回填 CDP 实测 |
 | `f5bcd54` | 连接器扩展（GraphQL / SOAP / database / OAuth2 / 签名 / 审计） | typecheck / build / BFF 测试 + 审计落库与脱敏 + 私网 HTTP 链路冒烟 |
-| `PENDING` | 出码模板 JWT 会话与组织权限 | 生成工程 typecheck / build + 登录、刷新恢复、退出登录 CDP 实测 |
+| `4d28ed6` | 出码模板 JWT 会话与组织权限 | 生成工程 typecheck / build + 登录、刷新恢复、退出登录 CDP 实测 |
 
 ## 文档维护
 
