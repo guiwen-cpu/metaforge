@@ -13,6 +13,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -266,6 +267,77 @@ public class BusinessRecordService {
     return out;
   }
 
+  /** 查询超过 idleDays 未流转的单据；状态列与时间列来自实体元数据，值只走绑定参数。 */
+  public QueryResult findStale(JsonNode entity, List<String> statuses, int idleDays, int limit) {
+    if (entity == null) {
+      return new QueryResult(List.of(), 0);
+    }
+    JsonNode storage = entity.path("storage");
+    String table = required(entity, "tableName");
+    String updatedAt = text(storage.path("timestamps"), "updatedAt", null);
+    if (updatedAt == null) {
+      throw new IllegalStateException("实体未声明 updatedAt 列，无法查询超期单据");
+    }
+    int safeDays = Math.max(1, Math.min(idleDays, 3650));
+    int safeLimit = Math.max(1, Math.min(limit, 5000));
+    MapSqlParameterSource params = new MapSqlParameterSource("t", tenant()).addValue("idleDays", safeDays);
+    List<String> where = baseWhere(storage);
+    where.add("t." + q(updatedAt) + " < now() - (cast(:idleDays as integer) * interval '1 day')");
+    if (statuses != null && !statuses.isEmpty()) {
+      String statusColumn = statusColumn(entity);
+      where.add("t." + q(statusColumn) + " in (:statuses)");
+      params.addValue("statuses", statuses);
+    }
+    String from = " from " + q(table) + " t where " + String.join(" and ", where);
+    long total = count("select count(*)" + from, params);
+    params.addValue("limit", safeLimit);
+    String sql = "select t.*, " + extExpression(storage) + " as __ext_json" + from
+        + " order by t." + q(updatedAt) + " asc limit :limit";
+    return new QueryResult(readRows(entity, sql, params), total);
+  }
+
+  /** 半开区间重叠：existing.start < new.end AND existing.end > new.start。 */
+  public QueryResult findOverlap(
+      JsonNode entity,
+      String applicantId,
+      String startAt,
+      String endAt,
+      String excludeId,
+      List<String> activeStatuses) {
+    if (entity == null) {
+      return new QueryResult(List.of(), 0);
+    }
+    JsonNode storage = entity.path("storage");
+    String table = required(entity, "tableName");
+    String idColumn = text(storage, "primaryKey", "id");
+    String ownerColumn = requireColumnField(entity, ownerColumn(entity), "ownerField");
+    String startColumn = requireColumnField(entity, timeColumn(entity, "startAt"), "startAt");
+    String endColumn = requireColumnField(entity, timeColumn(entity, "endAt"), "endAt");
+    MapSqlParameterSource params = new MapSqlParameterSource("t", tenant())
+        .addValue("applicantId", applicantId)
+        .addValue("startAt", startAt)
+        .addValue("endAt", endAt);
+    List<String> where = baseWhere(storage);
+    where.add("t." + q(ownerColumn) + " = :applicantId");
+    where.add("t." + q(startColumn) + " < cast(:endAt as timestamptz)");
+    where.add("t." + q(endColumn) + " > cast(:startAt as timestamptz)");
+    if (excludeId != null && !excludeId.isBlank()) {
+      where.add("t." + q(idColumn) + " <> :excludeId");
+      params.addValue("excludeId", excludeId);
+    }
+    if (activeStatuses != null && !activeStatuses.isEmpty()) {
+      String statusColumn = statusColumn(entity);
+      where.add("t." + q(statusColumn) + " in (:activeStatuses)");
+      params.addValue("activeStatuses", activeStatuses);
+    }
+    String from = " from " + q(table) + " t where " + String.join(" and ", where);
+    long total = count("select count(*)" + from, params);
+    params.addValue("limit", 5000);
+    String sql = "select t.*, " + extExpression(storage) + " as __ext_json" + from
+        + " order by t." + q(startColumn) + " asc, t." + q(idColumn) + " asc limit :limit";
+    return new QueryResult(readRows(entity, sql, params), total);
+  }
+
   /** 软删除由实体元数据决定列名；没有配置软删除时拒绝调用。 */
   public void softDelete(JsonNode entity, String id, String actor) {
     JsonNode storage = entity.path("storage");
@@ -322,6 +394,82 @@ public class BusinessRecordService {
       }
     }
     return null;
+  }
+
+  private List<String> baseWhere(JsonNode storage) {
+    List<String> where = new ArrayList<>();
+    String tenantColumn = text(storage, "tenantColumn", "tenant_id");
+    where.add("t." + q(tenantColumn) + " = :t");
+    String softDelete = storage.path("softDelete").path("enabled").asBoolean(false)
+        ? storage.path("softDelete").path("column").asText("deleted_at") : null;
+    if (softDelete != null) {
+      where.add("t." + q(softDelete) + " is null");
+    }
+    return where;
+  }
+
+  private static String extExpression(JsonNode storage) {
+    String jsonbColumn = text(storage, "jsonbColumn", "ext");
+    return jsonbColumn == null ? "null" : "t." + q(jsonbColumn) + "::text";
+  }
+
+  private static String statusColumn(JsonNode entity) {
+    String declared = text(entity, "statusField", null);
+    return declared == null ? "status" : declared;
+  }
+
+  private static String ownerColumn(JsonNode entity) {
+    String declared = text(entity.path("access"), "ownerField", null);
+    return declared == null ? camelToSnake("applicantId") : declared;
+  }
+
+  private static String timeColumn(JsonNode entity, String requestField) {
+    return camelToSnake(requestField);
+  }
+
+  private static String requireColumnField(JsonNode entity, String key, String label) {
+    JsonNode field = field(entity, key);
+    if (field == null) {
+      throw new IllegalStateException("实体元数据缺少 " + label + " 字段 " + key);
+    }
+    if ("jsonb".equals(field.path("storage").asText("column"))) {
+      throw new IllegalStateException("实体字段 " + key + " 不是列存储，不能用于 " + label + " 查询");
+    }
+    return key;
+  }
+
+  private static String camelToSnake(String value) {
+    return value.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase(Locale.ROOT);
+  }
+
+  private long count(String sql, MapSqlParameterSource params) {
+    Long total = jdbc.queryForObject(sql, params, Long.class);
+    return total == null ? 0 : total;
+  }
+
+  private List<Map<String, Object>> readRows(
+      JsonNode entity, String sql, MapSqlParameterSource params) {
+    String jsonbColumn = text(entity.path("storage"), "jsonbColumn", "ext");
+    List<Map<String, Object>> rows = jdbc.queryForList(sql, params);
+    List<Map<String, Object>> out = new ArrayList<>(rows.size());
+    for (Map<String, Object> raw : rows) {
+      Map<String, Object> row = new LinkedHashMap<>(raw);
+      Object rawExt = row.remove("__ext_json");
+      if (jsonbColumn != null) {
+        row.remove(jsonbColumn);
+      }
+      if (rawExt instanceof String text && !text.isBlank()) {
+        try {
+          JsonNode node = json.readTree(text);
+          node.fields().forEachRemaining(entry -> row.putIfAbsent(entry.getKey(), plain(entry.getValue())));
+        } catch (Exception ignored) {
+          // ext 不是对象时不影响主列读取
+        }
+      }
+      row.replaceAll((key, value) -> normalize(value));
+      out.add(row);
+    }
+    return out;
   }
 
   private static String casts(JsonNode field, String param) {
@@ -416,5 +564,8 @@ public class BusinessRecordService {
   }
 
   private record RawSql(String sql) {
+  }
+
+  public record QueryResult(List<Map<String, Object>> rows, long total) {
   }
 }

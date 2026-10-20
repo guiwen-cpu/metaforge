@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`dcedacf`（`feat(runtime): 接入 custom 注册式处理器`）
+> 分支：`dev` ｜ 最新提交：`54ae546`（`feat(runtime): code 步骤接入白名单入口表`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -88,7 +88,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `03fd438` | 运行时 transaction 真事务 | BFF 单测 + 真实 API `leave_submit` 草稿落库 |
 | `ea19eb3` | 运行时 parallel 受控并发 | BFF 单测 + 真实 API `leave_batch_recall` 两单撤回 |
 | `dcedacf` | 运行时 custom 注册式处理器 | BFF 单测 + 真实发布件 API 执行 `platform.uuid` / `platform.now` |
-| 本提交 | 运行时 code 白名单入口 | BFF 单测 + 真实发布件 API 执行 `calcWorkdays` 与未注册入口 |
+| `54ae546` | 运行时 code 白名单入口 | BFF 单测 + 真实发布件 API 执行 `calcWorkdays` 与未注册入口 |
+| 本提交 | 运行时 findStale / findOverlap 内部 API | BFF 47 个测试 + 临时发布件真实 API 冒烟 |
 
 ## 文档维护
 
@@ -305,12 +306,20 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 首个注册入口为 `calcWorkdays`，保留原有法定节假日/调休、周末跳过、年假超长告警与 `assignTo` 行为。
 - 验证：BFF 40 个测试通过（含注册表键、未注册入口失败）；真实发布件 API 执行 `code_check` 返回 `days=5`、跳过 `2026-10-01` / `2026-10-04`，同发布件的 `bad_code` 返回 `UNSUPPORTED_STEP`。
 
+
+### 30. 运行时 findStale / findOverlap 内部 API（已完成）
+- `POST /bff/entity/{entity}/findStale`：`idleDays` 默认 30（1–3650），`limit` 默认 5000（1–5000），可按 `statuses` 过滤；返回 `{rows,total}`，按 `updated_at` 升序取超期单据。
+- `POST /bff/entity/{entity}/findOverlap`：必填 `applicantId` / `startAt` / `endAt`，可选 `excludeId`，`activeStatuses` 默认 `pending,draft,approved`；按半开区间 `existing.start_at < new.end_at AND existing.end_at > new.start_at` 查询。
+- 表名、主键、租户列、软删除列、更新时间列、`access.ownerField`、时间字段与状态字段全部来自实体元数据；任何值均通过绑定参数，租户与软删条件由服务端强制追加。
+- 两个入口都先计算 `total` 再取最多 5000 行，JSONB `ext` 字段合并回业务行，非法实体/字段/参数明确返回错误。
+- 验证：BFF 47 个测试通过；临时发布件真实 API 冒烟中 `findStale` 返回 8 条 approved 超期单据，`findOverlap` 命中 2026-11-09 至 11-10 的两张重叠单据（含 approved 与 draft），临时应用、运行日志与草稿单据均已清理。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
 - [x] 4.1 Flowable 运行时：发布时部署 BPMN（来自 `logicSchemas.flows`），实例启动/查询已通；挂起/激活未做。
 - [x] 4.2 任务 API：待办/已办/我发起、签收、完成、转办、变量、历史时间线已完成；加签未做。
-- [x] 4.3 逻辑执行器：动作步骤同步执行（assign / branch / loop / parallel 受控并发 / callAction / transaction 数据库保存点 / delay / log / emit / fail），REST 与 mock API 已接入，支持超时、重试、路径/查询/头/体、`successWhen`、响应映射、`resultPath` / `assignTo`；已接入 `kind=internal` 的实体增查改与流程终止，以及 `startFlow` / `completeTask`、注册入口表（当前 `calcWorkdays`）与节假日占位降级。
+- [x] 4.3 逻辑执行器：动作步骤同步执行（assign / branch / loop / parallel 受控并发 / callAction / transaction 数据库保存点 / delay / log / emit / fail），REST 与 mock API 已接入，支持超时、重试、路径/查询/头/体、`successWhen`、响应映射、`resultPath` / `assignTo`；已接入 `kind=internal` 的实体增查改、流程终止、`findStale` / `findOverlap`，以及 `startFlow` / `completeTask`、注册入口表（当前 `calcWorkdays`）与节假日占位降级。
 - [x] 4.4 表达式引擎：按注册表白名单求值 97 个函数、14 个取值根；支持 `$lit/$ref/$fn/$tpl/$if`、路径、`filter/map` 子作用域、`$now` 冻结；未知函数、错误元数、未知根均抛错。
 - [x] 4.5 审批页：审批中心（待办/已办/我发起）、详情（表单 + 时间线 + 审批动作）已完成；办理人解析已接组织架构，静态目录仅作兜底。
 - [x] 4.6 运行时事件与回调：流程状态回写；站内通知（任务分派 / 转办 / 退回 / 驳回 / 通过）与审批同事务落库，支持未读数、单条 / 全部已读；审批中心通知面板 + 顶栏全局铃铛（跨应用、30 秒轮询、点击跳转）。外部渠道（webhook / email）走 outbox，复用连接器、幂等、指数退避与 `dead` 终态；`Rule.kind=notification` 规则挂载与 SLA warning / escalate 幂等提醒已接入。
@@ -329,7 +338,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 6.1 发布态运行时渲染器：读发布件渲染布局、数据源、搜索分页排序、行操作、详情抽屉与流程时间线；按 `allowedActions` 禁用越权动作，不依赖设计器状态。
 - [x] 6.2 Web / H5 应用壳与路由、登录态：独立移动壳复用同一 SPA、JWT 会话与发布件导航；支持深链回跳、底部导航、桌面/H5 切换与移动端表格横滑。
 - [x] 6.3 uni-app 小程序运行时：独立登录态与运行时壳，复用发布件导航、页面、数据源与动作契约；移动端列表卡片化、表单与详情抽屉已接入。
-- [x] 6.4 运行时动作补齐：`kind=internal` 实体 save/get/patch 与流程终止、`startFlow` / `completeTask`、注册入口 `calcWorkdays`、服务端 `validate` 已接入；请假“新建 → 提交 → 撤回”端到端通过。
+- [x] 6.4 运行时动作补齐：`kind=internal` 实体 save/get/patch、流程终止、`findStale` / `findOverlap`、`startFlow` / `completeTask`、注册入口 `calcWorkdays`、服务端 `validate` 已接入；请假“新建 → 提交 → 撤回”端到端通过。
 - [x] 6.5 自定义组件远程模块加载：`runtime=remote` 的 https 模块按 `{version}` 锁定版本，加载前校验 SRI，模块 `meta` 与契约不一致时拒绝渲染；设计器按真实模块内容生成 integrity。
 - [x] 6.6 运行时附件：页面级 ACL 上传 / 列表 / 受控下载 / 软删除，本地卷存储与类型白名单；小程序上传控件与附件列表已接入。
 - [x] 6.7 小程序微信登录：`jscode2session`、外部身份绑定、配置脱敏与登录页一键登录；未配置时账号密码降级。
@@ -405,7 +414,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 数据库连接器只支持 PostgreSQL 只读查询；不提供写入、事务脚本或多语句执行。
 - 签名模板只提供常用占位符（`{method}` / `{path}` / `{body}` / `{timestamp}` / `{tenant}`），不支持自定义签名算法插件。
 - 密钥没有历史版本，轮换会直接覆盖旧密文；主密钥丢失后已有密钥无法解密。连接器审计保留最近变更，暂无自动归档策略。
-- `validate` 已在服务端执行；前端交互步骤仍记为 skipped。`code` 仅按注册入口表放行（当前 `calcWorkdays`），`custom` 仅分派平台注册处理器（当前内置 `platform.uuid` / `platform.now`）。`kind=internal` 目前只分派实体 save/get/patch 与流程终止，`findStale` / `findOverlap` 等其余内部 API 尚未接入。
+- `validate` 已在服务端执行；前端交互步骤仍记为 skipped。`code` 仅按注册入口表放行（当前 `calcWorkdays`），`custom` 仅分派平台注册处理器（当前内置 `platform.uuid` / `platform.now`）。`kind=internal` 已分派实体 save/get/patch、流程终止、`findStale` 与 `findOverlap`；其余内部 API 尚未接入。
 - 动作日志按租户隔离并可按实例/动作/状态查询，暂无跨应用全局检索与保留期策略；重放不撤销已发生的业务/流程副作用。
 - 办理人解析优先查组织架构（部门负责人 / 角色成员），静态目录仅在 `LCP_RUNTIME_FALLBACK_DIRECTORY=true` 时兜底。
 - 提交 / 审批 / 动作执行已做按钮级授权；加签尚未实现，任务归属仍由 Flowable `assignee` 控制。
@@ -426,7 +435,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4、阶段 5 与阶段 6.1–6.8 已完成，按以下顺序推进：
 
-1. 运行时深化：`findStale` / `findOverlap` 内部 API 与真实节假日服务。
+1. 运行时深化：真实节假日服务（Redis 按年缓存、超时、非 2xx 降级、`calcWorkdays` 合并服务端日历）。
 2. 阶段 7 出码引擎完整化：完整工程、CLI 参数化与增量导出、在线版本 diff。
 3. 阶段 8 集成与阶段 9 市场。
 

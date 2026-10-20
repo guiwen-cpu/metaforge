@@ -12,7 +12,9 @@ import dev.lcp.bff.runtime.dto.RuntimeRequests.TransferTaskRequest;
 import dev.lcp.bff.runtime.dto.RuntimeViews.StartResult;
 import dev.lcp.bff.runtime.dto.RuntimeViews.TaskDetail;
 import dev.lcp.bff.tenant.TenantContext;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -57,6 +59,12 @@ public class RuntimeInternalApiService implements RuntimeActionGateway {
     }
     if ("PATCH".equals(verb) && "/bff/entity/{entity}/patch".equals(path)) {
       return patch(bundle, apiKey, input, values);
+    }
+    if ("POST".equals(verb) && "/bff/entity/{entity}/findStale".equals(path)) {
+      return findStale(bundle, apiKey, input, values);
+    }
+    if ("POST".equals(verb) && "/bff/entity/{entity}/findOverlap".equals(path)) {
+      return findOverlap(bundle, apiKey, input, values);
     }
     if ("POST".equals(verb) && "/bff/flow/processes/{processInstanceId}/terminate".equals(path)) {
       return terminate(input, values);
@@ -178,6 +186,30 @@ public class RuntimeInternalApiService implements RuntimeActionGateway {
     return out;
   }
 
+  private JsonNode findStale(
+      JsonNode bundle, String apiKey, JsonNode params, Map<String, String> pathValues) {
+    JsonNode entity = requireEntity(bundle, apiKey, params, pathValues);
+    int idleDays = boundedInt(params, "idleDays", 30, 1, 3650);
+    int limit = boundedInt(params, "limit", 5000, 1, 5000);
+    List<String> statuses = stringList(params, "statuses", null);
+    BusinessRecordService.QueryResult result = records.findStale(entity, statuses, idleDays, limit);
+    return rows(result);
+  }
+
+  private JsonNode findOverlap(
+      JsonNode bundle, String apiKey, JsonNode params, Map<String, String> pathValues) {
+    JsonNode entity = requireEntity(bundle, apiKey, params, pathValues);
+    String applicantId = requiredText(params, "applicantId", "query_applicant_required");
+    String startAt = requiredText(params, "startAt", "query_start_required");
+    String endAt = requiredText(params, "endAt", "query_end_required");
+    String excludeId = text(params, "excludeId");
+    List<String> activeStatuses = stringList(params, "activeStatuses",
+        List.of("pending", "draft", "approved"));
+    BusinessRecordService.QueryResult result = records.findOverlap(
+        entity, applicantId, startAt, endAt, excludeId, activeStatuses);
+    return rows(result);
+  }
+
   private JsonNode terminate(JsonNode params, Map<String, String> pathValues) {
     String processInstanceId = trim(pathValues.get("processInstanceId"));
     if (processInstanceId == null) {
@@ -231,6 +263,66 @@ public class RuntimeInternalApiService implements RuntimeActionGateway {
       throw PlatformException.badRequest("id_required", "内部 API 缺少业务主键 id");
     }
     return id;
+  }
+
+  private static String requiredText(JsonNode params, String field, String code) {
+    String value = text(params, field);
+    if (value == null) {
+      throw PlatformException.badRequest(code, "内部 API 缺少参数 " + field);
+    }
+    return value;
+  }
+
+  private static int boundedInt(
+      JsonNode params, String field, int fallback, int min, int max) {
+    JsonNode node = params.path(field);
+    if (node.isMissingNode() || node.isNull()) {
+      return fallback;
+    }
+    if (!node.isIntegralNumber()) {
+      throw PlatformException.badRequest("invalid_" + field, "参数 " + field + " 必须是整数");
+    }
+    int value = node.intValue();
+    if (value < min || value > max) {
+      throw PlatformException.badRequest("invalid_" + field,
+          "参数 " + field + " 需在 " + min + " 到 " + max + " 之间");
+    }
+    return value;
+  }
+
+  private static List<String> stringList(JsonNode params, String field, List<String> fallback) {
+    JsonNode node = params.path(field);
+    if (node.isMissingNode() || node.isNull()) {
+      return fallback;
+    }
+    if (!node.isArray()) {
+      throw PlatformException.badRequest("invalid_" + field, "参数 " + field + " 必须是字符串数组");
+    }
+    List<String> values = new ArrayList<>();
+    for (JsonNode item : node) {
+      if (!item.isTextual()) {
+        throw PlatformException.badRequest("invalid_" + field, "参数 " + field + " 必须是字符串数组");
+      }
+      String value = trim(item.asText());
+      if (value == null || value.length() > 64) {
+        throw PlatformException.badRequest("invalid_" + field,
+            "参数 " + field + " 含空值或过长状态值");
+      }
+      values.add(value);
+    }
+    if (values.size() > 50) {
+      throw PlatformException.badRequest("invalid_" + field, "参数 " + field + " 最多 50 项");
+    }
+    return values;
+  }
+
+  private JsonNode rows(BusinessRecordService.QueryResult result) {
+    ObjectNode out = json.createObjectNode();
+    out.put("code", 0);
+    ObjectNode data = out.putObject("data");
+    data.set("rows", json.valueToTree(result.rows()));
+    data.put("total", result.total());
+    return out;
   }
 
   private static String updatedAtColumn(JsonNode entity) {
