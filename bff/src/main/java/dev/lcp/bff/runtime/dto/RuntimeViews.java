@@ -194,7 +194,16 @@ public final class RuntimeViews {
       List<StepTrace> trace,
       ActionError error,
       JsonNode writeback,
-      String runId) {
+      String runId,
+      JsonNode state) {
+  }
+
+  public record DataSourceQueryResult(
+      List<Map<String, Object>> rows,
+      long total,
+      int page,
+      int size,
+      Map<String, Object> item) {
   }
 
   public record ActionRunSummary(

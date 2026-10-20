@@ -7638,6 +7638,195 @@
           "actions": [
             "execute"
           ]
+        },
+        {
+          "roleKey": "student",
+          "resource": "leave_open_detail",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "student",
+          "resource": "leave_open_create",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "student",
+          "resource": "leave_open_edit",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "student",
+          "resource": "leave_recall",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "teacher",
+          "resource": "leave_open_detail",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "teacher",
+          "resource": "leave_open_create",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "teacher",
+          "resource": "leave_open_edit",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "teacher",
+          "resource": "leave_recall",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "dept_manager",
+          "resource": "leave_open_detail",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "dept_manager",
+          "resource": "leave_open_create",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "dept_manager",
+          "resource": "leave_open_edit",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "dept_manager",
+          "resource": "leave_recall",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "dept_manager",
+          "resource": "leave_batch_recall",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "dept_manager",
+          "resource": "leave_export_list",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "school_admin",
+          "resource": "leave_open_detail",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "school_admin",
+          "resource": "leave_open_create",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "school_admin",
+          "resource": "leave_open_edit",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "school_admin",
+          "resource": "leave_batch_recall",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "school_admin",
+          "resource": "leave_export_list",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "hr_admin",
+          "resource": "leave_open_detail",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
+        },
+        {
+          "roleKey": "hr_admin",
+          "resource": "leave_export_list",
+          "resourceType": "action",
+          "actions": [
+            "execute"
+          ],
+          "inherit": true
         }
       ]
     },

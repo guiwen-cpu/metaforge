@@ -1,5 +1,5 @@
 import type { DataSchema } from "./dataModel";
-import type { UISchema } from "./uiModel";
+import type { ComponentDef, UISchema } from "./uiModel";
 
 export interface FieldOption {
   label: string;
@@ -48,7 +48,76 @@ export interface RuntimePageView {
   version_no: number;
   page: UISchema;
   data_schemas: DataSchema[];
-  components: unknown[];
+  components: ComponentDef[];
+  actions: RuntimeActionDefinition[];
+  /** 当前用户可执行的动作；缺省表示旧后端未下发，前端不做能力过滤。 */
+  allowed_actions?: string[];
+}
+
+/** 发布态动作定义。steps 保留原始 JSON，由运行时按步骤类型分工执行。 */
+export interface RuntimeActionDefinition {
+  id?: string;
+  key: string;
+  name?: string;
+  description?: string;
+  trigger?: string;
+  when?: unknown;
+  steps?: RuntimeStep[];
+  params?: RuntimeActionParam[];
+  access?: Record<string, unknown>;
+  timeoutMs?: number;
+  [key: string]: unknown;
+}
+
+export interface RuntimeActionParam {
+  key: string;
+  type?: string;
+  label?: string;
+  required?: boolean;
+  defaultValue?: unknown;
+}
+
+export interface RuntimeStep {
+  id?: string;
+  type: string;
+  [key: string]: unknown;
+}
+
+export interface DataSourceQueryFilter {
+  field: string;
+  op: string;
+  value: unknown;
+}
+
+export interface DataSourceSort {
+  field: string;
+  direction: "asc" | "desc";
+  nulls?: "first" | "last" | null;
+}
+
+export interface DataSourceQueryPayload {
+  state?: Record<string, unknown>;
+  query?: Record<string, unknown>;
+  filters?: DataSourceQueryFilter[];
+  sort?: DataSourceSort[];
+  params?: Record<string, unknown>;
+  data?: Record<string, unknown>;
+  routeQuery?: Record<string, unknown>;
+}
+
+export interface DataSourceQueryResult {
+  rows: Record<string, unknown>[];
+  total: number;
+  page: number;
+  size: number;
+  item?: Record<string, unknown> | null;
+}
+
+/** 页面级数据源快照，既供表达式取值，也供表格/分页读取。 */
+export interface RuntimeDataSourceState extends DataSourceQueryResult {
+  id: string;
+  loading: boolean;
+  error?: string | null;
 }
 
 export interface RuntimeField {
@@ -256,6 +325,7 @@ export interface ActionExecutionResult {
   error?: ActionError | null;
   writeback?: ActionWriteback | null;
   run_id?: string | null;
+  state?: Record<string, unknown> | null;
 }
 
 export interface ExecuteActionPayload {

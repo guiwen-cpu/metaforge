@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
 import { platformApi } from "@/api/platform";
 import { runtimeApi } from "@/api/runtime";
 import { errorMessage } from "@/lib/http";
-import UiNodeRenderer from "@/components/preview/UiNodeRenderer.vue";
+import { registerCustomComponents } from "@/lib/uiModel";
+import RuntimePageRenderer from "@/components/runtime/RuntimePageRenderer.vue";
+import type { RuntimeNavigatePayload } from "@/lib/runtimeContext";
 import type { AppView } from "@/types/platform";
 import type {
   RuntimeMenuItem,
@@ -24,6 +27,7 @@ const loading = ref(true);
 const pageLoading = ref(false);
 const error = ref("");
 const pageError = ref("");
+let pageSeq = 0;
 
 const selectedPath = computed(() => {
   const value = route.query.path;
@@ -34,63 +38,63 @@ const roleKeys = computed(() => navigation.value?.role_keys ?? []);
 const pageLinks = computed(() => navigation.value?.pages ?? []);
 const menus = computed(() => navigation.value?.menus ?? []);
 const selectedTitle = computed(() => page.value?.title ?? selectedPath.value);
-
-function triggerSelect() {
-  // 运行态只读布局，选中态留给阶段 6 的交互渲染器。
-}
+const routeQuery = computed<Record<string, unknown>>(() => ({ ...route.query }));
+const routeParams = computed<Record<string, string>>(() => {
+  const link = resolvePage(selectedPath.value);
+  return matchRoute(link?.path, selectedPath.value) ?? {};
+});
 
 function collectFirstPath(items: RuntimeMenuItem[]): string {
   for (const item of items) {
-    if (item.path) {
-      return item.path;
-    }
+    if (item.path) return item.path;
     const child = collectFirstPath(item.children ?? []);
-    if (child) {
-      return child;
-    }
+    if (child) return child;
   }
   return "";
 }
 
 function findMenu(items: RuntimeMenuItem[], path: string): RuntimeMenuItem | null {
   for (const item of items) {
-    if (item.path === path) {
-      return item;
-    }
+    if (item.path === path) return item;
     const child = findMenu(item.children ?? [], path);
-    if (child) {
-      return child;
-    }
+    if (child) return child;
   }
   return null;
 }
 
-function routeMatches(pattern: string | null | undefined, path: string): boolean {
-  if (!pattern) {
-    return false;
-  }
+function matchRoute(
+  pattern: string | null | undefined,
+  path: string
+): Record<string, string> | null {
+  if (!pattern) return null;
   const patternParts = pattern.split("/").filter(Boolean);
   const pathParts = path.split("/").filter(Boolean);
+  const params: Record<string, string> = {};
   let index = 0;
   for (const part of patternParts) {
     const optional = part.endsWith("?");
     const token = optional ? part.slice(0, -1) : part;
     if (token.startsWith(":")) {
       if (index < pathParts.length) {
+        try {
+          params[token.slice(1)] = decodeURIComponent(pathParts[index]);
+        } catch {
+          params[token.slice(1)] = pathParts[index];
+        }
         index++;
         continue;
       }
-      if (optional) {
-        continue;
-      }
-      return false;
+      if (optional) continue;
+      return null;
     }
-    if (pathParts[index] !== token) {
-      return false;
-    }
+    if (pathParts[index] !== token) return null;
     index++;
   }
-  return index === pathParts.length;
+  return index === pathParts.length ? params : null;
+}
+
+function routeMatches(pattern: string | null | undefined, path: string): boolean {
+  return matchRoute(pattern, path) !== null;
 }
 
 function resolvePage(path: string): RuntimePageLink | null {
@@ -105,7 +109,25 @@ function resolvePage(path: string): RuntimePageLink | null {
   );
 }
 
+function buildPath(link: RuntimePageLink, params: Record<string, unknown>): string {
+  const pattern = link.path ?? "";
+  const parts = pattern
+    .split("/")
+    .filter(Boolean)
+    .map((part) => {
+      const optional = part.endsWith("?");
+      const token = optional ? part.slice(0, -1) : part;
+      if (!token.startsWith(":")) return part;
+      const raw = params[token.slice(1)];
+      if (raw === undefined || raw === null || raw === "") return optional ? "" : token;
+      return encodeURIComponent(String(raw));
+    })
+    .filter(Boolean);
+  return `/${parts.join("/")}`;
+}
+
 async function loadPage(path: string) {
+  const seq = ++pageSeq;
   const link = resolvePage(path);
   if (!link) {
     page.value = null;
@@ -120,12 +142,16 @@ async function loadPage(path: string) {
   pageLoading.value = true;
   pageError.value = "";
   try {
-    page.value = await runtimeApi.page(appId.value, link.key);
+    const next = await runtimeApi.page(appId.value, link.key);
+    if (seq !== pageSeq) return;
+    registerCustomComponents(next.components ?? []);
+    page.value = next;
   } catch (cause) {
+    if (seq !== pageSeq) return;
     page.value = null;
     pageError.value = errorMessage(cause);
   } finally {
-    pageLoading.value = false;
+    if (seq === pageSeq) pageLoading.value = false;
   }
 }
 
@@ -159,9 +185,7 @@ async function openMenu(item: RuntimeMenuItem) {
     window.open(item.url, item.target || "_blank", "noopener");
     return;
   }
-  if (!item.path) {
-    return;
-  }
+  if (!item.path) return;
   await router.push({ query: { ...route.query, path: item.path } });
 }
 
@@ -169,10 +193,29 @@ function isActive(item: RuntimeMenuItem): boolean {
   return !!item.path && item.path === selectedPath.value;
 }
 
-watch(selectedPath, (path) => {
-  if (path && navigation.value) {
-    void loadPage(path);
+async function navigateRuntime(payload: RuntimeNavigatePayload): Promise<void> {
+  let target = String(payload.path ?? "");
+  if (!target && payload.pageRef) {
+    const key = String(payload.pageRef.key ?? "");
+    const refPath = String(payload.pageRef.path ?? "");
+    const link = pageLinks.value.find((item) => item.key === key)
+      ?? pageLinks.value.find((item) => item.path === refPath);
+    if (link) {
+      target = buildPath(link, payload.params ?? {});
+    } else {
+      target = refPath;
+    }
   }
+  if (!target) return;
+  if (/:([A-Za-z_][A-Za-z0-9_]*)\??\/?$/.test(target)) {
+    ElMessage.warning("目标路由缺少必要参数，已取消跳转");
+    return;
+  }
+  await router.push({ query: { ...route.query, path: target } });
+}
+
+watch(selectedPath, (path) => {
+  if (path && navigation.value) void loadPage(path);
 });
 
 watch(appId, () => {
@@ -280,17 +323,16 @@ onMounted(loadNavigation);
                 {{ page.path || "未声明路由" }} · {{ page.kind }} · {{ page.key }}
               </p>
             </div>
-            <el-tag type="warning" effect="plain">只读布局预览</el-tag>
+            <el-tag type="success" effect="plain">运行态</el-tag>
           </div>
-          <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12px] leading-relaxed text-amber-700">
-            菜单与页面访问已按发布件授权过滤。当前仅渲染发布页面布局，数据绑定、动作执行与表单交互将在阶段 6 的运行时渲染器中接入。
-          </div>
-          <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <UiNodeRenderer
-              :node="page.page.layout"
-              :page="page.page"
-              :schemas="page.data_schemas"
-              @select="triggerSelect"
+          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <RuntimePageRenderer
+              :key="page.key + ':' + selectedPath"
+              :app-id="appId"
+              :view="page"
+              :route-params="routeParams"
+              :route-query="routeQuery"
+              :navigate="navigateRuntime"
             />
           </div>
         </template>

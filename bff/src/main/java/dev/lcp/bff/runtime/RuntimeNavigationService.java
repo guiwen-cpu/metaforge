@@ -80,7 +80,9 @@ public class RuntimeNavigationService {
       int versionNo,
       JsonNode page,
       List<JsonNode> dataSchemas,
-      List<JsonNode> components) {
+      List<JsonNode> components,
+      List<JsonNode> actions,
+      List<String> allowedActions) {
   }
 
   public NavigationView navigation(UUID appId) {
@@ -138,6 +140,17 @@ public class RuntimeNavigationService {
     for (JsonNode component : bundle.path("artifacts").path("components")) {
       components.add(component);
     }
+    List<JsonNode> actions = new ArrayList<>();
+    List<String> allowedActions = new ArrayList<>();
+    for (JsonNode logic : bundle.path("artifacts").path("logicSchemas")) {
+      for (JsonNode action : logic.path("actions")) {
+        actions.add(action);
+        String key = action.path("key").asText(null);
+        if (key != null && permissions.canAction(appId, key, "execute")) {
+          allowedActions.add(key);
+        }
+      }
+    }
     return new PageView(
         pageKey,
         title(page),
@@ -146,7 +159,9 @@ public class RuntimeNavigationService {
         published.versionNo(),
         page,
         schemas,
-        components);
+        components,
+        actions,
+        allowedActions);
   }
 
   private MenuItemView menu(

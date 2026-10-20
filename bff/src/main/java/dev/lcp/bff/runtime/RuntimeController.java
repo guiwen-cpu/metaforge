@@ -3,12 +3,14 @@ package dev.lcp.bff.runtime;
 import dev.lcp.bff.runtime.RuntimeNavigationService.NavigationView;
 import dev.lcp.bff.runtime.RuntimeNavigationService.PageView;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.CompleteTaskRequest;
+import dev.lcp.bff.runtime.dto.RuntimeRequests.DataSourceQueryRequest;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.ExecuteActionRequest;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.StartInstanceRequest;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.TransferTaskRequest;
 import dev.lcp.bff.runtime.dto.RuntimeViews.ActionExecutionResult;
 import dev.lcp.bff.runtime.dto.RuntimeViews.ActionRunDetail;
 import dev.lcp.bff.runtime.dto.RuntimeViews.ActionRunFeed;
+import dev.lcp.bff.runtime.dto.RuntimeViews.DataSourceQueryResult;
 import dev.lcp.bff.runtime.dto.RuntimeViews.FlowView;
 import dev.lcp.bff.runtime.dto.RuntimeViews.InstanceView;
 import dev.lcp.bff.runtime.dto.RuntimeViews.NotificationFeed;
@@ -38,16 +40,19 @@ public class RuntimeController {
   private final ActionRunService actionRuns;
   private final NotificationService notificationService;
   private final RuntimeNavigationService runtimeNavigation;
+  private final RuntimeDataSourceService dataSources;
 
   public RuntimeController(
       ProcessRuntimeService runtime,
       ActionRunService actionRuns,
       NotificationService notifications,
-      RuntimeNavigationService runtimeNavigation) {
+      RuntimeNavigationService runtimeNavigation,
+      RuntimeDataSourceService dataSources) {
     this.runtime = runtime;
     this.actionRuns = actionRuns;
     this.notificationService = notifications;
     this.runtimeNavigation = runtimeNavigation;
+    this.dataSources = dataSources;
   }
 
   @GetMapping("/navigation")
@@ -59,6 +64,15 @@ public class RuntimeController {
   public PageView page(
       @PathVariable("appId") UUID appId, @PathVariable("pageKey") String pageKey) {
     return runtimeNavigation.page(appId, pageKey);
+  }
+
+  @PostMapping("/pages/{pageKey}/data-sources/{dataSourceId}/query")
+  public DataSourceQueryResult queryDataSource(
+      @PathVariable("appId") UUID appId,
+      @PathVariable("pageKey") String pageKey,
+      @PathVariable("dataSourceId") String dataSourceId,
+      @RequestBody(required = false) DataSourceQueryRequest body) {
+    return dataSources.query(appId, pageKey, dataSourceId, body);
   }
 
   @PostMapping("/actions/{actionKey}/execute")

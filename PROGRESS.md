@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
-> 最后更新：2026-10-20
-> 分支：`dev` ｜ 最新提交：`4c7a971 feat(notification): 新增 webhook / email 通道、通知规则与 SLA 提醒`
+> 最后更新：2026-10-21
+> 分支：`dev` ｜ 最新提交：`a8b1fa7 docs: 同步通知模块提交号与进度`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -13,8 +13,8 @@
 | 演示应用 | `eb84d4bd-461f-4945-9f76-7d69ce732d8b`（请假审批 / `leave_approval_demo`） |
 | 租户 / 用户 | `tenant_demo_school` / `alice` |
 | 容器 | `metaforge-web` / `metaforge-bff` / `metaforge-postgres` / `metaforge-redis` |
-| 当前草稿 | `r8`：3 个页面、1 个自定义组件 `biz-card`、逻辑编排完整 |
-| 发布版本 | `v7`（内容等同 `v1`；`v2/v4/v6` 为冒烟临时版本，`v3/v5/v7` 为回滚快照） |
+| 当前草稿 | `r10`：3 个页面、1 个自定义组件 `biz-card`、逻辑编排完整；已恢复可编辑状态 |
+| 发布版本 | `v9`：中文内容正常、动作权限 35 条；`v2/v4/v6` 为冒烟临时版本，`v3/v5/v7` 为回滚快照 |
 | 演示数据 | 请假实例若干（已通过 / 已驳回 / 待审批）；冒烟实例 `ef3ea1e4-cbbe-11f1-ab05-eac30cd331c5` 含 3 条动作日志；`/leave/requests` 底部挂有 `biz-card` 联调节点 |
 | 审批入口 | `/apps/<appId>/approvals`；详情 `/approvals/:taskId`，实例 `/instances/:instanceId` |
 | 动作执行 | `POST /api/v1/runtime/apps/{appId}/actions/{actionKey}/execute` |
@@ -35,7 +35,8 @@
 | 登录保护 | 连续失败 5 次锁定 15 分钟；密码 8–128 位，须含小写字母与数字，禁止空白及登录名/显示名 |
 | 权限模式 | 开发：`LCP_AUTH_DEV_HEADERS=true`、`LCP_IDENTITY_ALLOW_ALL=true`；staging/prod 覆盖层已置 `false` |
 | 运行时导航 | `GET /api/v1/runtime/apps/{appId}/navigation`（发布态菜单 + 可访问页面 + 默认路由） |
-| 运行时页面 | `GET /api/v1/runtime/apps/{appId}/pages/{pageKey}`（按页面 ACL 返回 200 / 403） |
+| 运行时页面 | `GET /api/v1/runtime/apps/{appId}/pages/{pageKey}`（按页面 ACL 返回 200 / 403，含动作白名单） |
+| 运行时数据源 | `POST /api/v1/runtime/apps/{appId}/pages/{pageKey}/data-sources/{dataSourceId}/query`（分页 / 搜索 / 排序 / 行级权限） |
 
 启动与重建：
 
@@ -223,7 +224,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 5.7 密码策略、登录锁定与认证审计：策略校验、失败锁定、自助改密与管理员审计查询已完成。
 
 ### 阶段 6 · 多端发布与运行时
-- [ ] 发布态运行时渲染器（读 Bundle 渲染，不依赖设计器）。
+- [x] 6.1 发布态运行时渲染器：读发布件渲染布局、数据源、搜索分页排序、行操作、详情抽屉与流程时间线；按 `allowedActions` 禁用越权动作，不依赖设计器状态。
 - [ ] Web / H5 应用壳与路由、登录态。
 - [ ] 小程序端（Taro 或原生）。
 - [ ] 自定义组件远程模块加载（`runtime=remote` + SRI 校验）。
@@ -286,6 +287,9 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - **鉴权继承显式覆盖**：API 的 `auth` 缺省或为 `null` 时继承连接器默认鉴权；只有显式 `{type:"none"}` 才关闭，避免误把空对象当成无鉴权。
 - **密钥轮换即覆盖**：轮换在同一行更新密文、版本号与轮换时间，不保留历史密文；主密钥丢失不可恢复。
 
+- **运行态查询服务端收口**：数据源只接受发布件声明的实体、字段、算子与排序字段；用户值全部参数绑定，行级权限编译为 SQL 条件，编译失败按拒绝处理。
+- **动作能力随页面下发**：页面响应同时返回定义与当前用户可执行动作，前端仅做展示/禁用，后端执行时仍按同一份权限再次校验。
+
 ## 已知边界
 
 - 三个设计器只负责元数据编辑、校验与发布，不含运行时执行。
@@ -298,21 +302,23 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 提交 / 审批 / 动作执行已做按钮级授权；加签尚未实现，任务归属仍由 Flowable `assignee` 控制。
 - SSO 已接入 OIDC / CAS，但未实现 SLO、刷新令牌、IdP 组同步与解绑管理界面；CAS 仅完成协议实现，尚未对真实 IdP 做链路测试。已有 JWT 在改密后不会服务端撤销，需等待过期或前端主动退出。
 - 认证审计暂无分页与保留期策略，`limit` 上限内一次返回。
-- 运行预览当前只渲染发布页面布局；数据绑定、表单动作与交互渲染留待阶段 6，菜单中的外部链接直接新开窗口。
+- 发布态渲染器已接入实体数据源、搜索/分页/排序、行操作、详情与流程时间线；菜单中的外部链接仍直接新开窗口。
+- 撤回与新建提交仍受未接入的运行时连接器/动作步骤限制：`kind=internal` API、`code`、`startFlow` 与节假日查询 `api_holiday_list` 会返回明确错误，不伪造成功。
 - 通知已覆盖站内信、webhook / email outbox、`Rule.kind=notification` 与 SLA 提醒；`autoApprove` / `autoReject` 仍未实现，通知规则暂无实例规则做端到端实测，outbox 暂无管理界面与保留期策略。
-- 自定义组件只有设计器内联沙箱预览；发布态远程组件加载未实现。
+- 自定义组件只有设计器内联沙箱预览与发布态占位；`runtime=remote` 的远程模块加载与 SRI 校验未实现。
 - OSS STS 临时凭证服务未实现，生成代码里只有直传骨架。
 - 生成前端示例仍使用演示会话；控制平面已切 JWT，但出码模板未同步。
 - 校验器残留警告：内联枚举与共享枚举取值不一致；流程监听器未限定 `taskKey`。
 
 ## 下一步（建议直接开工）
 
-阶段 4 与阶段 5 已完成，按以下顺序推进：
+阶段 4、阶段 5 与阶段 6.1 已完成，按以下顺序推进：
 
-1. 阶段 6 发布态运行时渲染器：在现有只读布局上接数据查询、表单动作与组件交互，再做自定义组件远程加载。
-2. Web / H5 应用壳与路由、登录态：复用运行时导航与权限，把当前 `RuntimeShellPage` 拆成可独立部署的应用壳。
-3. 连接器扩展：internal / database / GraphQL / SOAP 与 `oauth2`、签名鉴权，并补连接器变更审计与 DNS rebinding 加固。
-4. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
+1. Web / H5 应用壳与路由、登录态：复用运行时导航与权限，把当前 `RuntimeShellPage` 拆成可独立部署、移动端可用的应用壳。
+2. 运行时动作补齐：接入 `kind=internal` API、`code` / `startFlow` 与节假日 API，跑通“新建请假 → 提交 → 撤回”完整业务闭环。
+3. 自定义组件远程加载：实现 `runtime=remote` 的模块加载、版本锁定与 SRI 校验，替换当前占位。
+4. 连接器扩展：database / GraphQL / SOAP 与 `oauth2`、签名鉴权，并补连接器变更审计与 DNS rebinding 加固。
+5. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
 
 ## 恢复上下文的顺序
 

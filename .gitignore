@@ -15,6 +15,7 @@ desktop.ini
 # 临时与日志
 *.log
 *.tmp
+tmp-*
 
 # 本地部署密钥
 deploy/.env

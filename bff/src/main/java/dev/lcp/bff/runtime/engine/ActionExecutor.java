@@ -114,14 +114,16 @@ public class ActionExecutor {
     try {
       if (action.has("when") && !expressions.truthy(expressions.eval(action.get("when"), scope))) {
         return new ActionExecutionResult(bundle.appKey(), bundle.versionNo(), actionKey,
-            "skipped", millis(started), null, ctxVars(scope), events, trace, null, null, null);
+            "skipped", millis(started), null, ctxVars(scope), events, trace, null, null, null,
+            stateOf(scope));
       }
       result = executeSteps(action.path("steps"), scope, trace, deadline);
       ObjectNode ctx = (ObjectNode) scope.root("ctx");
       ctx.set("result", result);
       JsonNode writeback = writeback(action, scope, "completed");
       return new ActionExecutionResult(bundle.appKey(), bundle.versionNo(), actionKey,
-          "completed", millis(started), result, ctxVars(scope), events, trace, null, writeback, null);
+          "completed", millis(started), result, ctxVars(scope), events, trace, null, writeback, null,
+          stateOf(scope));
     } catch (BusinessFailure failure) {
       ObjectNode ctx = (ObjectNode) scope.root("ctx");
       ctx.set("error", errorNode(failure.code, failure.getMessage()));
@@ -129,14 +131,15 @@ public class ActionExecutor {
       return new ActionExecutionResult(bundle.appKey(), bundle.versionNo(), actionKey,
           "failed", millis(started), null, ctxVars(scope), events, trace,
           new ActionError(failure.code, failure.getMessage(), failure.fields, failure.rollback),
-          writeback, null);
+          writeback, null, stateOf(scope));
     } catch (ExpressionException ex) {
       ObjectNode ctx = (ObjectNode) scope.root("ctx");
       ctx.set("error", errorNode(ex.code(), ex.getMessage()));
       JsonNode writeback = safeWriteback(action, scope, "failed");
       return new ActionExecutionResult(bundle.appKey(), bundle.versionNo(), actionKey,
           "failed", millis(started), null, ctxVars(scope), events, trace,
-          new ActionError(ex.code(), ex.getMessage(), List.of(), false), writeback, null);
+          new ActionError(ex.code(), ex.getMessage(), List.of(), false), writeback, null,
+          stateOf(scope));
     } catch (RuntimeException ex) {
       log.error("动作执行异常 {}:{}", bundle.appKey(), actionKey, ex);
       ObjectNode ctx = (ObjectNode) scope.root("ctx");
@@ -144,8 +147,15 @@ public class ActionExecutor {
       JsonNode writeback = safeWriteback(action, scope, "failed");
       return new ActionExecutionResult(bundle.appKey(), bundle.versionNo(), actionKey,
           "failed", millis(started), null, ctxVars(scope), events, trace,
-          new ActionError("runtime_error", ex.getMessage(), List.of(), true), writeback, null);
+          new ActionError("runtime_error", ex.getMessage(), List.of(), true), writeback, null,
+          stateOf(scope));
     }
+  }
+
+  private static JsonNode stateOf(ExpressionEngine.Scope scope) {
+    JsonNode page = scope.root("page");
+    JsonNode state = page == null ? null : page.get("state");
+    return state != null && state.isObject() ? state : null;
   }
 
   /**
@@ -472,7 +482,8 @@ public class ActionExecutor {
         yield StepOutcome.done(json.nullNode());
       }
       case "validate" -> StepOutcome.skip("服务端校验步骤依赖实体校验规则，当前版本跳过");
-      case "openDialog", "closeDialog", "confirm", "navigate", "upload", "download", "print" ->
+      case "confirm" -> confirm(step, scope, children, deadline);
+      case "openDialog", "closeDialog", "navigate", "upload", "download", "print" ->
           StepOutcome.skip("前端交互步骤，服务端执行跳过");
       case "code", "custom" ->
           throw new BusinessFailure("UNSUPPORTED_STEP",
@@ -482,6 +493,17 @@ public class ActionExecutor {
               "步骤 " + type + " 需通过流程运行时 API 接入", List.of(), true);
       default -> throw new BusinessFailure("UNKNOWN_STEP", "未知步骤类型：" + type, List.of(), true);
     };
+  }
+
+  private StepOutcome confirm(
+      JsonNode step, ExpressionEngine.Scope scope, List<StepTrace> children, long deadline) {
+    JsonNode flag = scope.root("ctx").path("event").path("__confirmed");
+    if (!flag.isBoolean()) {
+      return StepOutcome.skip("缺少前端确认结果，服务端跳过确认分支");
+    }
+    JsonNode steps = flag.booleanValue() ? step.get("onConfirm") : step.get("onCancel");
+    JsonNode value = executeSteps(steps, scope, children, deadline);
+    return StepOutcome.done(value == null ? json.nullNode() : value);
   }
 
   private JsonNode assign(JsonNode step, ExpressionEngine.Scope scope) {

@@ -4,6 +4,8 @@ import type {
   ActionRunDetail,
   ActionRunFeed,
   CompleteTaskPayload,
+  DataSourceQueryPayload,
+  DataSourceQueryResult,
   ExecuteActionPayload,
   FlowView,
   InstanceSummary,
@@ -31,6 +33,19 @@ export const runtimeApi = {
 
   async page(appId: string, pageKey: string): Promise<RuntimePageView> {
     const { data } = await http.get<RuntimePageView>(`${base(appId)}/pages/${pageKey}`);
+    return data;
+  },
+
+  async queryDataSource(
+    appId: string,
+    pageKey: string,
+    dataSourceId: string,
+    payload: DataSourceQueryPayload
+  ): Promise<DataSourceQueryResult> {
+    const { data } = await http.post<DataSourceQueryResult>(
+      `${base(appId)}/pages/${pageKey}/data-sources/${dataSourceId}/query`,
+      payload
+    );
     return data;
   },
 

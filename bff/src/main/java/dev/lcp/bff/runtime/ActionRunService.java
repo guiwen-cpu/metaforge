@@ -154,7 +154,7 @@ public class ActionRunService {
     ActionExecutionResult result = new ActionExecutionResult(
         raw.appKey(), raw.versionNo(), raw.actionKey(), raw.status(), raw.durationMs(),
         raw.result(), raw.vars(), raw.events(), raw.trace(), raw.error(), writeback,
-        runId.toString());
+        runId.toString(), raw.state());
     return new Execution(runId, result);
   }
 
