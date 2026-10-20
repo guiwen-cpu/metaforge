@@ -25,10 +25,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createWriteStats, writeStatsText, writeTextIfChanged } from "./codegen-fs.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
-const OUT_ROOT = path.join(ROOT, "codegen");
+const OUT_ROOT = process.env.LCP_CODEGEN_OUT
+  ? path.resolve(process.env.LCP_CODEGEN_OUT)
+  : path.join(ROOT, "codegen");
 const REG = JSON.parse(fs.readFileSync(path.join(ROOT, "registry", "type-mapping.json"), "utf8"));
 const TYPES = REG.types;
 
@@ -1116,6 +1119,8 @@ function listFiles(root) {
  */
 export const OWNED_SUBDIRS = ["sql", "ts", "java"];
 export const OWNED_ROOT_FILES = new Set(["README.md"]);
+/** gen-project 写在 sql/ 下的组装产物，本生成器只共享目录、不拥有文件。 */
+const FOREIGN_OWNED = new Set(["sql/95_force_rls.sql"]);
 export function ownsPath(rel) {
   return OWNED_ROOT_FILES.has(rel) || OWNED_SUBDIRS.some((dir) => rel.startsWith(dir + "/"));
 }
@@ -1129,6 +1134,7 @@ function removeStale(appDir, keep) {
   for (const existing of listFiles(appDir)) {
     const rel = path.relative(appDir, existing).replace(/\\/g, "/");
     if (keep.has(rel) || rel === MANIFEST_NAME) continue;
+    if (FOREIGN_OWNED.has(rel)) continue;
     if (!ownsPath(rel)) continue;
     if (!/\.(sql|ts|java|md)$/.test(rel)) continue;
     fs.rmSync(existing, { force: true });
@@ -1182,7 +1188,7 @@ function topManifestText(apps) {
 }
 
 function writeAll() {
-  const summary = { apps: [], removedDirs: [] };
+  const summary = { apps: [], removedDirs: [], stats: createWriteStats() };
   const keepApps = new Set(APPS.keys());
   fs.mkdirSync(OUT_ROOT, { recursive: true });
 
@@ -1192,10 +1198,9 @@ function writeAll() {
     const removed = removeStale(appDir, new Set(written.map((item) => item.rel)));
     for (const item of written) {
       const target = path.join(appDir, item.rel);
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, item.text, "utf8");
+      writeTextIfChanged(target, item.text, summary.stats);
     }
-    fs.writeFileSync(path.join(appDir, MANIFEST_NAME), manifestText(written, removed), "utf8");
+    writeTextIfChanged(path.join(appDir, MANIFEST_NAME), manifestText(written, removed), summary.stats);
     for (const sub of OWNED_SUBDIRS) pruneEmptyDirs(path.join(appDir, sub));
     summary.apps.push({ key: entry.key, dir: appDir, files: written.length + 1, removed });
   }
@@ -1218,7 +1223,7 @@ function writeAll() {
     summary.removedDirs.push(entry.name);
   }
 
-  fs.writeFileSync(path.join(OUT_ROOT, MANIFEST_NAME), topManifestText([...APPS.values()]), "utf8");
+  writeTextIfChanged(path.join(OUT_ROOT, MANIFEST_NAME), topManifestText([...APPS.values()]), summary.stats);
   return summary;
 }
 // ============================================================ 自检
@@ -1392,6 +1397,7 @@ function printSummary(summary) {
   if (summary.removedDirs.length) {
     console.log(`  清理已下线应用目录：${summary.removedDirs.join(", ")}`);
   }
+  console.log(`  增量写入：${writeStatsText(summary.stats)}`);
   console.log(`  顶层清单：${path.join(OUT_ROOT, MANIFEST_NAME)}`);
   console.log("");
 }

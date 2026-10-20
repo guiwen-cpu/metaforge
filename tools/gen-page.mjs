@@ -22,6 +22,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createWriteStats, writeStatsText, writeTextIfChanged } from "./codegen-fs.mjs";
 
 import {
   renderApp,
@@ -41,7 +42,9 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
-const OUT_ROOT = path.join(ROOT, "codegen");
+const OUT_ROOT = process.env.LCP_CODEGEN_OUT
+  ? path.resolve(process.env.LCP_CODEGEN_OUT)
+  : path.join(ROOT, "codegen");
 const WEB_SUBDIR = "web";
 const MANIFEST_NAME = "GENERATED.txt";
 const MANIFEST_MARK = "# tools/gen-page.mjs 的产物清单";
@@ -3059,7 +3062,7 @@ function pruneEmptyDirs(root) {
   }
 }
 
-function writeWeb(entry, files) {
+function writeWeb(entry, files, stats) {
   const webDir = path.join(OUT_ROOT, entry.key, WEB_SUBDIR);
   const previous = readManifest(webDir);
   const keep = new Set(files.keys());
@@ -3067,8 +3070,7 @@ function writeWeb(entry, files) {
 
   for (const [rel, text] of files) {
     const full = path.join(webDir, rel);
-    fs.mkdirSync(path.dirname(full), { recursive: true });
-    fs.writeFileSync(full, text, "utf8");
+    writeTextIfChanged(full, text, stats);
   }
 
   const removed = [];
@@ -3081,7 +3083,7 @@ function writeWeb(entry, files) {
     }
   }
 
-  fs.writeFileSync(path.join(webDir, MANIFEST_NAME), manifestText(entry, files), "utf8");
+  writeTextIfChanged(path.join(webDir, MANIFEST_NAME), manifestText(entry, files), stats);
   pruneEmptyDirs(webDir);
   return { webDir, removed };
 }
@@ -3457,7 +3459,7 @@ function main() {
     process.exit(2);
   }
 
-  const summary = { apps: [] };
+  const summary = { apps: [], stats: createWriteStats() };
   for (const file of inputs) {
     let bundle;
     try {
@@ -3474,7 +3476,7 @@ function main() {
       for (const problem of problems) bad(entry.key, problem);
       continue;
     }
-    const written = writeWeb(entry, built.files);
+    const written = writeWeb(entry, built.files, summary.stats);
     const uploads = built.resources.reduce(
       (total, resource) =>
         total + [...resource.createFields, ...resource.editFields].filter((field) => field.widget === "upload").length,
@@ -3507,6 +3509,7 @@ function main() {
     if (app.skipped.length > 0) console.log(`    跳过实体：${app.skipped.join(", ")}`);
     if (app.removed.length > 0) console.log(`    清理过期文件 ${app.removed.length} 个：${app.removed.join(", ")}`);
   }
+  console.log(`  增量写入：${writeStatsText(summary.stats)}`);
   console.log("");
 
   if (PROBLEMS.length > 0) process.exitCode = 1;

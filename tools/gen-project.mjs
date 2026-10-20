@@ -11,10 +11,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createWriteStats, writeStatsText, writeTextIfChanged } from "./codegen-fs.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
-const OUT_ROOT = path.join(ROOT, "codegen");
+const OUT_ROOT = process.env.LCP_CODEGEN_OUT
+  ? path.resolve(process.env.LCP_CODEGEN_OUT)
+  : path.join(ROOT, "codegen");
 
 const bad = (where, msg) => {
   throw new Error(where + "：" + msg);
@@ -777,11 +780,10 @@ npm run dev
 `;
 }
 
-function writeFiles(appDir, files) {
+function writeFiles(appDir, files, stats) {
   for (const [rel, text] of files) {
     const target = path.join(appDir, rel);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, text, "utf8");
+    writeTextIfChanged(target, text, stats);
   }
 }
 
@@ -791,6 +793,7 @@ function main() {
     console.error("gen-project：请传 bundle 路径。");
     process.exit(2);
   }
+  const stats = createWriteStats();
   for (const file of args) {
     if (!fs.existsSync(file)) bad(file, "文件不存在");
     const bundle = loadBundle(file);
@@ -834,12 +837,13 @@ function main() {
     files.set(`docker-compose.yml`, renderCompose(appKey, tenantId));
     files.set(`sql/95_force_rls.sql`, renderForceRls(entities));
     files.set(`RUN.md`, renderRunDoc(bundle, appKey, roles, entities));
-    writeFiles(path.join(OUT_ROOT, appKey), files);
-    console.log(`gen-project 完成 → codegen/${appKey}`);
+    writeFiles(path.join(OUT_ROOT, appKey), files, stats);
+    console.log(`gen-project 完成 → ${path.join(OUT_ROOT, appKey)}`);
     console.log(`  服务端 ${serverDir}`);
-    console.log(`  Compose codegen/${appKey}/docker-compose.yml`);
+    console.log(`  Compose ${path.join(OUT_ROOT, appKey, "docker-compose.yml")}`);
     console.log(`  实体 ${entities.length} 个 · 演示账号 ${roles.length + 1} 个`);
   }
+  console.log(`  增量写入：${writeStatsText(stats)}`);
 }
 
 try {

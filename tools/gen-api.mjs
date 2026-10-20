@@ -23,6 +23,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createWriteStats, writeStatsText, writeTextIfChanged } from "./codegen-fs.mjs";
 
 import {
   renderApp,
@@ -41,7 +42,9 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
-const OUT_ROOT = path.join(ROOT, "codegen");
+const OUT_ROOT = process.env.LCP_CODEGEN_OUT
+  ? path.resolve(process.env.LCP_CODEGEN_OUT)
+  : path.join(ROOT, "codegen");
 const MANIFEST_NAME = "GENERATED.txt";
 const MANIFEST_MARK = "# tools/gen-api.mjs 的产物清单";
 const API_VERSION = "v1";
@@ -1714,7 +1717,7 @@ function manifestText(rels, removed) {
 }
 
 function writeAll(results) {
-  const summary = { apps: [] };
+  const summary = { apps: [], stats: createWriteStats() };
   for (const { entry, files } of results) {
     const apiDir = path.join(OUT_ROOT, entry.key, "api");
     const written = [...files.keys()]
@@ -1724,10 +1727,12 @@ function writeAll(results) {
     const removed = fs.existsSync(apiDir) ? removeStale(apiDir, keep) : [];
     for (const item of written) {
       const target = path.join(apiDir, item.rel);
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, item.text, "utf8");
+      writeTextIfChanged(target, item.text, summary.stats);
     }
-    fs.writeFileSync(path.join(apiDir, MANIFEST_NAME), manifestText(written.map((item) => item.rel), removed), "utf8");
+    writeTextIfChanged(
+      path.join(apiDir, MANIFEST_NAME),
+      manifestText(written.map((item) => item.rel), removed),
+      summary.stats);
     pruneEmptyDirs(apiDir);
     summary.apps.push({ key: entry.key, dir: apiDir, files: written.length + 1, removed });
   }
@@ -1948,6 +1953,7 @@ function printSummary(summary, results) {
     );
     for (const rel of app.removed) console.log(`      清理 ${rel}`);
   }
+  console.log(`  增量写入：${writeStatsText(summary.stats)}`);
   console.log("");
 }
 

@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新提交：`b87a62a`（`feat(runtime): 接入真实节假日服务`）
+> 分支：`dev` ｜ 最新提交：`de7b00a`（`feat(codegen): 生成完整可运行工程`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -37,6 +37,7 @@
 | 连接器配置 | `LCP_SECRET_MASTER_KEY`、`LCP_CONNECTOR_ALLOW_PRIVATE_NETWORKS`、`LCP_CONNECTOR_ALLOW_INSECURE_HTTP`；本地冒烟临时开启私网与 HTTP |
 | 节假日服务 | 默认 `https://timor.tech/api/holiday/year/{year}`；`LCP_HOLIDAY_ENABLED`、`LCP_HOLIDAY_URL_TEMPLATE`、`LCP_HOLIDAY_TIMEOUT_MS`、`LCP_HOLIDAY_CACHE_TTL_SECONDS`；Redis 键 `lcp:holiday:v1:<year>` |
 | 独立出码工程 | `codegen/leave_approval/docker-compose.yml`：Web `http://localhost:8091`、API `http://localhost:8090`、PostgreSQL `5433`；租户 `tenant_demo_school`、密码 `demo123`，账号为 Bundle 角色键与 `admin` |
+| 出码 CLI | `node tools/codegen.mjs <bundle...> [--out dir] [--dry-run] [--no-incremental] [--app-key k] [--app-name n] [--tenant id] [--clean] [--json]`；默认增量写入 |
 | 登录保护 | 连续失败 5 次锁定 15 分钟；密码 8–128 位，须含小写字母与数字，禁止空白及登录名/显示名 |
 | 权限模式 | 开发：`LCP_AUTH_DEV_HEADERS=true`、`LCP_IDENTITY_ALLOW_ALL=true`；staging/prod 覆盖层已置 `false` |
 | 运行时导航 | `GET /api/v1/runtime/apps/{appId}/navigation`（发布态菜单 + 可访问页面 + 默认路由） |
@@ -93,7 +94,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `54ae546` | 运行时 code 白名单入口 | BFF 单测 + 真实发布件 API 执行 `calcWorkdays` 与未注册入口 |
 | `3ce8342` | 运行时 findStale / findOverlap 内部 API | BFF 47 个测试 + 临时发布件真实 API 冒烟 |
 | `b87a62a` | 真实节假日服务 | BFF 测试 + 真实页面 API + 请假工作日计算 + Redis 缓存 |
-| 本提交 | 出码完整可运行工程 | 独立 server 编译 + Compose 端到端 CRUD + RLS 租户隔离 |
+| `de7b00a` | 出码完整可运行工程 | 独立 server 编译 + Compose 端到端 CRUD + RLS 租户隔离 |
+| 本提交 | 出码 CLI、参数化与增量导出 | dry-run / 参数覆盖 / 二次生成 0 变更 + 生成工程编译 |
 
 ## 文档维护
 
@@ -333,6 +335,12 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 迁移沿用 `sql/00_extensions.sql`、逐表 DDL 与 `90_rls.sql`，新增 `95_force_rls.sql` 强制表 owner 也受 RLS 约束；Compose 将 `sql/` 挂到 `docker-entrypoint-initdb.d`，按文件非事务执行 `create index concurrently`。
 - 验证：`mvn -f server/pom.xml package` 通过；`docker compose up -d --build` 后 admin 登录、员工与请假单创建/查询成功；`tenant_other` 查询返回 `total=0`，`tenant_demo_school` 返回 `total=1`，RLS 生效；Web `/healthz` 返回 200。
 
+### 33. 出码 CLI、参数化与增量导出（已完成）
+- 新增 `tools/codegen.mjs`，顺序编排 `gen-entity → gen-api → gen-page → gen-project`；支持 `--out`、`--dry-run`、`--clean`、`--json`，以及 `--app-key` / `--app-name` / `--tenant` 覆盖 Bundle。
+- 四个生成器统一读取 `LCP_CODEGEN_OUT`，本轮新增 `tools/codegen-fs.mjs`：落盘前比较内容，相同文件不再写入；`--no-incremental` / `LCP_CODEGEN_INCREMENTAL=false` 可强制全量。
+- `gen-entity` 清理孤儿文件时显式跳过 `sql/95_force_rls.sql`，避免与 `gen-project` 共享目录时互相删除；dry-run 在系统临时目录跑完整生成，只打印文件清单，不污染目标目录。
+- 验证：`--dry-run` 生成 94 个文件；`--app-key smoke_app --tenant tenant_smoke` 后包名、数据库名与租户配置均切换；连续两次生成第二次摘要为「变更 0 个」；生成工程 `mvn -DskipTests package` 通过。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -365,7 +373,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 ### 阶段 7 · 出码引擎完整化
 - [x] Bundle → 完整可运行工程（前端 + BFF + 迁移脚本）。
-- [ ] 出码 CLI、参数化、增量导出。
+- [x] 出码 CLI、参数化、增量导出。
 - [ ] 导出包与在线版本的 diff。
 
 ### 阶段 8 · 集成与扩展
@@ -454,7 +462,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 阶段 4、阶段 5 与阶段 6.1–6.8 已完成，按以下顺序推进：
 
-1. 阶段 7 出码引擎完整化：完整工程、CLI 参数化与增量导出、在线版本 diff。
+1. 阶段 7 收尾：导出包与在线版本 diff。
 2. 阶段 8 集成与阶段 9 市场。
 
 ## 恢复上下文的顺序
