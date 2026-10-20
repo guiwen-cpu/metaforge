@@ -138,6 +138,10 @@ const formItems = computed(() => listOfProp("fieldList"));
 const columns = computed(() => listOfProp("columnList"));
 const descriptionItems = computed(() => listOfProp("fieldList"));
 const actionButtons = computed(() => listOfProp("buttons"));
+const searchExtraNodes = computed(() => [
+  ...(props.node.children ?? []),
+  ...(props.node.slots?.default ?? [])
+]);
 
 function optionLabel(item: Record<string, unknown>): string {
   return String(item.label ?? item.text ?? item.value ?? item.key ?? "");
@@ -307,6 +311,15 @@ const taskRows = [
               class="!w-full"
             />
             <el-input v-else :placeholder="placeholderOf(item)" disabled size="small" />
+          </div>
+          <div v-for="child in searchExtraNodes" :key="child.id" class="min-w-0">
+            <UiNodeRenderer
+              :node="child"
+              :page="page"
+              :schemas="schemas"
+              :selected-id="selectedId"
+              @select="emit('select', $event)"
+            />
           </div>
         </div>
         <div class="mt-3 flex items-center justify-end gap-2">

@@ -80,6 +80,7 @@ cd platform; npm run typecheck; npm run build
 - `platform/src/lib/uiModel.ts`、`platform/src/components/preview/UiNodeRenderer.vue`、`platform/src/components/designer/NodeOutline.vue`
 - 页面类型模板（列表/表单/详情/看板/审批/报表）、画布、属性面板、数据源、结构树、校验、JSON、草稿与发布。
 - 组件注册表动态注入：`registerCustomComponents()`。
+- `x-search-form` 画布同时渲染 `searchFieldList` 与默认插槽/子节点，结构树与画布保持一致。
 
 ### 6. 逻辑编排设计器
 - `platform/src/pages/LogicDesignerPage.vue`
