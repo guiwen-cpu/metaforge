@@ -47,6 +47,19 @@ management:
       show-details: never
 
 lcp:
+  auth:
+    jwt-secret: ${LCP_JWT_SECRET:metaforge-dev-secret-change-me}
+    issuer: ${LCP_AUTH_ISSUER:metaforge}
+    ttl-hours: ${LCP_AUTH_TTL_HOURS:12}
+    # 仅开发环境：允许网关注入的 X-Tenant-Id / X-User-Id 兜底，生产必须关闭。
+    dev-headers: ${LCP_AUTH_DEV_HEADERS:false}
+  identity:
+    # 仅开发环境：跳过组织管理员校验；生产设为 false。
+    allow-all: ${LCP_IDENTITY_ALLOW_ALL:false}
+  runtime:
+    fallback-directory: ${LCP_RUNTIME_FALLBACK_DIRECTORY:true}
+    dept-leader-user: ${LCP_RUNTIME_DEPT_LEADER_USER:bob}
+    school-admin-user: ${LCP_RUNTIME_SCHOOL_ADMIN_USER:principal}
   tenant:
     header: ${LCP_TENANT_HEADER:X-Tenant-Id}
   user:

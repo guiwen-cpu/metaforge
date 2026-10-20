@@ -1,16 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useSessionStore } from "@/stores/session";
+import { authApi } from "@/api/identity";
 
 const route = useRoute();
 const router = useRouter();
 const sessionStore = useSessionStore();
-
-const sessionOpen = ref(false);
-const tenantDraft = ref(sessionStore.tenantId);
-const userDraft = ref(sessionStore.userId);
 
 const inApps = computed(() => route.name === "apps" || route.name === "app-detail");
 const appId = computed(() => (typeof route.params.appId === "string" ? route.params.appId : ""));
@@ -18,6 +15,7 @@ const inModel = computed(() => route.name === "app-model");
 const inPages = computed(() => route.name === "app-pages");
 const inLogic = computed(() => route.name === "app-logic");
 const inComponents = computed(() => route.name === "app-components");
+const inIdentity = computed(() => route.name === "identity");
 const inApprovals = computed(
   () =>
     route.name === "app-approvals" ||
@@ -44,21 +42,14 @@ function openApprovals() {
   router.push(`/apps/${appId.value}/approvals`);
 }
 
-function openSession() {
-  tenantDraft.value = sessionStore.tenantId;
-  userDraft.value = sessionStore.userId;
-  sessionOpen.value = true;
-}
-
-function saveSession() {
-  if (!tenantDraft.value.trim()) {
-    ElMessage.warning("租户 ID 不能为空");
-    return;
+async function logout() {
+  try {
+    await authApi.logout();
+  } catch {
+    // 退出接口失败也要清理本地会话。
   }
-  sessionStore.update(tenantDraft.value, userDraft.value);
-  sessionOpen.value = false;
-  ElMessage.success("已切换租户上下文");
-  window.location.reload();
+  sessionStore.logout();
+  router.replace("/login");
 }
 </script>
 
@@ -156,6 +147,23 @@ function saveSession() {
           <span v-if="!appId" class="text-[9px] text-slate-600">选应用</span>
           <span v-else-if="inApprovals" class="text-[9px] text-indigo-300">当前</span>
         </button>
+
+        <template v-if="sessionStore.canManageIdentity">
+          <div class="px-3 pb-1 pt-5 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-600">
+            租户
+          </div>
+          <button
+            class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[13px] transition"
+            :class="inIdentity ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'"
+            @click="router.push('/identity')"
+          >
+            <span class="flex items-center gap-2.5">
+              <span class="grid h-5 w-5 place-items-center rounded bg-white/5 text-[11px]">◍</span>
+              组织与权限
+            </span>
+            <span v-if="inIdentity" class="text-[9px] text-indigo-300">当前</span>
+          </button>
+        </template>
       </nav>
 
       <div class="border-t border-white/5 px-5 py-4 text-[10px] text-slate-600">
@@ -173,20 +181,35 @@ function saveSession() {
           <span class="font-medium text-slate-700">{{ pageTitle }}</span>
         </div>
 
-        <button
-          class="flex items-center gap-3 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-3 text-left transition hover:border-indigo-200 hover:shadow-sm"
-          @click="openSession"
-        >
-          <span
-            class="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-[11px] font-semibold text-white"
+        <div class="flex items-center gap-2">
+          <div
+            class="flex items-center gap-3 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-3"
           >
-            {{ sessionStore.userId.slice(0, 1).toUpperCase() }}
-          </span>
-          <span class="leading-tight">
-            <span class="block text-[12px] font-medium text-slate-700">{{ sessionStore.userId }}</span>
-            <span class="block text-[10px] text-slate-400">{{ sessionStore.tenantId }}</span>
-          </span>
-        </button>
+            <span
+              class="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-[11px] font-semibold text-white"
+            >
+              {{ sessionStore.initials }}
+            </span>
+            <span class="leading-tight">
+              <span class="block text-[12px] font-medium text-slate-700">
+                {{ sessionStore.displayName || sessionStore.userId }}
+              </span>
+              <span class="block text-[10px] text-slate-400">
+                {{ sessionStore.tenantId }}
+                <template v-if="sessionStore.roles.length">
+                  · {{ sessionStore.roles.join(" / ") }}
+                </template>
+              </span>
+            </span>
+          </div>
+          <button
+            class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] text-slate-500 transition hover:border-rose-200 hover:text-rose-500"
+            type="button"
+            @click="logout"
+          >
+            退出
+          </button>
+        </div>
       </header>
 
       <main class="flex-1 px-8 py-7">
@@ -194,22 +217,5 @@ function saveSession() {
       </main>
     </div>
 
-    <el-dialog v-model="sessionOpen" title="租户与操作人" width="420px">
-      <p class="mb-4 text-xs leading-relaxed text-slate-500">
-        控制平面通过请求头识别租户与操作人。切换后会重新加载数据；生产环境将由网关或 SSO 注入。
-      </p>
-      <el-form label-position="top">
-        <el-form-item label="租户 ID（X-Tenant-Id）">
-          <el-input v-model="tenantDraft" placeholder="tenant_demo_school" />
-        </el-form-item>
-        <el-form-item label="操作人（X-User-Id）">
-          <el-input v-model="userDraft" placeholder="alice" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="sessionOpen = false">取消</el-button>
-        <el-button type="primary" @click="saveSession">应用并刷新</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>

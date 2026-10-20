@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
-> 最后更新：2026-10-19
-> 分支：`dev` ｜ 最新提交：`f677226 docs: 固化任务收尾与进度更新规则`
+> 最后更新：2026-10-20
+> 分支：`dev` ｜ 最新提交：`7d5d00e feat(auth): 接入 JWT 与组织权限`
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -21,6 +21,9 @@
 | 动作日志 | `GET /api/v1/runtime/apps/{appId}/action-runs`（按 `processInstanceId` / `actionKey` / `status` 过滤）；详情 `GET .../action-runs/{id}` |
 | 失败重放 | `POST /api/v1/runtime/apps/{appId}/action-runs/{id}/replay` |
 | 站内通知 | `GET /notifications`、`GET /notifications/unread-count`；`POST /notifications/{id}/read`、`POST /notifications/read-all` |
+| 登录入口 | `http://localhost:8080/login`；账号 `alice/alice123`、`bob/bob123`、`principal/principal123`、`hr/hr123` |
+| 身份 API | `POST /api/v1/auth/login`、`GET /api/v1/auth/me`、`GET /api/v1/platform/identity/overview?appId=<id>` |
+| 权限模式 | 开发：`LCP_AUTH_DEV_HEADERS=true`、`LCP_IDENTITY_ALLOW_ALL=true`；staging/prod 覆盖层已置 `false` |
 
 启动与重建：
 
@@ -39,7 +42,8 @@ cd platform; npm run typecheck; npm run build
 | `a318495` | 逻辑编排设计器 | 14 动作 / 87 步骤 / 11 API / 1 流程 / 3 规则实测 |
 | `547916f` | 自定义组件注册与 iframe 沙箱 | CDP：沙箱属性、CSP、页面设计器联动、r7/r8 保存 |
 | `bb628fb` | 接手上下文文档 | — |
-| 工作区（待提交） | Flowable 运行时 + 审批中心 + 逻辑执行器 + 动作回写/运行日志 | API 分支覆盖 + 失败重放 + 跨租户隔离 + CDP 动作日志面板 |
+| `b069720` | 动作回写与运行日志 | API 回写/失败重放 + CDP 动作日志面板 |
+| `7d5d00e` | 身份与权限：JWT / 组织架构 / 行级与字段权限 | 四账号登录 + 403 越权 + 字段白名单 + CDP 登录/退出 |
 
 ## 文档维护
 
@@ -117,6 +121,15 @@ cd platform; npm run typecheck; npm run build
 - 修复已结束实例变量读取：改用 `HistoricVariableInstance`，避免 `HistoricProcessInstance.getProcessVariables()` 返回空。
 - 验证：成功动作写入 `smoke_decision=approved_smoke` / `smoke_score=88`，业务 `reason=writeback-ok` 并自动推进结束；失败动作写入 `smoke_failed=true` / `reason=writeback-failed`，重放保留失败并生成新日志；跨租户列表 0 条、详情 404；CDP 面板渲染与详情展开正常。
 
+### 11. 身份与权限（刚完成）
+- 数据库：`30_identity.sql` 建部门、岗位、用户、角色、用户角色绑定与 RLS；`31_identity_demo.sql` 写入示范学院、计算机系、数学系与四个演示账号。
+- BFF：`auth` 提供 JWT 登录 / `me` / 退出、PBKDF2 口令校验；`identity` 提供组织、用户、角色绑定 CRUD；`RoleSyncService` 从发布件同步应用角色。
+- 权限求值：`PermissionService` 以发布件 `artifacts.permissions` + `roles[].dataScope` 为准，支持本人、部门、部门子树、全校与自定义规则；条件用 `ExpressionEngine` 求值。
+- 运行时：实例/任务详情按行级权限校验、按字段白名单过滤；提交与审批动作分别校验 `onSubmit` / `onApprove` 对应的 action 授权；签收、转办、完成同样校验权限。
+- 前端：`LoginPage`、`IdentityPage`、路由守卫、Bearer 拦截器、401 跳登录；顶栏展示用户 / 角色 / 退出，院级管理员可见「组织与权限」。
+- 开发兜底：`X-Tenant-Id` / `X-User-Id` 仅在 `LCP_AUTH_DEV_HEADERS=true` 时生效；`LCP_IDENTITY_ALLOW_ALL` 仅用于本地绕过管理员校验。
+- 验证：四账号登录与 `me` 通过；Alice 仅见本人字段、Bob 部门范围、HR 全校但无 `reason`、Principal 完整字段；Carol（数学系教师）读 Alice 实例 403；Alice 签收 Bob 任务 403；`leave_cleanup_stale` 403；Alice 发起 → Bob 签收 → 通过全链路通过；CDP 登录、退出、受保护路由跳转通过。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（进行中）
@@ -124,15 +137,17 @@ cd platform; npm run typecheck; npm run build
 - [x] 4.2 任务 API：待办/已办/我发起、签收、完成、转办、变量、历史时间线已完成；加签未做。
 - [x] 4.3 逻辑执行器：动作步骤同步执行（assign / branch / loop / parallel 串行兼容 / callAction / transaction 顺序 / delay / log / emit / fail），REST 与 mock API 已接入，支持超时、重试、路径/查询/头/体、`successWhen`、响应映射、`resultPath` / `assignTo`；内部/数据库 API 与脚本类步骤明确失败。
 - [x] 4.4 表达式引擎：按注册表白名单求值 97 个函数、14 个取值根；支持 `$lit/$ref/$fn/$tpl/$if`、路径、`filter/map` 子作用域、`$now` 冻结；未知函数、错误元数、未知根均抛错。
-- [x] 4.5 审批页：审批中心（待办/已办/我发起）、详情（表单 + 时间线 + 审批动作）已完成；人员选择暂用演示目录，阶段 5 接入组织架构。
+- [x] 4.5 审批页：审批中心（待办/已办/我发起）、详情（表单 + 时间线 + 审批动作）已完成；办理人解析已接组织架构，静态目录仅作兜底。
 - [x] 4.6 运行时事件与回调：流程状态回写已完成；站内通知（任务分派 / 转办 / 退回 / 驳回 / 通过）落库，支持未读数、单条已读、全部已读；审批中心增加通知面板与未读角标。邮件 / webhook 通道未接入。
 - [x] 4.7 动作回写与运行日志：动作结果可回写流程变量/业务字段并按成功/失败声明推进任务；运行日志持久化，支持实例/动作/状态查询、详情与失败重放；结束实例变量可从历史表读取。
 
 ### 阶段 5 · 权限体系
-- [ ] 用户、角色、组织架构（部门/岗位）。
-- [ ] 菜单权限、按钮权限、字段权限。
-- [ ] 行级数据权限（部门 / 本人 / 自定义规则）。
-- [ ] JWT / SSO 接入，替换演示会话头。
+- [x] 5.1 用户、角色、组织架构（部门/岗位）：身份表 + 演示数据 + BFF CRUD + `IdentityPage`。
+- [x] 5.2 按钮权限与字段权限：提交 / 审批 / 动作执行按 Bundle 授权；DataSchema 字段白名单过滤读与写。
+- [x] 5.3 行级数据权限：本人 / 部门 / 部门子树 / 全校 / 自定义条件。
+- [x] 5.4 JWT 登录与 Bearer 会话，替换演示会话头；请求头仅保留开发兜底。
+- [ ] 5.5 菜单权限：Bundle `menu/page` 授权已建模，控制平面入口已按角色显隐；运行时菜单渲染待阶段 6。
+- [ ] 5.6 SSO（OIDC / CAS）接入。
 
 ### 阶段 6 · 多端发布与运行时
 - [ ] 发布态运行时渲染器（读 Bundle 渲染，不依赖设计器）。
@@ -177,6 +192,10 @@ cd platform; npm run typecheck; npm run build
 - **表达式安全**：白名单函数 + 注册取值根，叠加步数、调用层级、动作超时与延迟上限。
 - **通知首版只做站内信**：通知与审批动作同事务写入，按「租户 + 用户 + 类型 + 业务对象」对未读去重；邮件 / webhook 需要连接器与密钥库，暂不阻塞审批。
 - **通知触发点跟随业务事务**：任务分派、转办、退回、驳回、通过由 `ProcessRuntimeService` 显式触发，不在 Flowable 监听器里直接写库。
+- **JWT 是唯一生产身份源**：`TenantFilter` 校验 Bearer JWT 后写入 `TenantContext`；`X-Tenant-Id` / `X-User-Id` 只在 `lcp.auth.dev-headers=true` 时兜底，staging/prod 覆盖层显式关闭。
+- **角色绑定与权限定义分离**：组织表只回答「谁拥有哪个角色」，角色、权限、字段白名单与行级条件全部来自发布件；运行时不在代码里硬编码角色。
+- **字段权限取并集**：同一用户命中多个授权时，可读字段取并集；显式字段白名单优先于角色默认范围；写入同样过白名单，避免审批表单放大权限。
+- **动作授权**：流程启动校验 `onSubmit` 对应 action 的 `execute`，审批校验 `onApprove` 的 outcome；动作执行器校验 action 的 `execute`，越权统一 403。
 
 ## 已知边界
 
@@ -185,23 +204,25 @@ cd platform; npm run typecheck; npm run build
 - 内部 / 数据库 / GraphQL / SOAP API 尚未接连接器，调用时明确返回 `UNSUPPORTED_API`，不执行裸 SQL；带密钥库的鉴权方式同样未开放。
 - `validate` 与前端交互步骤在服务端记为 skipped；`code` / `custom` / `startFlow` / `completeTask` 明确报未接入。
 - 动作日志按租户隔离并可按实例/动作/状态查询，暂无跨应用全局检索与保留期策略；重放不撤销已发生的业务/流程副作用。
-- 演示办理人目录为静态配置（`bob` / `principal`），未接组织架构。
-- 审批动作未做按钮级权限校验，任务归属由 Flowable `assignee` 控制。
+- 办理人解析优先查组织架构（部门负责人 / 角色成员），静态目录仅在 `LCP_RUNTIME_FALLBACK_DIRECTORY=true` 时兜底。
+- 提交 / 审批 / 动作执行已做按钮级授权；加签尚未实现，任务归属仍由 Flowable `assignee` 控制。
+- SSO 未接入，控制平面登录仍是账号密码 + JWT；密码策略、强制改密、登录审计未做。
+- Bundle 的 `menu/page` 授权尚未在运行时渲染器消费；当前只影响控制平面入口显隐。
 - 通知仅覆盖任务分派、转办、退回、驳回、通过；邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口未接入。
 - 自定义组件只有设计器内联沙箱预览；发布态远程组件加载未实现。
 - OSS STS 临时凭证服务未实现，生成代码里只有直传骨架。
-- 生成前端使用演示会话，不能用于生产鉴权。
+- 生成前端示例仍使用演示会话；控制平面已切 JWT，但出码模板未同步。
 - 校验器残留警告：内联枚举与共享枚举取值不一致；流程监听器未限定 `taskKey`。
 
 ## 下一步（建议直接开工）
 
-阶段 4 已完成，建议先提交本阶段改动，再按以下顺序推进：
+阶段 4 与阶段 5 主体已完成，按以下顺序推进：
 
-1. 阶段 5 权限体系：组织架构、菜单/按钮/字段权限、行级数据权限、JWT/SSO 替换演示会话头。
+1. 阶段 5 收尾：SSO（OIDC / CAS）、密码策略与登录审计；把 Bundle `menu/page` 授权接到运行时菜单。
 2. 补连接器注册表与租户密钥库，再开放 internal / database / GraphQL / SOAP 与 bearer/apiKey 鉴权。
 3. 扩展通知：邮件 / webhook 通道、`Rule.kind=notification` 规则挂载、SLA 超时提醒与全局未读入口。
 4. 阶段 6 发布态运行时渲染器与自定义组件远程加载。
-5. 工作区阶段 4 改动尚未提交；按收尾流程执行 `git diff --check` 后再决定提交。
+5. 出码模板同步 JWT 会话与组织权限，替换生成前端的演示会话。
 
 ## 恢复上下文的顺序
 

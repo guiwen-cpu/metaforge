@@ -4,6 +4,9 @@ services:
   bff:
     image: ghcr.io/guiwen-cpu/metaforge/bff:${TAG:?TAG 未设置}
     pull_policy: always
+    environment:
+      LCP_AUTH_DEV_HEADERS: "false"
+      LCP_IDENTITY_ALLOW_ALL: "false"
     deploy:
       resources:
         limits:

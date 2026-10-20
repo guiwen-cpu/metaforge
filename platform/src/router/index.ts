@@ -9,7 +9,10 @@ import ComponentDesignerPage from "@/pages/ComponentDesignerPage.vue";
 import ApprovalCenterPage from "@/pages/ApprovalCenterPage.vue";
 import ApprovalDetailPage from "@/pages/ApprovalDetailPage.vue";
 import InstanceDetailPage from "@/pages/InstanceDetailPage.vue";
+import LoginPage from "@/pages/LoginPage.vue";
+import IdentityPage from "@/pages/IdentityPage.vue";
 import NotFoundView from "@/views/NotFoundView.vue";
+import { session } from "@/lib/session";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -66,12 +69,37 @@ const router = createRouter({
           name: "app-instance-detail",
           component: InstanceDetailPage,
           meta: { title: "流程实例" }
+        },
+        {
+          path: "identity",
+          name: "identity",
+          component: IdentityPage,
+          meta: { title: "组织与权限" }
         }
       ]
+    },
+    {
+      path: "/login",
+      name: "login",
+      component: LoginPage,
+      meta: { title: "登录", public: true }
     },
     { path: "/:pathMatch(.*)*", component: NotFoundView }
   ],
   scrollBehavior: () => ({ top: 0 })
+});
+
+router.beforeEach((to) => {
+  if (to.meta.public === true) {
+    if (to.name === "login" && session.isAuthenticated()) {
+      return { name: "apps" };
+    }
+    return true;
+  }
+  if (!session.isAuthenticated()) {
+    return { name: "login", query: { redirect: to.fullPath } };
+  }
+  return true;
 });
 
 export default router;

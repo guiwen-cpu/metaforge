@@ -65,6 +65,12 @@ services:
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?}
       LCP_TENANT_HEADER: X-Tenant-Id
       LCP_USER_HEADER: X-User-Id
+      LCP_JWT_SECRET: ${LCP_JWT_SECRET:-metaforge-dev-secret-change-me}
+      LCP_AUTH_ISSUER: ${LCP_AUTH_ISSUER:-metaforge}
+      LCP_AUTH_TTL_HOURS: ${LCP_AUTH_TTL_HOURS:-12}
+      # 开发环境保留演示会话头兜底；staging/prod 必须显式关闭。
+      LCP_AUTH_DEV_HEADERS: ${LCP_AUTH_DEV_HEADERS:-true}
+      LCP_IDENTITY_ALLOW_ALL: ${LCP_IDENTITY_ALLOW_ALL:-true}
       TZ: Asia/Shanghai
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Shanghai"
     depends_on:

@@ -8,10 +8,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 把每个生成 Controller 调用包进事务，并在事务内注入 lcp.tenant_id。
+ * 把每个 Controller 调用包进事务，并在事务内注入 lcp.tenant_id。
  *
- * <p>SET LOCAL 随事务结束自动清理，配合非 owner 的 app 角色，RLS 才能真正兜底。
- * 事务在 Controller 方法返回时提交，早于响应序列化。
+ * <p>登录接口没有租户上下文，由 AuthService 自己开事务；此时直接执行。
+ * SET LOCAL 随事务结束自动清理，配合非 owner 的 app 角色，RLS 才能真正兜底。
  */
 @Aspect
 @Component
@@ -29,7 +29,7 @@ public class TenantTransactionAspect {
   public Object around(ProceedingJoinPoint joinPoint) throws Throwable {
     String tenantId = TenantContext.tenantId();
     if (tenantId == null || tenantId.isBlank()) {
-      throw new IllegalStateException("缺少租户上下文：请求未经 TenantFilter");
+      return joinPoint.proceed();
     }
     return transactionTemplate.execute(status -> {
       jdbc.queryForObject("select set_config('search_path', 'public,flowable', true)", String.class);

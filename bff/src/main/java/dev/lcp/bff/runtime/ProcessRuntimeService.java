@@ -1,6 +1,7 @@
 package dev.lcp.bff.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.lcp.bff.auth.PermissionService;
 import dev.lcp.bff.platform.PlatformException;
 import dev.lcp.bff.runtime.PublishedBundleService.PublishedBundle;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.CompleteTaskRequest;
@@ -61,6 +62,7 @@ public class ProcessRuntimeService {
   private final BusinessRecordService records;
   private final RuntimeUserDirectory users;
   private final NotificationService notifications;
+  private final PermissionService permissions;
 
   public ProcessRuntimeService(
       RepositoryService repositoryService,
@@ -72,7 +74,8 @@ public class ProcessRuntimeService {
       FlowDeploymentService deployments,
       BusinessRecordService records,
       RuntimeUserDirectory users,
-      NotificationService notifications) {
+      NotificationService notifications,
+      PermissionService permissions) {
     this.repositoryService = repositoryService;
     this.runtimeService = runtimeService;
     this.taskService = taskService;
@@ -83,6 +86,7 @@ public class ProcessRuntimeService {
     this.records = records;
     this.users = users;
     this.notifications = notifications;
+    this.permissions = permissions;
   }
 
   // ------------------------------------------------------------ 流程定义
@@ -118,6 +122,7 @@ public class ProcessRuntimeService {
     if (entity == null) {
       throw PlatformException.badRequest("entity_missing", "流程 " + key + " 未绑定业务实体");
     }
+    requireSubmitAction(appId, published.content());
 
     String businessId = trimToNull(request.businessId());
     Map<String, Object> business;
@@ -210,6 +215,7 @@ public class ProcessRuntimeService {
     JsonNode flow = flowFor(published.content(), definitionId, null);
     JsonNode entity = records.entity(published.content(), flow);
     Map<String, Object> business = records.get(entity, businessKey);
+    Map<String, Object> visible = visibleBusiness(appId, entity, business);
     Map<String, Object> variables = active == null
         ? historicVariables(instanceId) : runtimeService.getVariables(instanceId);
     List<TaskSummary> activeTasks = active == null
@@ -217,8 +223,9 @@ public class ProcessRuntimeService {
     return new InstanceView(instanceId, definitionId, businessKey,
         records.title(entity, business, businessKey),
         flow.path("key").asText(), text(flow.path("name"), flow.path("key").asText()),
-        active == null, string(business.get("status")), business, variables,
-        fields(published.content(), entity, business), activeTasks, timeline(instanceId));
+        active == null, string(business.get("status")), visible, variables,
+        visibleFields(appId, published.content(), entity, visible), activeTasks,
+        timeline(instanceId));
   }
 
   // ------------------------------------------------------------ 待办 / 已办
@@ -319,10 +326,12 @@ public class ProcessRuntimeService {
     JsonNode flow = flowFor(published.content(), definitionId, null);
     JsonNode entity = records.entity(published.content(), flow);
     Map<String, Object> business = records.get(entity, businessKey);
+    Map<String, Object> visible = visibleBusiness(appId, entity, business);
     JsonNode form = taskForm(flow, taskKey);
     boolean finished = active == null;
     boolean canAct = !finished && (assignee == null || assignee.equals(user()));
-    List<ActionView> actions = canAct ? actions(form) : List.of();
+    List<ActionView> actions = canAct
+        ? visibleActions(appId, published.content(), flow, form) : List.of();
 
     return new TaskDetail(
         taskId,
@@ -341,8 +350,8 @@ public class ProcessRuntimeService {
         string(business.get("status")),
         at(created),
         at(due),
-        business,
-        fields(published.content(), entity, business),
+        visible,
+        visibleFields(appId, published.content(), entity, visible),
         variables,
         actions,
         strings(form.path("editableFields")),
@@ -354,12 +363,13 @@ public class ProcessRuntimeService {
 
   public TaskDetail claim(UUID appId, String taskId) {
     Task task = requireTask(taskId);
+    PublishedBundle published = bundles.load(appId);
+    JsonNode flow = flowFor(published.content(), task.getProcessDefinitionId(), null);
+    requireFlowAction(appId, published.content(), flow, "execute");
     if (task.getAssignee() != null && !task.getAssignee().equals(user())) {
       throw PlatformException.conflict("task_claimed", "任务已由 " + task.getAssignee() + " 领取");
     }
     taskService.claim(taskId, user());
-    PublishedBundle published = bundles.load(appId);
-    JsonNode flow = flowFor(published.content(), task.getProcessDefinitionId(), null);
     JsonNode entity = records.entity(published.content(), flow);
     String businessKey = businessKey(task.getProcessInstanceId(), false);
     markBusiness(entity, businessKey, updates("approver_id", user()));
@@ -373,12 +383,13 @@ public class ProcessRuntimeService {
     }
     Task task = requireTask(taskId);
     requireOwner(task);
+    PublishedBundle published = bundles.load(appId);
+    JsonNode flow = flowFor(published.content(), task.getProcessDefinitionId(), null);
+    requireFlowAction(appId, published.content(), flow, "transfer");
     if (trimToNull(request.comment()) != null) {
       taskService.addComment(taskId, task.getProcessInstanceId(), request.comment().trim());
     }
     taskService.setAssignee(taskId, toUserId);
-    PublishedBundle published = bundles.load(appId);
-    JsonNode flow = flowFor(published.content(), task.getProcessDefinitionId(), null);
     JsonNode entity = records.entity(published.content(), flow);
     String businessKey = businessKey(task.getProcessInstanceId(), false);
     markBusiness(entity, businessKey, updates("approver_id", toUserId));
@@ -411,13 +422,22 @@ public class ProcessRuntimeService {
     if (action == null && !"applySubmit".equals(task.getTaskDefinitionKey())) {
       throw PlatformException.badRequest("outcome_invalid", "当前节点不支持操作 " + outcome);
     }
+    if ("applySubmit".equals(task.getTaskDefinitionKey())) {
+      requireSubmitAction(appId, published.content());
+    } else {
+      requireFlowAction(appId, published.content(), flow, outcome);
+    }
 
     String businessKey = businessKey(task.getProcessInstanceId(), false);
     Map<String, Object> business = records.get(entity, businessKey);
+    if (entity != null) {
+      permissions.requireReadRow(appId, entity.path("key").asText(), business);
+    }
     String businessTitle = records.title(entity, business, businessKey);
     String flowName = text(flow.path("name"), flow.path("key").asText());
     Map<String, Object> variables = new LinkedHashMap<>(runtimeService.getVariables(task.getProcessInstanceId()));
     Map<String, Object> incoming = request.variables() == null ? Map.of() : request.variables();
+    incoming = writableFields(appId, entity, incoming);
     if ("applySubmit".equals(task.getTaskDefinitionKey())) {
       variables.putAll(incoming);
     } else {
@@ -574,8 +594,7 @@ public class ProcessRuntimeService {
     for (Task task : tasks) {
       JsonNode form = taskForm(flow, task.getTaskDefinitionKey());
       JsonNode spec = form.path("assignee");
-      String assignee = users.resolve(spec.path("type").asText(null), spec,
-          variables.get("applicantId"));
+      String assignee = users.resolve(appId, spec.path("type").asText(null), spec, business);
       if (assignee != null) {
         taskService.setAssignee(task.getId(), assignee);
         if (!assignee.equals(user())) {
@@ -670,6 +689,115 @@ public class ProcessRuntimeService {
       }
     }
     throw PlatformException.notFound("流程定义 " + definitionId + " 未关联发布版本");
+  }
+
+  private Map<String, Object> visibleBusiness(
+      UUID appId, JsonNode entity, Map<String, Object> business) {
+    if (entity == null || business == null || business.isEmpty()) {
+      return business;
+    }
+    String entityKey = entity.path("key").asText();
+    permissions.requireReadRow(appId, entityKey, business);
+    return permissions.filterFields(appId, entityKey, business);
+  }
+
+  private List<FieldView> visibleFields(
+      UUID appId, JsonNode bundle, JsonNode entity, Map<String, Object> business) {
+    List<FieldView> all = fields(bundle, entity, business);
+    if (entity == null) {
+      return all;
+    }
+    Set<String> allowed = permissions.readableFields(appId, entity.path("key").asText());
+    if (allowed == null) {
+      return all;
+    }
+    List<FieldView> out = new ArrayList<>();
+    for (FieldView field : all) {
+      if (allowed.contains(field.key())) {
+        out.add(field);
+      }
+    }
+    return out;
+  }
+
+  private List<ActionView> visibleActions(
+      UUID appId, JsonNode bundle, JsonNode flow, JsonNode form) {
+    List<ActionView> all = actions(form);
+    if ("initiator".equals(form.path("assignee").path("type").asText())) {
+      return all;
+    }
+    String actionKey = approvalActionKey(bundle, flow);
+    if (actionKey == null) {
+      return all;
+    }
+    List<ActionView> out = new ArrayList<>();
+    for (ActionView action : all) {
+      if (permissions.canFlowAction(appId, actionKey, action.outcome())) {
+        out.add(action);
+      }
+    }
+    return out;
+  }
+
+  private Map<String, Object> writableFields(
+      UUID appId, JsonNode entity, Map<String, Object> incoming) {
+    if (entity == null || incoming == null || incoming.isEmpty()) {
+      return incoming;
+    }
+    Set<String> allowed = permissions.fields(appId, entity.path("key").asText(), "update");
+    if (allowed == null) {
+      return incoming;
+    }
+    Map<String, Object> out = new LinkedHashMap<>();
+    for (Map.Entry<String, Object> entry : incoming.entrySet()) {
+      String key = entry.getKey();
+      if (allowed.contains(key) || allowed.contains(snake(key))) {
+        out.put(key, entry.getValue());
+      }
+    }
+    return out;
+  }
+
+  private void requireFlowAction(UUID appId, JsonNode bundle, JsonNode flow, String outcome) {
+    String actionKey = approvalActionKey(bundle, flow);
+    if (actionKey != null) {
+      permissions.requireFlowAction(appId, actionKey, outcome);
+    }
+  }
+
+  private void requireSubmitAction(UUID appId, JsonNode bundle) {
+    String actionKey = submitActionKey(bundle);
+    if (actionKey != null) {
+      permissions.requireAction(appId, actionKey, "execute");
+    }
+  }
+
+  private static String submitActionKey(JsonNode bundle) {
+    for (JsonNode logic : bundle.path("artifacts").path("logicSchemas")) {
+      for (JsonNode action : logic.path("actions")) {
+        if ("onSubmit".equals(action.path("trigger").asText())) {
+          String key = action.path("key").asText(null);
+          if (key != null && !key.isBlank()) {
+            return key;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  private static String approvalActionKey(JsonNode bundle, JsonNode flow) {
+    for (JsonNode logic : bundle.path("artifacts").path("logicSchemas")) {
+      for (JsonNode action : logic.path("actions")) {
+        if ("onApprove".equals(action.path("trigger").asText())) {
+          String key = action.path("key").asText(null);
+          if (key != null && !key.isBlank()) {
+            return key;
+          }
+        }
+      }
+    }
+    return null;
   }
 
   private List<FieldView> fields(JsonNode bundle, JsonNode entity, Map<String, Object> business) {

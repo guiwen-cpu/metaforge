@@ -3,6 +3,7 @@ package dev.lcp.bff.runtime;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import dev.lcp.bff.auth.PermissionService;
 import dev.lcp.bff.platform.PlatformException;
 import dev.lcp.bff.runtime.PublishedBundleService.PublishedBundle;
 import dev.lcp.bff.runtime.dto.RuntimeRequests.CompleteTaskRequest;
@@ -50,6 +51,7 @@ public class ActionRunService {
   private final HistoryService historyService;
   private final NamedParameterJdbcTemplate jdbc;
   private final ObjectMapper json;
+  private final PermissionService permissions;
 
   public ActionRunService(
       ActionExecutor actions,
@@ -60,7 +62,8 @@ public class ActionRunService {
       TaskService taskService,
       HistoryService historyService,
       NamedParameterJdbcTemplate jdbc,
-      ObjectMapper json) {
+      ObjectMapper json,
+      PermissionService permissions) {
     this.actions = actions;
     this.bundles = bundles;
     this.records = records;
@@ -70,10 +73,12 @@ public class ActionRunService {
     this.historyService = historyService;
     this.jdbc = jdbc;
     this.json = json;
+    this.permissions = permissions;
   }
 
   public ActionExecutionResult execute(
       UUID appId, String actionKey, ExecuteActionRequest request) {
+    permissions.requireAction(appId, actionKey, "execute");
     return executeInternal(appId, actionKey, request, null).result();
   }
 
@@ -129,6 +134,7 @@ public class ActionRunService {
 
   public ActionRunDetail replay(UUID appId, UUID id) {
     ActionRunDetail original = detail(appId, id);
+    permissions.requireAction(appId, original.actionKey(), "execute");
     ExecuteActionRequest request = new ExecuteActionRequest(
         objectMap(original.params()), objectMap(original.context()), objectMap(original.event()));
     Execution execution = executeInternal(appId, original.actionKey(), request, id);
