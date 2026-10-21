@@ -16,7 +16,7 @@ import {
   runtimePathFromParts
 } from "@/lib/runtimeNavigation";
 import RuntimePageRenderer from "@/components/runtime/RuntimePageRenderer.vue";
-import type { RuntimeNavigatePayload } from "@/lib/runtimeContext";
+import type { RuntimeNavigatePayload, RuntimePageRendererHandle } from "@/lib/runtimeContext";
 import type {
   RuntimeMenuItem,
   RuntimeNavigation,
@@ -29,6 +29,7 @@ const appId = computed(() => String(route.params.appId ?? ""));
 
 const navigation = ref<RuntimeNavigation | null>(null);
 const page = ref<RuntimePageView | null>(null);
+const renderer = ref<RuntimePageRendererHandle | null>(null);
 const loading = ref(true);
 const pageLoading = ref(false);
 const error = ref("");
@@ -134,6 +135,7 @@ async function openItem(item: RuntimeMenuItem): Promise<void> {
   }
   if (!item.path) return;
   moreOpen.value = false;
+  await renderer.value?.runBeforeLeave("internal", item.path);
   await router.push({ path: appRoute(item.path), query: route.query });
 }
 
@@ -152,6 +154,7 @@ async function navigateRuntime(payload: RuntimeNavigatePayload): Promise<void> {
     ElMessage.warning("目标路由缺少必要参数，已取消跳转");
     return;
   }
+  await renderer.value?.runBeforeLeave("internal", target);
   await router.push({ path: appRoute(target), query: route.query });
 }
 
@@ -259,6 +262,7 @@ onMounted(loadNavigation);
           </div>
           <div class="runtime-mobile overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
             <RuntimePageRenderer
+              ref="renderer"
               :key="page.key + ':' + runtimePath"
               :app-id="appId"
               :view="page"

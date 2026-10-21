@@ -2464,7 +2464,7 @@ export const EXPRESSION_FUNCTION_CATEGORIES: readonly string[] = Array.from(new 
 export const EXPRESSION_DOCS = {
   "description": "统一表达式 DSL 的唯一权威注册表。前端求值器、BFF 求值器、Flowable 变量绑定、规则引擎、数据权限下推、AI 生成校验器全部读这一份。新增函数=改这一个文件；任何一端私自定义函数视为缺陷。",
   "statePathConvention": "状态读写路径约定：表达式读取统一带 $ 前缀根（$page.state.x / $form.x / $row.x）；AssignStep.target 写相对路径（state.x / form.x / row.x / vars.x）。两侧由同一份路径解析器实现，前端与 BFF 行为一致。",
-  "pageHandlerConvention": "页面级 handlers 的键是页面生命周期事件（onLoad / onParamsChange / onError / onUnmount / onBeforeLeave），不是业务动作；节点级 handlers 的键是该组件 EventDef 声明的事件名；可复用的业务逻辑一律沉淀为 LogicSchema.actions 并用 HandlerRef.actionRef 引用。",
+  "pageHandlerConvention": "页面级 handlers 的键是页面生命周期事件（onLoad / onMount / onParamChange / onError / onUnmount / onBeforeLeave），不是业务动作；节点级 handlers 的键是该组件 EventDef 声明的事件名；可复用的业务逻辑一律沉淀为 LogicSchema.actions 并用 HandlerRef.actionRef 引用。",
   "assignToConvention": "结果落点约定：任何步骤的 assignTo 都接受 state.x / form.x / row.x / rows.x / vars.x 五类相对路径。state 写页面状态、form 写当前表单模型、row 写当前行、vars 写动作链临时变量。读回时分别用 $page.state.x / $form.x / $row.x / $ctx.vars.x。仅「紧邻下一步」读上一步原始结果才用 $ctx.result —— 这是新手最常踩的坑（下一步执行后 result 即被覆盖）。"
 } as const;
 

@@ -14,7 +14,7 @@ import {
 } from "@/lib/runtimeNavigation";
 import { registerCustomComponents } from "@/lib/uiModel";
 import RuntimePageRenderer from "@/components/runtime/RuntimePageRenderer.vue";
-import type { RuntimeNavigatePayload } from "@/lib/runtimeContext";
+import type { RuntimeNavigatePayload, RuntimePageRendererHandle } from "@/lib/runtimeContext";
 import type { AppView } from "@/types/platform";
 import type {
   RuntimeMenuItem,
@@ -29,6 +29,7 @@ const appId = computed(() => String(route.params.appId ?? ""));
 const app = ref<AppView | null>(null);
 const navigation = ref<RuntimeNavigation | null>(null);
 const page = ref<RuntimePageView | null>(null);
+const renderer = ref<RuntimePageRendererHandle | null>(null);
 const loading = ref(true);
 const pageLoading = ref(false);
 const error = ref("");
@@ -110,6 +111,7 @@ async function openMenu(item: RuntimeMenuItem) {
     return;
   }
   if (!item.path) return;
+  await renderer.value?.runBeforeLeave("internal", item.path);
   await router.push({ query: { ...route.query, path: item.path } });
 }
 
@@ -135,6 +137,7 @@ async function navigateRuntime(payload: RuntimeNavigatePayload): Promise<void> {
     ElMessage.warning("目标路由缺少必要参数，已取消跳转");
     return;
   }
+  await renderer.value?.runBeforeLeave("internal", target);
   await router.push({ query: { ...route.query, path: target } });
 }
 
@@ -256,6 +259,7 @@ onMounted(loadNavigation);
           </div>
           <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <RuntimePageRenderer
+              ref="renderer"
               :key="page.key + ':' + selectedPath"
               :app-id="appId"
               :view="page"

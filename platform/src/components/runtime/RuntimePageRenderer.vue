@@ -1,9 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from "vue";
+import { onBeforeRouteLeave } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { runtimeApi } from "@/api/runtime";
 import { errorMessage } from "@/lib/http";
 import { session } from "@/lib/session";
+import { CodeRuntime, type CodeRuntimeResult } from "@/lib/codeSandbox";
+import {
+  hookInputs,
+  hookOutputEntries,
+  invokeCodeHook,
+  PAGE_LIFECYCLE_EVENTS,
+  type PageLifecycleEvent
+} from "@/lib/codeHook";
 import {
   evalDeep,
   setPath,
@@ -23,7 +32,7 @@ import {
   type RuntimeScope,
   type RuntimeUserContext
 } from "@/lib/runtimeContext";
-import type { UINode } from "@/types/uiModel";
+import type { CodeHook, HandlerRef, UINode } from "@/types/uiModel";
 import type {
   DataSourceSort,
   RuntimeActionDefinition,
@@ -47,11 +56,17 @@ const sortState = reactive<Record<string, DataSourceSort[] | null>>({});
 const ready = ref(false);
 const loadError = ref("");
 const requestSeq = reactive<Record<string, number>>({});
+const codeRuntime = new CodeRuntime();
+let routeInitialized = false;
+let leaveDone = false;
+let leaveRunning: Promise<boolean> | null = null;
+let errorHookRunning = false;
 
 const page = computed(() => props.view.page);
 const dialogs = computed(() => (props.view.page.dialogs ?? {}) as Record<string, UINode>);
 const routeParams = computed(() => props.routeParams ?? {});
 const routeQuery = computed(() => props.routeQuery ?? {});
+const routeSignature = computed(() => JSON.stringify({ params: routeParams.value, query: routeQuery.value }));
 const dataSourceConfigs = computed(() => {
   const list = (props.view.page.dataSources ?? []) as Array<Record<string, unknown>>;
   return new Map(list.map((item) => [String(item.id ?? ""), item]));
@@ -178,6 +193,76 @@ function handleEvent(raw: unknown): void {
   }
 }
 
+function codeContext(
+  scope: RuntimeScope,
+  params: Record<string, unknown>,
+  event: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    event,
+    params,
+    route: {
+      path: props.view.path ?? page.value.route?.path ?? "",
+      params: routeParams.value,
+      query: routeQuery.value
+    },
+    user: user.value,
+    tenant: { id: user.value.tenantId },
+    data: dataSourceSnapshot(data),
+    page: {
+      key: page.value.key,
+      state: { ...state },
+      params: routeParams.value,
+      query: routeQuery.value
+    },
+    state: { ...state },
+    form: scope.form ?? {},
+    row: scope.row ?? null,
+    rows: scope.rows ?? null,
+    vars: scope.vars ?? {},
+    env: {
+      platform: "browser",
+      locale: "zh-CN",
+      timezone: "Asia/Shanghai",
+      mode: "runtime",
+      appVersion: props.view.version_no
+    }
+  };
+}
+
+async function runCodeHook(
+  hook: CodeHook,
+  scope: RuntimeScope,
+  params: Record<string, unknown>,
+  event: Record<string, unknown>,
+  name: string,
+  applyOutputs = true
+): Promise<CodeRuntimeResult> {
+  const hookScope: RuntimeScope = { ...scope, event: { ...(scope.event ?? {}), ...event } };
+  const input = hookInputs(hook, (value) => evaluate(value, hookScope, params));
+  try {
+    const result = await invokeCodeHook(codeRuntime, hook, {
+      input,
+      context: codeContext(hookScope, params, hookScope.event ?? {})
+    });
+    for (const line of result.logs) console.debug(`[code-hook:${name}]`, line);
+    for (const item of result.events) handleEvent({ event: item.name, payload: item.payload });
+    if (applyOutputs) {
+      for (const entry of hookOutputEntries(hook, result.value)) {
+        setPath(state, entry.key, entry.value);
+      }
+    }
+    return result;
+  } catch (cause) {
+    const detail = cause as { events?: unknown[]; logs?: string[] };
+    for (const line of detail.logs ?? []) console.debug(`[code-hook:${name}]`, line);
+    for (const item of detail.events ?? []) {
+      if (item && typeof item === "object") handleEvent(item);
+    }
+    throw cause;
+  }
+}
+
 function assignTarget(
   target: string,
   value: unknown,
@@ -247,6 +332,35 @@ async function runSteps(
         handleEvent({ event: step.event, payload: payload ?? {} });
         break;
       }
+      case "code": {
+        const lang = String(step.lang ?? "ts");
+        const runtime = String(step.runtime ?? "browser");
+        if (lang !== "ts" || runtime !== "browser") {
+          throw new Error("服务端代码步骤当前仅支持注册入口，浏览器运行时只执行 runtime=browser、lang=ts");
+        }
+        const source = typeof step.source === "string" ? step.source : "";
+        if (!source.trim()) throw new Error("代码步骤 source 不能为空");
+        const hook: CodeHook = {
+          lang: "ts",
+          runtime: "browser",
+          source,
+          entry: String(step.entry ?? "default"),
+          inputs: Array.isArray(step.inputs) ? (step.inputs as CodeHook["inputs"]) : [],
+          outputs: Array.isArray(step.outputs) ? (step.outputs as CodeHook["outputs"]) : [],
+          timeoutMs: typeof step.timeoutMs === "number" ? step.timeoutMs : 3000,
+          sandbox: (step.sandbox ?? {}) as CodeHook["sandbox"]
+        };
+        const result = await runCodeHook(
+          hook,
+          stepScope,
+          params,
+          stepScope.event ?? {},
+          String(step.id ?? "code"),
+          false
+        );
+        if (step.assignTo) assignTarget(String(step.assignTo), result.value, stepScope, params);
+        break;
+      }
       case "log":
         if (step.level === "error") console.error("[runtime]", step.message);
         else console.debug("[runtime]", step.message);
@@ -265,6 +379,101 @@ async function runSteps(
   }
 }
 
+async function reportRuntimeError(
+  source: string,
+  cause: unknown,
+  event: Record<string, unknown>,
+  scope: RuntimeScope
+): Promise<void> {
+  const message = errorMessage(cause);
+  notify(message, "error");
+  if (errorHookRunning) return;
+  errorHookRunning = true;
+  try {
+    await runLifecycle(
+      "onError",
+      {
+        type: "onError",
+        source,
+        message,
+        originalEvent: event,
+        error: {
+          name: cause instanceof Error ? cause.name : "Error",
+          message,
+          stack: cause instanceof Error ? cause.stack : null
+        }
+      },
+      scope
+    );
+  } catch (hookCause) {
+    console.error("[runtime] onError 代码钩子执行失败", hookCause);
+  } finally {
+    errorHookRunning = false;
+  }
+}
+
+async function runLifecycle(
+  name: PageLifecycleEvent,
+  event: Record<string, unknown> = {},
+  scope: RuntimeScope = {}
+): Promise<unknown> {
+  const handler = (page.value.handlers?.[name] ?? null) as HandlerRef | null;
+  if (!handler) return undefined;
+  const lifecycleScope: RuntimeScope = {
+    ...scope,
+    event: { ...(scope.event ?? {}), ...event }
+  };
+  const params = (evaluate(handler.params, lifecycleScope) ?? {}) as Record<string, unknown>;
+  if (handler.actionRef?.key) {
+    const rawConfirmed = lifecycleScope.event?.__confirmed;
+    await runAction({
+      actionKey: String(handler.actionRef.key),
+      params,
+      scope: lifecycleScope,
+      confirmed: typeof rawConfirmed === "boolean" ? rawConfirmed : undefined
+    });
+    return undefined;
+  }
+  if (Array.isArray(handler.steps)) {
+    await runSteps(handler.steps as RuntimeStep[], lifecycleScope, params);
+    return undefined;
+  }
+  if (handler.code) {
+    const result = await runCodeHook(
+      handler.code,
+      lifecycleScope,
+      params,
+      lifecycleScope.event ?? {},
+      name,
+      true
+    );
+    return result.value;
+  }
+  return undefined;
+}
+
+async function runBeforeLeave(source: "route" | "internal", target = ""): Promise<boolean> {
+  if (leaveDone) return true;
+  if (leaveRunning) return leaveRunning;
+  leaveRunning = (async () => {
+    try {
+      await runLifecycle(
+        "onBeforeLeave",
+        { type: "onBeforeLeave", source, target },
+        {}
+      );
+      return true;
+    } catch (cause) {
+      await reportRuntimeError("onBeforeLeave", cause, { source, target }, {});
+      return true;
+    } finally {
+      leaveDone = true;
+      leaveRunning = null;
+    }
+  })();
+  return leaveRunning;
+}
+
 async function runHandler(
   node: UINode,
   name: string,
@@ -274,20 +483,24 @@ async function runHandler(
   const handler = node.handlers?.[name] as Record<string, unknown> | undefined;
   if (!handler) return;
   const handlerScope: RuntimeScope = { ...scope, event: { ...(scope.event ?? {}), ...event } };
-  const params = (evaluate(handler.params, handlerScope) ?? {}) as Record<string, unknown>;
-  const actionRef = handler.actionRef as Record<string, unknown> | undefined;
-  if (actionRef?.key) {
-    const rawConfirmed = handlerScope.event?.__confirmed;
-    await runAction({
-      actionKey: String(actionRef.key),
-      params,
-      scope: handlerScope,
-      confirmed: typeof rawConfirmed === "boolean" ? rawConfirmed : undefined
-    });
-    return;
-  }
-  if (Array.isArray(handler.steps)) {
-    await runSteps(handler.steps as RuntimeStep[], handlerScope, params);
+  try {
+    const params = (evaluate(handler.params, handlerScope) ?? {}) as Record<string, unknown>;
+    const actionRef = handler.actionRef as Record<string, unknown> | undefined;
+    if (actionRef?.key) {
+      const rawConfirmed = handlerScope.event?.__confirmed;
+      await runAction({
+        actionKey: String(actionRef.key),
+        params,
+        scope: handlerScope,
+        confirmed: typeof rawConfirmed === "boolean" ? rawConfirmed : undefined
+      });
+      return;
+    }
+    if (Array.isArray(handler.steps)) {
+      await runSteps(handler.steps as RuntimeStep[], handlerScope, params);
+    }
+  } catch (cause) {
+    await reportRuntimeError(name, cause, handlerScope.event ?? {}, handlerScope);
   }
 }
 
@@ -375,7 +588,7 @@ async function runAction(invocation: RuntimeActionInvocation): Promise<void> {
       }
     }
   } catch (cause) {
-    notify(errorMessage(cause), "error");
+    await reportRuntimeError(`action:${action.key}`, cause, scope.event ?? {}, scope);
   }
 }
 
@@ -538,19 +751,29 @@ function initDataSources(): void {
 async function bootstrap(): Promise<void> {
   ready.value = false;
   loadError.value = "";
+  routeInitialized = false;
+  leaveDone = false;
+  leaveRunning = null;
   resetState();
   initDataSources();
   try {
-    const handlers = (props.view.page.handlers ?? {}) as Record<string, unknown>;
-    const onLoad = handlers.onLoad as { steps?: RuntimeStep[] } | undefined;
-    if (onLoad?.steps?.length) await runSteps(onLoad.steps, {});
+    const baseEvent = {
+      type: "lifecycle",
+      path: props.view.path ?? page.value.route?.path ?? "",
+      params: { ...routeParams.value },
+      query: { ...routeQuery.value }
+    };
+    await runLifecycle("onLoad", { ...baseEvent, phase: "onLoad" }, {});
     const immediate = Array.from(dataSourceConfigs.value.entries())
       .filter(([, config]) => (config as Record<string, unknown>).immediate === true)
       .map(([id]) => id);
     await Promise.all(immediate.map((id) => refreshDataSource(id, { silent: true })));
+    await runLifecycle("onMount", { ...baseEvent, phase: "onMount" }, {});
   } catch (cause) {
     loadError.value = errorMessage(cause);
+    await reportRuntimeError("bootstrap", cause, { params: { ...routeParams.value } }, {});
   } finally {
+    routeInitialized = true;
     ready.value = true;
   }
 }
@@ -606,6 +829,41 @@ watch(
     void bootstrap();
   }
 );
+
+watch(routeSignature, (next, previous) => {
+  if (!routeInitialized || next === previous) return;
+  let previousValue: unknown = {};
+  try {
+    previousValue = previous ? JSON.parse(previous) : {};
+  } catch {}
+  void runLifecycle(
+    "onParamChange",
+    {
+      type: "onParamChange",
+      params: { ...routeParams.value },
+      query: { ...routeQuery.value },
+      previous: previousValue
+    },
+    {}
+  ).catch((cause) =>
+    reportRuntimeError("onParamChange", cause, { params: { ...routeParams.value } }, {})
+  );
+});
+
+onBeforeRouteLeave(async (to) => runBeforeLeave("route", to.fullPath));
+
+onBeforeUnmount(() => {
+  const task = (async () => {
+    try {
+      await runLifecycle("onUnmount", { type: "onUnmount" }, {});
+    } catch (cause) {
+      await reportRuntimeError("onUnmount", cause, {}, {});
+    }
+  })();
+  void task.finally(() => codeRuntime.dispose());
+});
+
+defineExpose({ runBeforeLeave });
 </script>
 
 <template>

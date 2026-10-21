@@ -40,6 +40,10 @@ export interface RuntimeNavigatePayload {
   path?: string | null;
 }
 
+export interface RuntimePageRendererHandle {
+  runBeforeLeave(source: "route" | "internal", target?: string): Promise<boolean>;
+}
+
 export interface RuntimeContextApi {
   appId: string;
   view: RuntimePageView;

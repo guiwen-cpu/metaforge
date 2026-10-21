@@ -628,7 +628,7 @@ function checkBundle(bundle, tag) {
     }
 
     // 页面内的步骤（handlers / dialogs）
-    const pageHandlers = new Set(["onLoad", "onMount", "onParamChange", "onParamsChange", "onError", "onUnmount", "onBeforeLeave"]);
+    const pageHandlers = new Set(["onLoad", "onMount", "onParamChange", "onError", "onUnmount", "onBeforeLeave"]);
     const collectSteps = (h, ptr) => {
       if (!h) return;
       if (h.code) checkCodeHook(h.code, `${ptr}.code`);

@@ -2887,7 +2887,7 @@
                 }
               ]
             },
-            "onParamsChange": {
+            "onParamChange": {
               "steps": [
                 {
                   "id": "01J8ZQ4K2M000000000000001E",
@@ -3555,7 +3555,7 @@
                 }
               ]
             },
-            "onParamsChange": {
+            "onParamChange": {
               "steps": [
                 {
                   "id": "01J8ZQ4K2M0000000000000025",
