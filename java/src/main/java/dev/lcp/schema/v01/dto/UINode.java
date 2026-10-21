@@ -179,13 +179,13 @@ public class UINode {
      * 节点事件处理器。键必须是组件契约 events[] 中声明的事件名（L2 校验）；代码钩子仅限页面生命周期，不能在节点上使用
      */
     @JsonProperty("handlers")
-    private Map<String, UiHandlerRef> handlers;
+    private Map<String, UiNodeHandlerRef> handlers;
 
-    public Map<String, UiHandlerRef> getHandlers() {
+    public Map<String, UiNodeHandlerRef> getHandlers() {
         return handlers;
     }
 
-    public void setHandlers(Map<String, UiHandlerRef> handlers) {
+    public void setHandlers(Map<String, UiNodeHandlerRef> handlers) {
         this.handlers = handlers;
     }
 

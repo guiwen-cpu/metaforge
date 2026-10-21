@@ -389,7 +389,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 ### 阶段 8 · 集成与扩展
 - [x] 连接器注册表：REST / GraphQL / SOAP / PostgreSQL database / internal；OAuth2、签名鉴权、变更审计与 DNS pinning 已接入。
 - [x] 租户级密钥与凭证管理：AES-256-GCM 加密存储、只写不读、轮换与租户隔离。
-- [ ] 自定义 TS 代码钩子（页面生命周期、逻辑步骤）：协议、双端绑定与校验已完成，运行时接入进行中。
+- [ ] 自定义 TS 代码钩子（页面生命周期、逻辑步骤）：协议、双端绑定与校验已完成（页面 / 节点 handler 引用已校正），运行时接入进行中。
 - [ ] AI 辅助：自然语言生成表单/页面/流程（语义字段已预留）。
 
 ### 阶段 9 · 市场

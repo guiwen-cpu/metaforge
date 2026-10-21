@@ -73,7 +73,7 @@
         "handlers": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/$defs/NodeHandlerRef"
+            "$ref": "#/$defs/HandlerRef"
           },
           "description": "页面级事件：onLoad / onMount / onParamChange / onUnmount / onError / onBeforeLeave。值可以是动作引用、内联步骤或沙箱代码钩子。"
         },
@@ -378,7 +378,7 @@
         "handlers": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/$defs/HandlerRef"
+            "$ref": "#/$defs/NodeHandlerRef"
           },
           "description": "节点事件处理器。键必须是组件契约 events[] 中声明的事件名（L2 校验）；代码钩子仅限页面生命周期，不能在节点上使用"
         },

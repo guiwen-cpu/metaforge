@@ -886,7 +886,7 @@ export interface UISchema {
   /**
    * 页面级事件：onLoad / onMount / onParamChange / onUnmount / onError / onBeforeLeave。值可以是动作引用、内联步骤或沙箱代码钩子。
    */
-  handlers?: Record<string, UiNodeHandlerRef> | null;
+  handlers?: Record<string, UiHandlerRef> | null;
   access?: CommonAccess | null;
   seo?: UISchemaSeo | null;
   origin?: UiOrigin | null;
@@ -1033,7 +1033,7 @@ export interface UINode {
   /**
    * 节点事件处理器。键必须是组件契约 events[] 中声明的事件名（L2 校验）；代码钩子仅限页面生命周期，不能在节点上使用
    */
-  handlers?: Record<string, UiHandlerRef> | null;
+  handlers?: Record<string, UiNodeHandlerRef> | null;
   /**
    * 列表渲染。作用域内提供 $item / $index / $loop
    */
