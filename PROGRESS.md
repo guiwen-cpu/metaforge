@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新功能提交：`f8abbe9`（`fix(schema): 校正页面与节点事件引用`）
+> 分支：`dev` ｜ 最新功能提交：`6551ebd`（`feat(studio): 接入 AI 生成表单/页面/流程`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -46,6 +46,8 @@
 | 运行时页面 | `GET /api/v1/runtime/apps/{appId}/pages/{pageKey}`（按页面 ACL 返回 200 / 403，含动作白名单） |
 | 运行时数据源 | `POST /api/v1/runtime/apps/{appId}/pages/{pageKey}/data-sources/{dataSourceId}/query`（分页 / 搜索 / 排序 / 行级权限） |
 | H5 运行时 | `/m/apps/<appId>/<发布页路径>`；与设计器共用 JWT 会话，独立移动壳、底部导航与更多抽屉，非法路径回退默认路由 |
+| AI 生成 API | `POST /api/v1/platform/ai/generate`；`kind=form/page/flow`，返回 `provider` / `artifact` / `assets` / `warnings` |
+| AI 配置 | `LCP_AI_ENABLED`、`LCP_AI_BASE_URL`（OpenAI 兼容根路径，如 `.../v1`）、`LCP_AI_API_KEY`、`LCP_AI_MODEL`、`LCP_AI_TIMEOUT_MS`；默认关闭外部模型 |
 
 启动与重建：
 
@@ -99,6 +101,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 | `de7b00a` | 出码完整可运行工程 | 独立 server 编译 + Compose 端到端 CRUD + RLS 租户隔离 |
 | `604d3d8` | 出码 CLI、参数化与增量导出 | dry-run / 参数覆盖 / 二次生成 0 变更 + 生成工程编译 |
 | `0b3afaa` | 导出包与在线版本 diff | zip 外部解压校验 + 平台 v8↔v9 diff 200 条逐条一致 |
+| `cc8b58b` | AI 生成 API 与本地降级生成器 | BFF 编译 + 真实 API 生成页面/流程 + 本地降级返回 provider/warnings |
+| `6551ebd` | 设计器接入 AI 生成表单/页面/流程 | typecheck / build + CDP 页面/流程生成应用 + API 核对未自动保存 |
 
 ## 文档维护
 
@@ -351,6 +355,15 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - diff 口径复用平台规则：去掉 `snapshot`、规范化 JSON 计算 SHA-256、数组按 `key`/`id`/`name` 配对、最多 200 条并标记截断；单侧超大节点只保留定位字段。
 - 验证：`version-diff --self-test` 5 条通过；导出包经 PowerShell `Expand-Archive` 解压成功，`MANIFEST.json` 的 95 个文件 SHA-256 全部匹配；本地工具对在线 v9 的内容摘要与平台返回一致；对 v8↔v9 的 200 条 diff，路径、类型、工件归属与摘要和平台 API 逐条一致。
 
+### 35. AI 辅助生成表单/页面/流程（刚完成）
+- `POST /api/v1/platform/ai/generate` 支持 `kind=form|page|flow`；请求可带 `entity_key`、`page_kind` 与设计器上下文，响应统一返回 `provider` / `artifact` / `assets` / `warnings`。
+- `LocalArtifactGenerator` 在实体上下文下稳定生成列表 / 表单 / 详情骨架，以及 1–3 级线性 Flowable 审批与内联 BPMN；相同提示词与实体得到相同 key，便于测试与 diff。
+- `OpenAiCompatibleClient` 面向 OpenAI 兼容 Chat Completions；只有 `LCP_AI_ENABLED=true` 且 `base-url` / `api-key` / `model` 完整时启用，异常或产物不合规会回退本地并写入 warning。
+- 页面设计器新增「AI 生成」：选择页面类型、实体与自然语言提示，先预览 provider / 警告 / 页面 JSON；应用前检查根节点、重复 key/id/route 与 UISchema 校验。
+- 逻辑设计器新增「AI 生成流程」：预览变量、任务表单与监听器；应用前检查 Flow key/processKey/id、资产 key 冲突与 BPMN 引用，并入本地 Bundle 后执行逻辑交叉校验。
+- AI 结果只进入本地草稿，不自动保存或发布；页面与流程设计器分别复用现有校验与保存链路。
+- 验证：`typecheck` / `build` 通过；CDP 页面与流程两条链路均生成并应用成功；页面 3→4、流程 1→2 且出现未保存状态；API 核对服务端草稿仍为 `r16`、页面 3、流程 1。
+
 ## 剩余路线图
 
 ### 阶段 4 · 运行时与工作流（已完成）
@@ -392,7 +405,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 自定义 TS 代码钩子运行时：页面 `onLoad / onMount / onParamChange / onUnmount / onError / onBeforeLeave`、代码步骤、输出回写、事件、超时与沙箱策略已接入发布态渲染器。
 - [x] 自定义 TS 代码钩子设计器（页面）：页面生命周期事件切换、动作引用 / 内联步骤 / TS 代码钩子三选一、输入输出与沙箱策略编辑、浏览器试运行。
 - [x] 自定义 TS 代码钩子设计器（逻辑）：逻辑设计器代码步骤浏览器试运行，展示输出、日志、事件与耗时；仅支持 `lang=ts` + `runtime=browser`。
-- [ ] AI 辅助：自然语言生成表单/页面/流程（语义字段已预留）。
+- [x] AI 辅助：自然语言生成表单/页面/流程；页面与流程设计器支持预览后应用，外部模型失败自动回退本地，结果不自动保存或发布。
 
 ### 阶段 9 · 市场
 - [ ] 内置页面模板市场。
@@ -414,6 +427,10 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - **扩展键**：平台私有字段统一 `x-` 前缀（`x-previewHtml`、`x-previewScript`），随 Bundle 版本化。
 - **草稿并发**：控制平面用 `revision` 乐观锁，冲突时提示加载最新草稿。
 - **语义预留**：实体、页面、组件、流程均带 `semantic.intent`，为 AI 生成做准备。
+- **AI 默认走本地确定性生成**：未启用或未配置完整外部模型时，按同一提示词与实体稳定产出页面 key 与线性审批流程，便于复现、diff 与冒烟。
+- **外部模型显式开启并失败回退**：仅当 `LCP_AI_ENABLED=true` 且 `base-url` / `api-key` / `model` 完整时调用 OpenAI 兼容模型；调用异常或产物校验失败自动回退本地，并通过 `warnings` 明示。
+- **AI 产物只进本地预览**：生成结果不直接写控制平面；应用前分别经过组件注册表、UISchema / BPMN 与流程交叉校验，用户确认后仅修改内存草稿，保存与发布仍走原有版本化流程。
+- **流程变量字段统一**：Flow 元数据使用 `variables`；设计器读取旧 `variableMappings` 时做内存迁移，保存后不再写旧键。
 - **运行时只读发布件**：审批中心与任务 API 只认 `current_version`，草稿变更不影响线上实例。
 - **动作由流程声明驱动**：前端按 `Flow.taskForms[].buttons` 渲染动作，后端按同一份声明校验 `outcome` 与 `comment_required`。
 - **已办口径**：排除 `assignee.type=initiator` 的自动提交节点，避免与「我发起」重复。
@@ -475,13 +492,15 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 生成前端已使用平台 JWT；SSO 登录仍需按项目替换 `stores/session.ts` 的登录入口，生成器暂不产出 IdP 回调页。
 - 导出包使用内置 ZIP 写入器，暂不支持 zip64；单个包超过 4GB 需拆分。版本对比只比较 Bundle 元数据，不比较生成代码或依赖锁文件。
 - 校验器残留警告：内联枚举与共享枚举取值不一致；流程监听器未限定 `taskKey`。
+- AI 本地生成器只覆盖固定列表 / 表单 / 详情骨架与 1–3 级线性审批；复杂布局、条件分支、动态办理人仍需人工调整。外部模型产物也必须通过组件注册表与协议守卫，不合规时会自动回退。
 
 ## 下一步（建议直接开工）
 
-阶段 4–7 已完成，按以下顺序推进：
+阶段 4–8 已完成，下一步推进阶段 9 市场：
 
-1. 阶段 8 集成与扩展：自定义 TS 代码钩子、AI 辅助生成。
-2. 阶段 9 市场：页面模板、应用与组件市场。
+1. 页面模板市场。
+2. 应用市场（安装 / 升级 / 依赖）。
+3. 组件市场。
 
 ## 恢复上下文的顺序
 
