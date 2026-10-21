@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { connectionsApi } from "@/api/connections";
 import { platformApi } from "@/api/platform";
 import { ApiError, errorMessage } from "@/lib/http";
 import { formatDateTime, prettyJson } from "@/lib/format";
+import { CodeRuntime, type CodeRuntimeEvent } from "@/lib/codeSandbox";
+import { invokeCodeHook } from "@/lib/codeHook";
+import { canPreviewCodeStep, codeStepContext, codeStepHook, codeStepInput } from "@/lib/logicPreview";
 import JsonField from "@/components/logic/JsonField.vue";
 import StepList from "@/components/logic/StepList.vue";
 import {
@@ -82,6 +85,14 @@ const jsonOpen = ref(false);
 const stepJsonOpen = ref(false);
 const stepJsonText = ref("");
 const stepJsonError = ref("");
+
+const codeRuntime = new CodeRuntime();
+const codeRunning = ref(false);
+const codeLogs = ref<string[]>([]);
+const codeEvents = ref<CodeRuntimeEvent[]>([]);
+const codeOutput = ref("");
+const codeError = ref("");
+const codeElapsed = ref<number | null>(null);
 
 const issuesOpen = ref(false);
 const publishOpen = ref(false);
@@ -174,6 +185,7 @@ const selectedStep = computed<LogicStep | null>(() => {
 });
 
 const selectedStepDef = computed(() => (selectedStep.value ? stepDef(selectedStep.value.type) : null));
+const canRunCodeStep = computed(() => canPreviewCodeStep(selectedStep.value));
 const activeSteps = computed<LogicStep[]>(() => {
   if (activeTab.value === "actions") return selectedAction.value?.steps ?? [];
   if (activeTab.value === "rules") return selectedRule.value?.then ?? [];
@@ -300,6 +312,9 @@ onMounted(() => {
   void load();
   void loadConnections();
 });
+
+watch(selectedStepId, clearCodePreview);
+onBeforeUnmount(() => codeRuntime.dispose());
 
 async function loadConnections() {
   try {
@@ -624,6 +639,66 @@ function fieldValue(step: LogicStep, key: string): unknown {
 
 function setField(step: LogicStep, key: string, value: unknown) {
   step[key] = value;
+}
+
+function clearCodePreview(): void {
+  codeLogs.value = [];
+  codeEvents.value = [];
+  codeOutput.value = "";
+  codeError.value = "";
+  codeElapsed.value = null;
+}
+
+function emitCodeToast(event: CodeRuntimeEvent): void {
+  if (event.name !== "ui.toast") return;
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  ElMessage({
+    type: (payload.type as "success" | "warning" | "info" | "error" | undefined) ?? "info",
+    message: String(payload.message ?? "代码步骤事件"),
+    duration: 2500
+  });
+}
+
+async function runCodeStep(): Promise<void> {
+  const step = selectedStep.value;
+  if (!step || !canPreviewCodeStep(step) || codeRunning.value) return;
+  const targetId = step.id;
+  codeRunning.value = true;
+  clearCodePreview();
+  const started = performance.now();
+  try {
+    const result = await invokeCodeHook(codeRuntime, codeStepHook(step), {
+      input: codeStepInput(step),
+      context: codeStepContext(step, logic.value),
+      onEvent: (event) => {
+        codeEvents.value = [...codeEvents.value, event];
+        emitCodeToast(event);
+      }
+    });
+    if (selectedStep.value?.id !== targetId) return;
+    codeLogs.value = result.logs;
+    codeEvents.value = result.events;
+    codeOutput.value = JSON.stringify(result.value ?? null, null, 2);
+  } catch (cause) {
+    if (selectedStep.value?.id !== targetId) return;
+    const detail = cause as { logs?: string[]; events?: CodeRuntimeEvent[] };
+    codeLogs.value = detail.logs ?? [];
+    codeEvents.value = detail.events ?? [];
+    codeError.value = errorMessage(cause);
+  } finally {
+    codeRunning.value = false;
+    if (selectedStep.value?.id === targetId) {
+      codeElapsed.value = Math.round(performance.now() - started);
+    }
+  }
+}
+
+function prettyCodeValue(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function refKeyOf(step: LogicStep, key: string): string {
@@ -1463,6 +1538,56 @@ function flowListenerCount(flow: LogicFlow): number {
                     @update:model-value="setField(selectedStep, field.key, $event)"
                   />
                 </div>
+              </div>
+
+              <div v-if="selectedStep.type === 'code'" class="mt-3 border-t border-slate-100 pt-3">
+                <div class="flex items-center justify-between gap-2">
+                  <div>
+                    <p class="text-[10.5px] font-medium text-slate-600">浏览器试运行</p>
+                    <p class="mt-0.5 text-[9.5px] leading-relaxed text-slate-400">
+                      使用占位输入与上下文，只验证 TS 语法、事件与返回值，不写回任何数据。
+                    </p>
+                  </div>
+                  <el-button size="small" type="primary" plain :loading="codeRunning" :disabled="!canRunCodeStep" @click="runCodeStep">
+                    试运行
+                  </el-button>
+                </div>
+                <p v-if="!canRunCodeStep" class="mt-2 rounded-lg bg-amber-50 px-2.5 py-2 text-[10px] leading-relaxed text-amber-700">
+                  仅支持语言 ts 且运行端 browser。服务端步骤发布后由动作执行器运行，当前只放行注册入口 calcWorkdays；Java 步骤暂不支持设计器试运行。
+                </p>
+                <template v-else>
+                  <div class="mt-2 flex items-center gap-2 text-[9.5px] text-slate-400">
+                    <span>入口 {{ String(selectedStep.entry ?? '') || 'default' }}</span>
+                    <span v-if="codeElapsed !== null">· 耗时 {{ codeElapsed }} ms</span>
+                  </div>
+                  <p v-if="codeError" class="mt-2 rounded-lg bg-rose-50 px-2.5 py-2 text-[10px] leading-relaxed text-rose-600">
+                    {{ codeError }}
+                  </p>
+                  <div
+                    v-if="codeOutput || codeLogs.length || codeEvents.length"
+                    class="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2"
+                  >
+                    <div>
+                      <p class="text-[9.5px] font-medium text-slate-500">输出</p>
+                      <pre class="mt-0.5 max-h-36 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] text-slate-700">{{ codeOutput || 'null' }}</pre>
+                    </div>
+                    <div v-if="codeLogs.length">
+                      <p class="text-[9.5px] font-medium text-slate-500">日志</p>
+                      <pre class="mt-0.5 max-h-28 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] text-slate-600">{{ codeLogs.join('\n') }}</pre>
+                    </div>
+                    <div v-if="codeEvents.length">
+                      <p class="text-[9.5px] font-medium text-slate-500">事件</p>
+                      <div
+                        v-for="(item, index) in codeEvents"
+                        :key="index"
+                        class="mt-0.5 rounded bg-white px-1.5 py-1 font-mono text-[9.5px] text-slate-600"
+                      >
+                        <span class="text-indigo-600">{{ item.name }}</span>
+                        <pre class="mt-0.5 whitespace-pre-wrap break-all">{{ prettyCodeValue(item.payload) }}</pre>
+                      </div>
+                    </div>
+                  </div>
+                </template>
               </div>
 
               <div v-if="selectedStep.type === 'branch'" class="mt-3 border-t border-slate-100 pt-3">

@@ -223,7 +223,8 @@ function frameHtml(policy: SandboxPolicy): string {
     };
     try {
       const exported = install(data.code, data.id);
-      const entry = data.entry && data.entry !== 'default' ? exported[data.entry] : (exported.default ?? exported);
+      const named = data.entry && data.entry !== 'default' ? exported[data.entry] : undefined;
+      const entry = typeof named === 'function' ? named : (exported.default ?? exported);
       const fn = typeof entry === 'function' ? entry : (typeof exported === 'function' ? exported : null);
       if (!fn) throw new Error('代码钩子没有导出可调用函数（需要 export default）');
       const ctx = Object.assign({}, data.context || {});
