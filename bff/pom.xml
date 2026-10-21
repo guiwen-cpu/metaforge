@@ -78,6 +78,14 @@
           <include>expression-registry.json</include>
         </includes>
       </resource>
+      <!-- 组件注册表同样只有 registry/ 一份真源，AI 生成守卫与设计器共用。 -->
+      <resource>
+        <directory>${project.basedir}/../registry</directory>
+        <targetPath>registry</targetPath>
+        <includes>
+          <include>builtin-components.json</include>
+        </includes>
+      </resource>
     </resources>
     <plugins>
       <plugin>

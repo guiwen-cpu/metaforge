@@ -117,6 +117,12 @@ services:
       LCP_HOLIDAY_TIMEOUT_MS: ${LCP_HOLIDAY_TIMEOUT_MS:-3000}
       LCP_HOLIDAY_CACHE_TTL_SECONDS: ${LCP_HOLIDAY_CACHE_TTL_SECONDS:-604800}
       LCP_IDENTITY_ALLOW_ALL: ${LCP_IDENTITY_ALLOW_ALL:-true}
+      # AI 生成默认本地降级；配置完整且显式开启后才调用外部 OpenAI 兼容模型。
+      LCP_AI_ENABLED: ${LCP_AI_ENABLED:-false}
+      LCP_AI_BASE_URL: ${LCP_AI_BASE_URL:-}
+      LCP_AI_API_KEY: ${LCP_AI_API_KEY:-}
+      LCP_AI_MODEL: ${LCP_AI_MODEL:-}
+      LCP_AI_TIMEOUT_MS: ${LCP_AI_TIMEOUT_MS:-20000}
       # 附件落本地持久卷；生产可切换到 OSS provider。
       LCP_ATTACHMENT_DIR: /app/data/attachments
       TZ: Asia/Shanghai

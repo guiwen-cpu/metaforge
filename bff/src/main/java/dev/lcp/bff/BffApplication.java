@@ -4,13 +4,14 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import dev.lcp.bff.ai.AiProperties;
 import dev.lcp.bff.auth.sso.SsoProperties;
 import dev.lcp.bff.auth.wechat.WechatProperties;
 import dev.lcp.bff.connector.ConnectorProperties;
 
 /** MetaForge BFF 启动类。同时扫描 bff 与 codegen 生成的控制面代码。 */
 @SpringBootApplication(scanBasePackages = "dev.lcp")
-@EnableConfigurationProperties({SsoProperties.class, WechatProperties.class, ConnectorProperties.class})
+@EnableConfigurationProperties({SsoProperties.class, WechatProperties.class, ConnectorProperties.class, AiProperties.class})
 @EnableScheduling
 public class BffApplication {
 
