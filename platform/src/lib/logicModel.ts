@@ -692,6 +692,13 @@ export function normalizeLogicSchema(logic: LogicSchema): LogicSchema {
   if (!Array.isArray(logic.apis)) logic.apis = [];
   if (!Array.isArray(logic.flows)) logic.flows = [];
   if (!Array.isArray(logic.rules)) logic.rules = [];
+  for (const flow of logic.flows) {
+    const record = flow as Record<string, unknown>;
+    if (!Array.isArray(flow.variables) && Array.isArray(record.variableMappings)) {
+      flow.variables = record.variableMappings as LogicFlow["variables"];
+    }
+    delete record.variableMappings;
+  }
   return logic;
 }
 const KEY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]{1,63}$/;
@@ -963,7 +970,7 @@ export function createFlow(keys: string[]): LogicFlow {
     processKey: key,
     description: "",
     bpmnRef: { kind: "bpmn", key: "", version: 1 },
-    variableMappings: [],
+    variables: [],
     taskForms: [],
     listeners: [],
     allowRecall: true,

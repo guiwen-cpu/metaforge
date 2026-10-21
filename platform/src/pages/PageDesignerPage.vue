@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { platformApi } from "@/api/platform";
+import { aiApi, type AiGenerateResult, type AiPageKind } from "@/api/ai";
 import { ApiError, errorMessage } from "@/lib/http";
 import { formatDateTime, prettyJson } from "@/lib/format";
 import { ulid } from "@/lib/ulid";
@@ -95,6 +96,17 @@ const newPageForm = reactive({
   entityKey: ""
 });
 const newPageError = ref("");
+
+const aiOpen = ref(false);
+const aiRunning = ref(false);
+const aiError = ref("");
+const aiResult = ref<AiGenerateResult | null>(null);
+const aiForm = reactive({
+  pageKind: "list" as AiPageKind,
+  entityKey: "",
+  prompt: ""
+});
+const aiPagePreview = computed(() => (aiResult.value ? (aiResult.value.artifact as UISchema) : null));
 
 const dataSourceOpen = ref(false);
 const dataSourceForm = reactive({
@@ -436,6 +448,83 @@ function submitNewPage() {
   selectedNodeId.value = page.layout.id;
   router.replace({ name: "app-pages", params: { appId: appId.value, pageKey: page.key } });
   ElMessage.success("页面已创建，记得保存草稿");
+}
+
+function openAiGenerate() {
+  aiForm.pageKind = "list";
+  aiForm.entityKey = entityOptions.value[0]?.key ?? "";
+  aiForm.prompt = "";
+  aiError.value = "";
+  aiResult.value = null;
+  aiOpen.value = true;
+}
+
+async function submitAiGenerate() {
+  if (!aiForm.prompt.trim()) {
+    aiError.value = "请先用一句话描述想要的页面";
+    return;
+  }
+  aiRunning.value = true;
+  aiError.value = "";
+  aiResult.value = null;
+  try {
+    const entity = entityOptions.value.find((option) => option.key === aiForm.entityKey)?.entity;
+    const payload = {
+      kind: aiForm.pageKind === "form" ? ("form" as const) : ("page" as const),
+      page_kind: aiForm.pageKind,
+      prompt: aiForm.prompt.trim(),
+      context: {
+        dataSchemas: dataSchemas.value,
+        entity: entity ?? {}
+      }
+    };
+    aiResult.value = await aiApi.generate(
+      aiForm.entityKey ? { ...payload, entity_key: aiForm.entityKey } : payload
+    );
+  } catch (error) {
+    aiError.value = errorMessage(error);
+  } finally {
+    aiRunning.value = false;
+  }
+}
+
+function applyAiPage() {
+  const candidate = aiPagePreview.value;
+  if (!candidate) return;
+  if (!candidate.layout || candidate.layout.component !== "x-page") {
+    aiError.value = "AI 产物不是合法页面：根节点必须是 x-page";
+    return;
+  }
+  if (pages.value.some((page) => page.key === candidate.key)) {
+    aiError.value = `页面 key ${candidate.key} 已存在，请调整提示词后重新生成`;
+    return;
+  }
+  if (pages.value.some((page) => page.id === candidate.id)) {
+    aiError.value = "页面 id 与现有页面重复";
+    return;
+  }
+  if (pages.value.some((page) => page.route?.path && page.route.path === candidate.route?.path)) {
+    aiError.value = `路由 ${candidate.route?.path} 已被其他页面占用`;
+    return;
+  }
+  const nextPages = [...pages.value, candidate];
+  const nextIssues = validateUiSchemas(nextPages, dataSchemas.value, customComponents.value);
+  const nextErrors = nextIssues.filter((issue) => issue.level === "error");
+  if (nextErrors.length > errorCount.value) {
+    const detail = nextErrors
+      .slice(-3)
+      .map((issue) => `${issue.where}：${issue.message}`)
+      .join("；");
+    aiError.value = `校验未通过，不能应用：${detail}`;
+    return;
+  }
+  pages.value.push(candidate);
+  aiOpen.value = false;
+  aiResult.value = null;
+  activePageId.value = candidate.id;
+  selectedNodeId.value = candidate.layout.id;
+  router.replace({ name: "app-pages", params: { appId: appId.value, pageKey: candidate.key } });
+  ElMessage.success("AI 页面已应用到本地草稿，记得保存");
 }
 
 async function deletePage(page: UISchema) {
@@ -1017,6 +1106,7 @@ onMounted(load);
             :value="page.id"
           />
         </el-select>
+        <el-button text size="small" @click="openAiGenerate">AI 生成</el-button>
         <el-button text size="small" @click="openNewPage">+ 新建页面</el-button>
 
         <span v-if="activePage" class="rounded-md bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-500">
@@ -1054,6 +1144,7 @@ onMounted(load);
           选择列表页、表单页或审批页模板，平台会按数据模型自动生成组件与字段绑定，再在画布上继续调整。
         </p>
         <el-button class="mt-5" type="primary" @click="openNewPage">新建页面</el-button>
+        <el-button class="mt-5" plain @click="openAiGenerate">用 AI 生成页面</el-button>
       </div>
 
       <div v-else class="mt-4 grid items-start gap-3 xl:grid-cols-[228px_minmax(0,1fr)_340px]">
@@ -1605,6 +1696,60 @@ onMounted(load);
       <template #footer>
         <el-button @click="newPageOpen = false">取消</el-button>
         <el-button type="primary" @click="submitNewPage">创建页面</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="aiOpen" title="AI 生成页面" width="760px">
+      <div class="mb-4 rounded-lg bg-indigo-50/60 px-3.5 py-2.5 text-[11.5px] leading-relaxed text-indigo-700">
+        用自然语言描述页面用途与字段。生成结果先预览，确认后才写入本地草稿；不会自动保存或发布。
+      </div>
+      <el-form label-position="top">
+        <div class="grid grid-cols-2 gap-3">
+          <el-form-item label="页面类型">
+            <el-select v-model="aiForm.pageKind" class="w-full">
+              <el-option label="列表页" value="list" />
+              <el-option label="表单页" value="form" />
+              <el-option label="详情页" value="detail" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="绑定实体（可选）">
+            <el-select v-model="aiForm.entityKey" clearable filterable class="w-full" placeholder="选择数据实体">
+              <el-option v-for="option in entityOptions" :key="option.key" :label="option.label" :value="option.key" />
+            </el-select>
+          </el-form-item>
+        </div>
+        <el-form-item label="自然语言描述" required>
+          <el-input
+            v-model="aiForm.prompt"
+            type="textarea"
+            :rows="3"
+            maxlength="4000"
+            show-word-limit
+            placeholder="例如：生成请假申请列表页，支持按类型和日期搜索，显示申请人和状态"
+          />
+        </el-form-item>
+      </el-form>
+      <p v-if="aiError" class="rounded-lg bg-rose-50 px-3 py-2 text-[11.5px] leading-relaxed text-rose-600">
+        {{ aiError }}
+      </p>
+      <div v-if="aiResult && aiPagePreview" class="mt-3 rounded-xl border border-slate-200 p-3">
+        <div class="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+          <span class="rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">{{ aiResult.provider }}</span>
+          <span class="font-mono">{{ aiPagePreview.key }}</span>
+          <span class="text-slate-300">·</span>
+          <span>{{ pageKindLabel(aiPagePreview.kind) }}</span>
+          <span class="text-slate-300">·</span>
+          <span class="font-mono">{{ aiPagePreview.route?.path }}</span>
+        </div>
+        <ul v-if="aiResult.warnings.length" class="mt-2 space-y-1 text-[11px] leading-relaxed text-amber-700">
+          <li v-for="(warning, index) in aiResult.warnings" :key="index">· {{ warning }}</li>
+        </ul>
+        <pre class="scroll-thin mt-2 max-h-72 overflow-auto rounded-lg bg-slate-50 p-2.5 font-mono text-[10.5px] leading-relaxed text-slate-600">{{ prettyJson(aiResult.artifact) }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="aiOpen = false">取消</el-button>
+        <el-button :loading="aiRunning" @click="submitAiGenerate">{{ aiResult ? "重新生成" : "生成预览" }}</el-button>
+        <el-button type="primary" :disabled="!aiResult" @click="applyAiPage">应用到本地</el-button>
       </template>
     </el-dialog>
 

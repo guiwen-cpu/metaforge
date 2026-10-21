@@ -149,7 +149,7 @@ export interface LogicFlow {
   engine?: string;
   processKey: string;
   bpmnRef: ArtifactRef;
-  variableMappings?: FlowVariableMapping[];
+  variables?: FlowVariableMapping[];
   taskForms?: unknown[];
   listeners?: unknown[];
   allowRecall?: boolean;

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { connectionsApi } from "@/api/connections";
 import { platformApi } from "@/api/platform";
+import { aiApi, type AiGenerateResult } from "@/api/ai";
 import { ApiError, errorMessage } from "@/lib/http";
 import { formatDateTime, prettyJson } from "@/lib/format";
 import { CodeRuntime, type CodeRuntimeEvent } from "@/lib/codeSandbox";
@@ -99,6 +100,16 @@ const publishOpen = ref(false);
 const publishing = ref(false);
 const publishMessage = ref("");
 const publishForce = ref(false);
+
+const aiOpen = ref(false);
+const aiRunning = ref(false);
+const aiError = ref("");
+const aiResult = ref<AiGenerateResult | null>(null);
+const aiForm = reactive({
+  entityKey: "",
+  prompt: ""
+});
+const aiFlowPreview = computed(() => (aiResult.value ? (aiResult.value.artifact as LogicFlow) : null));
 
 const tabMeta: Array<{ key: LogicTab; label: string; icon: string; hint: string }> = [
   { key: "actions", label: "动作", icon: "▷", hint: "可执行的业务动作与步骤编排" },
@@ -443,6 +454,128 @@ async function submitPublish() {
   } finally {
     publishing.value = false;
   }
+}
+
+function entityByKey(key: string): Record<string, unknown> | undefined {
+  if (!key) return undefined;
+  for (const schema of dataSchemas.value) {
+    const entities = Array.isArray(schema.entities) ? (schema.entities as Array<Record<string, unknown>>) : [];
+    const found = entities.find((entity) => entity.key === key);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function assetKeyOf(value: unknown): string {
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  return String(record.key ?? record.assetId ?? "");
+}
+
+function openAiFlow() {
+  aiForm.entityKey = entityOptions.value[0]?.value ?? "";
+  aiForm.prompt = "";
+  aiError.value = "";
+  aiResult.value = null;
+  aiOpen.value = true;
+}
+
+async function submitAiGenerate() {
+  if (!aiForm.prompt.trim()) {
+    aiError.value = "请先用一句话描述想要的审批流程";
+    return;
+  }
+  aiRunning.value = true;
+  aiError.value = "";
+  aiResult.value = null;
+  try {
+    const entity = entityByKey(aiForm.entityKey);
+    const payload = {
+      kind: "flow" as const,
+      prompt: aiForm.prompt.trim(),
+      context: {
+        dataSchemas: dataSchemas.value,
+        entity: entity ?? {}
+      }
+    };
+    aiResult.value = await aiApi.generate(
+      aiForm.entityKey ? { ...payload, entity_key: aiForm.entityKey } : payload
+    );
+  } catch (error) {
+    aiError.value = errorMessage(error);
+  } finally {
+    aiRunning.value = false;
+  }
+}
+
+function applyAiFlow() {
+  const current = logic.value;
+  const candidate = aiFlowPreview.value;
+  if (!current || !candidate) return;
+  if (!candidate.key || !candidate.processKey) {
+    aiError.value = "AI 产物缺少流程 key 或 processKey";
+    return;
+  }
+  if (current.flows.some((flow) => flow.key === candidate.key)) {
+    aiError.value = `流程 key ${candidate.key} 已存在，请调整提示词后重新生成`;
+    return;
+  }
+  if (current.flows.some((flow) => flow.processKey === candidate.processKey)) {
+    aiError.value = `processKey ${candidate.processKey} 已存在`;
+    return;
+  }
+  if (current.flows.some((flow) => flow.id === candidate.id)) {
+    aiError.value = "流程 id 与现有流程重复";
+    return;
+  }
+
+  const assets = (Array.isArray(aiResult.value?.assets) ? aiResult.value?.assets : []) as Array<Record<string, unknown>>;
+  const existingAssetKeys = new Set((bundle.value?.assets ?? []).map(assetKeyOf));
+  const seenAssetKeys = new Set<string>();
+  for (const asset of assets) {
+    const key = assetKeyOf(asset);
+    if (!key) {
+      aiError.value = "AI 返回的资产缺少 key";
+      return;
+    }
+    if (existingAssetKeys.has(key) || seenAssetKeys.has(key)) {
+      aiError.value = `资产 key ${key} 已存在`;
+      return;
+    }
+    seenAssetKeys.add(key);
+  }
+  const bpmnKey = String((candidate.bpmnRef as Record<string, unknown> | undefined)?.key ?? "");
+  if (!bpmnKey || !seenAssetKeys.has(bpmnKey)) {
+    aiError.value = "AI 产物引用的 BPMN 资产没有随结果返回";
+    return;
+  }
+
+  const nextLogic = cloneJson(current);
+  nextLogic.flows.push(candidate);
+  const nextIssues = validateLogic(
+    nextLogic,
+    pageOptions.value.map((item) => item.value),
+    [...assetOptions.value.map((item) => item.value), ...seenAssetKeys],
+    entityOptions.value.map((item) => item.value)
+  );
+  const nextErrors = nextIssues.filter((issue) => issue.level === "error");
+  if (nextErrors.length > errorCount.value) {
+    const detail = nextErrors
+      .slice(-3)
+      .map((issue) => `${issue.where}：${issue.message}`)
+      .join("；");
+    aiError.value = `校验未通过，不能应用：${detail}`;
+    return;
+  }
+
+  current.flows.push(candidate);
+  if (bundle.value) {
+    bundle.value.assets = [...(bundle.value.assets ?? []), ...cloneJson(assets)];
+  }
+  selectFlow(candidate);
+  aiOpen.value = false;
+  aiResult.value = null;
+  ElMessage.success("AI 流程已应用到本地草稿，记得保存");
 }
 
 function goBack() {
@@ -800,7 +933,7 @@ function removeParam(index: number) {
 
 function setFlowVariableMappings(value: unknown) {
   if (!selectedFlow.value) return;
-  selectedFlow.value.variableMappings = value as LogicFlow["variableMappings"];
+  selectedFlow.value.variables = value as LogicFlow["variables"];
 }
 
 function setFlowTaskForms(value: unknown) {
@@ -861,7 +994,7 @@ function actionStepCount(action: LogicAction): number {
 }
 
 function flowMappingCount(flow: LogicFlow): number {
-  return Array.isArray(flow.variableMappings) ? flow.variableMappings.length : 0;
+  return Array.isArray(flow.variables) ? flow.variables.length : 0;
 }
 
 function flowTaskFormCount(flow: LogicFlow): number {
@@ -902,6 +1035,7 @@ function flowListenerCount(flow: LogicFlow): number {
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
+          <el-button @click="openAiFlow">AI 生成流程</el-button>
           <el-button :loading="reloading" @click="reloadDraft">重新加载</el-button>
           <el-button @click="jsonOpen = true">查看 JSON</el-button>
           <el-button @click="issuesOpen = true">
@@ -1297,9 +1431,9 @@ function flowListenerCount(flow: LogicFlow): number {
 
                   <div class="mt-4 rounded-xl border border-slate-200 p-3">
                     <p class="text-[12px] font-medium text-slate-700">流程变量映射</p>
-                    <div v-if="selectedFlow.variableMappings?.length" class="mt-2 space-y-1">
+                    <div v-if="selectedFlow.variables?.length" class="mt-2 space-y-1">
                       <div
-                        v-for="(mapping, index) in selectedFlow.variableMappings"
+                        v-for="(mapping, index) in selectedFlow.variables"
                         :key="`${mapping.name}-${index}`"
                         class="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[10.5px]"
                       >
@@ -1890,7 +2024,7 @@ function flowListenerCount(flow: LogicFlow): number {
                 </div>
                 <div>
                   <p class="mb-1 text-[10.5px] font-medium text-slate-500">变量映射</p>
-                  <JsonField :model-value="selectedFlow.variableMappings" :rows="5" @update:model-value="setFlowVariableMappings" />
+                  <JsonField :model-value="selectedFlow.variables" :rows="5" @update:model-value="setFlowVariableMappings" />
                 </div>
                 <div>
                   <p class="mb-1 text-[10.5px] font-medium text-slate-500">任务表单</p>
@@ -2010,6 +2144,56 @@ function flowListenerCount(flow: LogicFlow): number {
       </div>
       <template #footer>
         <el-button @click="addStepOpen = false">取消</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="aiOpen" title="AI 生成审批流程" width="760px">
+      <div class="mb-4 rounded-lg bg-rose-50/60 px-3.5 py-2.5 text-[11.5px] leading-relaxed text-rose-700">
+        用自然语言描述审批层级与节点。生成结果先预览，确认后才写入本地草稿；不会自动保存或发布。
+      </div>
+      <el-form label-position="top">
+        <el-form-item label="绑定实体（可选）">
+          <el-select v-model="aiForm.entityKey" clearable filterable class="w-full" placeholder="选择数据实体">
+            <el-option v-for="item in entityOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="自然语言描述" required>
+          <el-input
+            v-model="aiForm.prompt"
+            type="textarea"
+            :rows="3"
+            maxlength="4000"
+            show-word-limit
+            placeholder="例如：生成部门负责人和院级审批的两级请假流程"
+          />
+        </el-form-item>
+      </el-form>
+      <p v-if="aiError" class="rounded-lg bg-rose-50 px-3 py-2 text-[11.5px] leading-relaxed text-rose-600">
+        {{ aiError }}
+      </p>
+      <div v-if="aiResult && aiFlowPreview" class="mt-3 rounded-xl border border-slate-200 p-3">
+        <div class="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+          <span class="rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">{{ aiResult.provider }}</span>
+          <span class="font-mono">{{ aiFlowPreview.key }}</span>
+          <span class="text-slate-300">·</span>
+          <span class="font-mono">processKey {{ aiFlowPreview.processKey }}</span>
+          <span class="text-slate-300">·</span>
+          <span>资产 {{ aiResult.assets.length }}</span>
+        </div>
+        <div class="mt-2 flex flex-wrap gap-1.5 text-[10px] text-slate-500">
+          <span class="rounded bg-slate-100 px-1.5 py-0.5">变量 {{ aiFlowPreview.variables?.length ?? 0 }}</span>
+          <span class="rounded bg-slate-100 px-1.5 py-0.5">任务表单 {{ aiFlowPreview.taskForms?.length ?? 0 }}</span>
+          <span class="rounded bg-slate-100 px-1.5 py-0.5">监听器 {{ aiFlowPreview.listeners?.length ?? 0 }}</span>
+        </div>
+        <ul v-if="aiResult.warnings.length" class="mt-2 space-y-1 text-[11px] leading-relaxed text-amber-700">
+          <li v-for="(warning, index) in aiResult.warnings" :key="index">· {{ warning }}</li>
+        </ul>
+        <pre class="scroll-thin mt-2 max-h-72 overflow-auto rounded-lg bg-slate-50 p-2.5 font-mono text-[10.5px] leading-relaxed text-slate-600">{{ prettyJson(aiResult.artifact) }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="aiOpen = false">取消</el-button>
+        <el-button :loading="aiRunning" @click="submitAiGenerate">{{ aiResult ? "重新生成" : "生成预览" }}</el-button>
+        <el-button type="primary" :disabled="!aiResult" @click="applyAiFlow">应用到本地</el-button>
       </template>
     </el-dialog>
 
