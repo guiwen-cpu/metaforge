@@ -176,7 +176,7 @@ public class UINode {
     }
 
     /**
-     * 事件处理器。键必须是组件契约 events[] 中声明的事件名（L2 校验）
+     * 节点事件处理器。键必须是组件契约 events[] 中声明的事件名（L2 校验）；代码钩子仅限页面生命周期，不能在节点上使用
      */
     @JsonProperty("handlers")
     private Map<String, UiHandlerRef> handlers;

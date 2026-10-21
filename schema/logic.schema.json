@@ -1181,6 +1181,90 @@
       ],
       "additionalProperties": false
     },
+    "CodeHook": {
+      "type": "object",
+      "description": "页面生命周期代码钩子。与 CodeStep 共用沙箱策略、输入输出契约与执行边界，但不属于逻辑步骤序列；只能在浏览器沙箱 iframe 内执行。",
+      "properties": {
+        "lang": {
+          "const": "ts",
+          "default": "ts"
+        },
+        "runtime": {
+          "const": "browser",
+          "default": "browser"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200000,
+          "description": "TypeScript 源码，必须导出默认函数 (ctx) => output"
+        },
+        "entry": {
+          "type": "string",
+          "default": "default"
+        },
+        "inputs": {
+          "type": "array",
+          "description": "从运行态上下文取值的输入声明；空数组合法",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "$ref": "#/$defs/Ident"
+              },
+              "type": {
+                "type": "string"
+              },
+              "value": {
+                "$ref": "#/$defs/Expr"
+              }
+            },
+            "required": [
+              "key",
+              "type"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "description": "返回值声明；空数组合法",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "$ref": "#/$defs/Ident"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "type"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "default": 3000,
+          "maximum": 60000
+        },
+        "sandbox": {
+          "$ref": "#/$defs/SandboxPolicy"
+        },
+        "semantic": {
+          "$ref": "#/$defs/Semantic"
+        }
+      },
+      "required": [
+        "source",
+        "inputs",
+        "outputs"
+      ],
+      "additionalProperties": false
+    },
     "SandboxPolicy": {
       "type": "object",
       "description": "沙箱能力白名单，默认全拒 —— 需要什么显式开什么。自定义组件与自定义代码共用同一套策略模型（C/D 项落地）。",

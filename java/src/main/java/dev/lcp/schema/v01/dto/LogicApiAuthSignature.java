@@ -6,6 +6,8 @@ import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.lcp.schema.v01.enums.LogicApiAuthSignatureAlgorithm;
+import dev.lcp.schema.v01.enums.LogicApiAuthSignatureEncoding;
+import dev.lcp.schema.v01.enums.LogicApiAuthSignatureTimestampUnit;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
 
@@ -53,7 +55,7 @@ public class LogicApiAuthSignature implements LogicApiAuth {
     }
 
     /**
-     * 待签名串模板，如 {method}\n{path}\n{timestamp}
+     * 待签名串模板，支持 {method} {path} {query} {body} {timestamp} {tenant} 占位，如 {method}\n{path}\n{timestamp}
      */
     @JsonProperty("template")
     private String template;
@@ -78,5 +80,48 @@ public class LogicApiAuthSignature implements LogicApiAuth {
 
     public void setHeaderName(String headerName) {
         this.headerName = headerName;
+    }
+
+    /**
+     * 时间戳请求头；留空表示不注入。
+     * @default "X-Timestamp"
+     */
+    @JsonProperty("timestampHeader")
+    private String timestampHeader;
+
+    public String getTimestampHeader() {
+        return timestampHeader;
+    }
+
+    public void setTimestampHeader(String timestampHeader) {
+        this.timestampHeader = timestampHeader;
+    }
+
+    /**
+     * @default "seconds"
+     */
+    @JsonProperty("timestampUnit")
+    private LogicApiAuthSignatureTimestampUnit timestampUnit;
+
+    public LogicApiAuthSignatureTimestampUnit getTimestampUnit() {
+        return timestampUnit;
+    }
+
+    public void setTimestampUnit(LogicApiAuthSignatureTimestampUnit timestampUnit) {
+        this.timestampUnit = timestampUnit;
+    }
+
+    /**
+     * @default "hex"
+     */
+    @JsonProperty("encoding")
+    private LogicApiAuthSignatureEncoding encoding;
+
+    public LogicApiAuthSignatureEncoding getEncoding() {
+        return encoding;
+    }
+
+    public void setEncoding(LogicApiAuthSignatureEncoding encoding) {
+        this.encoding = encoding;
     }
 }

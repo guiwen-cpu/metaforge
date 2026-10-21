@@ -1,4 +1,5 @@
 import type { ArtifactRef, DataSchema, SemanticDef } from "./dataModel";
+import type { LogicStep } from "./logicModel";
 
 export type PageKind = "list" | "form" | "detail" | "dashboard" | "approval" | "report" | "custom" | "login" | "error";
 
@@ -85,6 +86,39 @@ export interface SandboxPolicy {
   memoryLimitMb?: number;
   semantic?: SemanticDef;
   [key: string]: unknown;
+}
+
+export interface CodeHookInput {
+  key: string;
+  type: string;
+  value?: unknown;
+}
+
+export interface CodeHook {
+  lang?: "ts";
+  runtime?: "browser";
+  source: string;
+  entry?: string;
+  inputs: CodeHookInput[];
+  outputs: Array<{ key: string; type: string }>;
+  timeoutMs?: number;
+  sandbox?: SandboxPolicy;
+  semantic?: SemanticDef;
+}
+
+/** 事件处理：动作引用、内联步骤或页面生命周期代码钩子，三选一。 */
+export interface HandlerRef {
+  actionRef?: ArtifactRef;
+  params?: Record<string, unknown>;
+  steps?: LogicStep[];
+  code?: CodeHook;
+}
+
+/** 节点事件不接受代码钩子；代码钩子只挂在页面生命周期 handlers 上。 */
+export interface NodeHandlerRef {
+  actionRef?: ArtifactRef;
+  params?: Record<string, unknown>;
+  steps?: LogicStep[];
 }
 
 export interface ComponentDef {
@@ -183,7 +217,7 @@ export interface UINode {
   responsive?: Record<string, unknown>;
   slots?: Record<string, UINode[]>;
   children?: UINode[];
-  handlers?: Record<string, unknown>;
+  handlers?: Record<string, NodeHandlerRef | undefined>;
   loop?: Record<string, unknown>;
   locked?: boolean;
   semantic?: SemanticDef;
@@ -204,7 +238,7 @@ export interface UISchema {
   state?: Record<string, unknown>;
   layout: UINode;
   dialogs?: Record<string, UINode>;
-  handlers?: Record<string, unknown>;
+  handlers?: Record<string, HandlerRef | undefined>;
   access?: Record<string, unknown>;
   origin?: Record<string, unknown>;
   semantic?: SemanticDef;

@@ -389,7 +389,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 ### 阶段 8 · 集成与扩展
 - [x] 连接器注册表：REST / GraphQL / SOAP / PostgreSQL database / internal；OAuth2、签名鉴权、变更审计与 DNS pinning 已接入。
 - [x] 租户级密钥与凭证管理：AES-256-GCM 加密存储、只写不读、轮换与租户隔离。
-- [ ] 自定义 TS 代码钩子（页面生命周期、逻辑步骤）。
+- [ ] 自定义 TS 代码钩子（页面生命周期、逻辑步骤）：协议、双端绑定与校验已完成，运行时接入进行中。
 - [ ] AI 辅助：自然语言生成表单/页面/流程（语义字段已预留）。
 
 ### 阶段 9 · 市场
@@ -404,6 +404,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - **组件标识**：`name`（kebab-case）是稳定标识，创建后不可改；改名通过复制新组件完成。
 - **沙箱策略**：设计器用 `iframe srcdoc` + `sandbox="allow-scripts"`，不授予 same-origin；CSP 默认 `default-src 'none'`。
 - **策略字段**：`sandbox.*` 是运行时声明，设计器只做编辑与校验，真正执行在发布态渲染器（待实现）。
+- **代码钩子只挂页面生命周期**：`page.handlers.*.code` 使用 `CodeHook`，节点 / 弹窗事件仅允许动作引用或内联步骤；钩子与 `CodeStep` 共用 TS 语法检查、输入输出声明、超时与沙箱策略，但只能在浏览器 iframe 内执行。
 - **扩展键**：平台私有字段统一 `x-` 前缀（`x-previewHtml`、`x-previewScript`），随 Bundle 版本化。
 - **草稿并发**：控制平面用 `revision` 乐观锁，冲突时提示加载最新草稿。
 - **语义预留**：实体、页面、组件、流程均带 `semantic.intent`，为 AI 生成做准备。

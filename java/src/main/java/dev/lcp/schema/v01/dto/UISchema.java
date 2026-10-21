@@ -189,16 +189,16 @@ public class UISchema {
     }
 
     /**
-     * 页面级事件：onLoad / onMount / onUnmount / onParamChange
+     * 页面级事件：onLoad / onMount / onParamChange / onUnmount / onError / onBeforeLeave。值可以是动作引用、内联步骤或沙箱代码钩子。
      */
     @JsonProperty("handlers")
-    private Map<String, UiHandlerRef> handlers;
+    private Map<String, UiNodeHandlerRef> handlers;
 
-    public Map<String, UiHandlerRef> getHandlers() {
+    public Map<String, UiNodeHandlerRef> getHandlers() {
         return handlers;
     }
 
-    public void setHandlers(Map<String, UiHandlerRef> handlers) {
+    public void setHandlers(Map<String, UiNodeHandlerRef> handlers) {
         this.handlers = handlers;
     }
 

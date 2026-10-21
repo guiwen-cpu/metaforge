@@ -17,6 +17,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -51,6 +52,14 @@ for (const f of SCHEMA_FILES) {
 const REG_EXPR = JSON.parse(fs.readFileSync(path.join(DIR.schema, "expression-registry.json"), "utf8"));
 const REG_COMP = JSON.parse(fs.readFileSync(path.join(DIR.registry, "builtin-components.json"), "utf8"));
 const REG_TYPES = JSON.parse(fs.readFileSync(path.join(DIR.registry, "type-mapping.json"), "utf8"));
+
+// 代码钩子做语法级校验：有 platform/node_modules/typescript 就启用，CI 精简环境自动跳过。
+let TS = null;
+try {
+  TS = createRequire(path.join(ROOT, "platform", "package.json"))("typescript");
+} catch {
+  TS = null;
+}
 
 // ============================================================ 极简 JSON Schema 校验器
 function lookupRef(ref, baseId) {
@@ -573,9 +582,10 @@ function checkBundle(bundle, tag) {
       }
       if (node.handlers) {
         const declared = new Set((c.events || []).map((e) => e.name));
-        for (const hk of Object.keys(node.handlers)) {
+        for (const [hk, hv] of Object.entries(node.handlers)) {
           if (declared.size === 0) report("warn", "L2", at(`${NP}.handlers`), `组件 ${c.name} 的契约未声明 events，无法校验事件名 "${hk}"`);
           else if (!declared.has(hk)) report("error", "L2", at(`${NP}.handlers`), `事件 "${hk}" 不在 ${c.name} 契约的 events [${[...declared].join(", ")}] 内`);
+          if (hv && hv.code) report("error", "L2", at(`${NP}.handlers.${hk}`), "节点事件不支持 code 代码钩子；请改用具名动作，或把钩子放到页面生命周期 handlers");
         }
       }
       checkExpr(node.visible, `${NP}.visible`, "visible");
@@ -618,9 +628,10 @@ function checkBundle(bundle, tag) {
     }
 
     // 页面内的步骤（handlers / dialogs）
-    const pageHandlers = new Set(["onLoad", "onParamsChange", "onError", "onUnmount", "onBeforeLeave"]);
+    const pageHandlers = new Set(["onLoad", "onMount", "onParamChange", "onParamsChange", "onError", "onUnmount", "onBeforeLeave"]);
     const collectSteps = (h, ptr) => {
       if (!h) return;
+      if (h.code) checkCodeHook(h.code, `${ptr}.code`);
       for (const s of h.steps || []) walk(s, (v, p) => {
         if (isStep(v)) checkStep(v, `${ptr}${p}`, { ix, at, dsIds, stateKeys, dialogKeys, page });
       }, "", `$.steps`);
@@ -630,9 +641,71 @@ function checkBundle(bundle, tag) {
       collectSteps(hv, `${P}.handlers.${hk}`);
     }
     for (const [dk, dl] of Object.entries(page.dialogs || {})) {
-      for (const [hk, hv] of Object.entries(dl.handlers || {})) collectSteps(hv, `${P}.dialogs.${dk}.handlers.${hk}`);
+      for (const [hk, hv] of Object.entries(dl.handlers || {})) {
+        if (hv && hv.code) report("error", "L2", at(`${P}.dialogs.${dk}.handlers.${hk}`), "弹窗节点事件不支持 code 代码钩子；请改为动作或在页面生命周期处理");
+        collectSteps(hv, `${P}.dialogs.${dk}.handlers.${hk}`);
+      }
     }
   }
+}
+
+// ============================================================ 代码钩子（L3 + L4）
+function checkCodeSource(source, ptr, label) {
+  if (typeof source !== "string" || !source.trim()) {
+    report("error", "L3", at(ptr), `${label}.source 不能为空`);
+    return;
+  }
+  if (source.length > 200_000) {
+    report("error", "L4", at(ptr), `${label}.source 超过 200KB，请拆分或改为平台注册入口`);
+    return;
+  }
+  if (!/export\s+default\b/.test(source)) {
+    report("warn", "L3", at(ptr), `${label}.source 建议导出默认函数（export default）`);
+  }
+  if (/\brequire\s*\(/.test(source)) report("error", "L4", at(ptr), `${label}.source 使用了 require()`);
+  if (/\bimport\s*\(/.test(source)) report("error", "L4", at(ptr), `${label}.source 不允许动态 import()`);
+  if (/\b(window\.)?(parent|top)\b/.test(source) || /document\.cookie/.test(source)) {
+    report("error", "L4", at(ptr), `${label}.source 试图突破沙箱边界（parent/top/document.cookie）`);
+  }
+  if (!TS) return;
+  try {
+    const result = TS.transpileModule(source, {
+      fileName: "hook.ts",
+      reportDiagnostics: true,
+      compilerOptions: {
+        target: TS.ScriptTarget.ES2020,
+        module: TS.ModuleKind.CommonJS,
+        isolatedModules: true
+      }
+    });
+    const errors = (result.diagnostics || []).filter((d) => d.category === TS.DiagnosticCategory.Error);
+    for (const diag of errors.slice(0, 5)) {
+      const message = TS.flattenDiagnosticMessageText(diag.messageText, " ");
+      report("error", "L3", at(ptr), `${label}.source 语法错误：${message}`);
+    }
+  } catch (error) {
+    report("warn", "L3", at(ptr), `${label}.source 无法做 TypeScript 语法检查：${error.message}`);
+  }
+}
+
+function checkCodeHook(hook, ptr) {
+  if (!hook || typeof hook !== "object") {
+    report("error", "L3", at(ptr), "code hook 必须是对象");
+    return;
+  }
+  if (hook.lang && hook.lang !== "ts") report("error", "L3", at(ptr), `页面代码钩子只支持 lang=ts，收到 ${hook.lang}`);
+  if (hook.runtime && hook.runtime !== "browser") report("error", "L3", at(ptr), `页面代码钩子只支持 runtime=browser，收到 ${hook.runtime}`);
+  if (!Array.isArray(hook.inputs)) report("error", "L3", at(ptr), "页面代码钩子必须声明 inputs（可为空数组）");
+  if (!Array.isArray(hook.outputs)) report("error", "L3", at(ptr), "页面代码钩子必须声明 outputs（可为空数组）");
+  const sb = hook.sandbox || {};
+  if (sb.network === true && !(sb.allowedHosts || []).length) {
+    report("error", "L4", at(ptr), "代码钩子 sandbox.network=true 时必须声明 allowedHosts");
+  }
+  if (sb.dom === true) report("warn", "L4", at(ptr), "代码钩子开启 dom 会削弱隔离性（沙箱内本就没有宿主 DOM）");
+  if (sb.storage === true) report("warn", "L4", at(ptr), "严格 iframe 沙箱不提供同源存储，storage 仅作为声明");
+  if (sb.allowEval === true) report("warn", "L4", at(ptr), "代码钩子开启 allowEval 会扩大攻击面");
+  if (!sb.memoryLimitMb) report("warn", "L4", at(ptr), "代码钩子未声明 memoryLimitMb");
+  checkCodeSource(hook.source, ptr, "CodeHook");
 }
 
 // ============================================================ 步骤校验（L3 + L4）
@@ -674,17 +747,16 @@ function checkStep(step, ptr, ctx) {
   // ---- L4 策略
   if (T === "code") {
     const sb = step.sandbox || {};
+    if (step.lang && step.lang !== "ts") report("warn", "L4", at(ptr), `CodeStep.lang=${step.lang} 目前没有服务端执行器，只能走注册入口`);
     if (step.runtime === "server" && sb.dom === true) report("error", "L4", at(ptr), "服务端 CodeStep 不允许开启 dom 沙箱能力");
     if (step.runtime === "server" && sb.storage === true) report("error", "L4", at(ptr), "服务端 CodeStep 不允许开启 storage 沙箱能力");
+    if (sb.network === true && !(sb.allowedHosts || []).length) {
+      report("error", "L4", at(ptr), "CodeStep.sandbox.network=true 时必须声明 allowedHosts");
+    }
     if (sb.network === true) report("warn", "L4", at(ptr), "CodeStep 开启了 network，需在评审中说明外呼用途（默认应为 false）");
     if (sb.allowEval === true) report("warn", "L4", at(ptr), "CodeStep 开启了 allowEval，存在注入风险");
     if (!sb.memoryLimitMb) report("warn", "L4", at(ptr), "CodeStep 未声明 memoryLimitMb");
-    if (!step.entry && (!step.source || !step.source.includes("export default"))) {
-      report("warn", "L4", at(ptr), "CodeStep 未声明 entry，且 source 中找不到 export default");
-    }
-    if ((step.source || "").includes("figma.") || (step.source || "").includes("require(")) {
-      report("error", "L4", at(ptr), "CodeStep.source 使用了受限全局或 require()");
-    }
+    checkCodeSource(step.source, ptr, "CodeStep");
   }
   if (T === "transaction" && ctx.inTransaction) report("error", "L4", at(ptr), "TransactionStep 不允许嵌套（Flowable 与 PG 都不支持嵌套事务语义）");
   if (T === "upload" && !step.pathTemplate) report("warn", "L4", at(ptr), "UploadStep 未声明 pathTemplate，多租户目录隔离只能靠默认值");

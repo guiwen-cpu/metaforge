@@ -73,9 +73,9 @@
         "handlers": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/$defs/HandlerRef"
+            "$ref": "#/$defs/NodeHandlerRef"
           },
-          "description": "页面级事件：onLoad / onMount / onUnmount / onParamChange"
+          "description": "页面级事件：onLoad / onMount / onParamChange / onUnmount / onError / onBeforeLeave。值可以是动作引用、内联步骤或沙箱代码钩子。"
         },
         "access": {
           "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Access"
@@ -380,7 +380,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/HandlerRef"
           },
-          "description": "事件处理器。键必须是组件契约 events[] 中声明的事件名（L2 校验）"
+          "description": "节点事件处理器。键必须是组件契约 events[] 中声明的事件名（L2 校验）；代码钩子仅限页面生命周期，不能在节点上使用"
         },
         "loop": {
           "$ref": "#/$defs/LoopSpec",
@@ -481,7 +481,58 @@
       }
     },
     "HandlerRef": {
-      "description": "事件处理：引用具名动作（推荐，可复用可测试），或内联步骤（仅适合一次性简单逻辑）。",
+      "description": "事件处理：引用具名动作（推荐，可复用可测试）、内联步骤（仅适合一次性简单逻辑），或沙箱代码钩子（页面生命周期专用）。",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "actionRef": {
+              "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/ArtifactRef"
+            },
+            "params": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "https://lcp.dev/schema/0.1/common.schema.json#/$defs/Value"
+              }
+            }
+          },
+          "required": [
+            "actionRef"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "steps": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "https://lcp.dev/schema/0.1/logic.schema.json#/$defs/Step"
+              }
+            }
+          },
+          "required": [
+            "steps"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "code": {
+              "$ref": "https://lcp.dev/schema/0.1/logic.schema.json#/$defs/CodeHook"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "NodeHandlerRef": {
+      "description": "节点事件处理：引用具名动作或内联步骤。代码钩子只允许出现在页面生命周期 handlers 上，避免组件事件绕过页面级错误与卸载边界。",
       "oneOf": [
         {
           "type": "object",

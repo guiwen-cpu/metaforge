@@ -65,7 +65,11 @@ import type {
   UiFlowDataSource,
   UiHandlerRef,
   UiHandlerRefActionRef,
+  UiHandlerRefCode,
   UiHandlerRefSteps,
+  UiNodeHandlerRef,
+  UiNodeHandlerRefActionRef,
+  UiNodeHandlerRefSteps,
   UiStaticDataSource,
 } from "./types";
 
@@ -146,12 +150,25 @@ export function isDataValidatorUniqueIn(value: DataValidator): value is DataVali
   return value.type === "uniqueIn";
 }
 
-/* ui.HandlerRef —— 结构联合，2 个变体 */
+/* ui.HandlerRef —— 结构联合，3 个变体 */
 export function isUiHandlerRefActionRef(value: UiHandlerRef): value is UiHandlerRefActionRef {
   return isPlainRecord(value) && "actionRef" in value;
 }
 
 export function isUiHandlerRefSteps(value: UiHandlerRef): value is UiHandlerRefSteps {
+  return isPlainRecord(value) && "steps" in value;
+}
+
+export function isUiHandlerRefCode(value: UiHandlerRef): value is UiHandlerRefCode {
+  return isPlainRecord(value) && "code" in value;
+}
+
+/* ui.NodeHandlerRef —— 结构联合，2 个变体 */
+export function isUiNodeHandlerRefActionRef(value: UiNodeHandlerRef): value is UiNodeHandlerRefActionRef {
+  return isPlainRecord(value) && "actionRef" in value;
+}
+
+export function isUiNodeHandlerRefSteps(value: UiNodeHandlerRef): value is UiNodeHandlerRefSteps {
   return isPlainRecord(value) && "steps" in value;
 }
 

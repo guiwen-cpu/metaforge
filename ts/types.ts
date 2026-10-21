@@ -860,7 +860,7 @@ export interface DataIndex {
 export type DataSemantic = CommonSemantic;
 
 /* ======================================================================== */
-/* ui.schema.json —— 25 个定义，命名空间前缀 Ui */
+/* ui.schema.json —— 26 个定义，命名空间前缀 Ui */
 /* ======================================================================== */
 
 export interface UISchema {
@@ -884,9 +884,9 @@ export interface UISchema {
    */
   dialogs?: Record<string, UINode> | null;
   /**
-   * 页面级事件：onLoad / onMount / onUnmount / onParamChange
+   * 页面级事件：onLoad / onMount / onParamChange / onUnmount / onError / onBeforeLeave。值可以是动作引用、内联步骤或沙箱代码钩子。
    */
-  handlers?: Record<string, UiHandlerRef> | null;
+  handlers?: Record<string, UiNodeHandlerRef> | null;
   access?: CommonAccess | null;
   seo?: UISchemaSeo | null;
   origin?: UiOrigin | null;
@@ -1031,7 +1031,7 @@ export interface UINode {
    */
   children?: UINode[] | null;
   /**
-   * 事件处理器。键必须是组件契约 events[] 中声明的事件名（L2 校验）
+   * 节点事件处理器。键必须是组件契约 events[] 中声明的事件名（L2 校验）；代码钩子仅限页面生命周期，不能在节点上使用
    */
   handlers?: Record<string, UiHandlerRef> | null;
   /**
@@ -1117,10 +1117,31 @@ export interface UiHandlerRefSteps {
   steps: LogicStep[];
 }
 
+export interface UiHandlerRefCode {
+  code: LogicCodeHook;
+}
+
 /**
- * 事件处理：引用具名动作（推荐，可复用可测试），或内联步骤（仅适合一次性简单逻辑）。
+ * 事件处理：引用具名动作（推荐，可复用可测试）、内联步骤（仅适合一次性简单逻辑），或沙箱代码钩子（页面生命周期专用）。
  */
-export type UiHandlerRef = UiHandlerRefActionRef | UiHandlerRefSteps;
+export type UiHandlerRef = UiHandlerRefActionRef | UiHandlerRefSteps | UiHandlerRefCode;
+
+export interface UiNodeHandlerRefActionRef {
+  actionRef: CommonArtifactRef;
+  params?: Record<string, CommonValue> | null;
+}
+
+export interface UiNodeHandlerRefSteps {
+  /**
+   * @minItems 1
+   */
+  steps: LogicStep[];
+}
+
+/**
+ * 节点事件处理：引用具名动作或内联步骤。代码钩子只允许出现在页面生命周期 handlers 上，避免组件事件绕过页面级错误与卸载边界。
+ */
+export type UiNodeHandlerRef = UiNodeHandlerRefActionRef | UiNodeHandlerRefSteps;
 
 /**
  * 样式。优先 className（Tailwind 原子类）—— 出码时可原样保留且零运行时开销。css 是逃生舱，沙箱组件中被禁用。
@@ -1475,7 +1496,7 @@ export interface UiMenuItem {
 export type UiSemantic = CommonSemantic;
 
 /* ======================================================================== */
-/* logic.schema.json —— 63 个定义，命名空间前缀 Logic */
+/* logic.schema.json —— 64 个定义，命名空间前缀 Logic */
 /* ======================================================================== */
 
 /** @alias 该定义是 CommonId 的别名，不引入新结构。 */
@@ -2093,6 +2114,58 @@ export interface LogicCodeStepInputsItem {
 }
 
 export interface LogicCodeStepOutputsItem {
+  key: LogicIdent;
+  type: string;
+}
+
+/**
+ * 页面生命周期代码钩子。与 CodeStep 共用沙箱策略、输入输出契约与执行边界，但不属于逻辑步骤序列；只能在浏览器沙箱 iframe 内执行。
+ */
+export interface LogicCodeHook {
+  /**
+   * @const "ts"
+   * @default "ts"
+   */
+  lang?: "ts" | null;
+  /**
+   * @const "browser"
+   * @default "browser"
+   */
+  runtime?: "browser" | null;
+  /**
+   * TypeScript 源码，必须导出默认函数 (ctx) => output
+   * @minLength 1
+   * @maxLength 200000
+   */
+  source: string;
+  /**
+   * @default "default"
+   */
+  entry?: string | null;
+  /**
+   * 从运行态上下文取值的输入声明；空数组合法
+   */
+  inputs: LogicCodeHookInputsItem[];
+  /**
+   * 返回值声明；空数组合法
+   */
+  outputs: LogicCodeHookOutputsItem[];
+  /**
+   * @default 3000
+   * @maximum 60000
+   */
+  timeoutMs?: number | null;
+  sandbox?: LogicSandboxPolicy | null;
+  semantic?: LogicSemantic | null;
+}
+
+export interface LogicCodeHookInputsItem {
+  key: LogicIdent;
+  type: string;
+  value?: LogicExpr | null;
+}
+
+export interface LogicCodeHookOutputsItem {
   key: LogicIdent;
   type: string;
 }
@@ -2859,6 +2932,23 @@ export interface LogicApiAuthOauth2 {
   provider?: string | null;
   scopes?: string[] | null;
   tokenRef?: LogicSecretRef | null;
+  /**
+   * OAuth2 令牌端点；clientCredentials / password / refresh_token 均向此地址换取 access token。
+   */
+  tokenUrl?: string | null;
+  clientIdRef?: LogicSecretRef | null;
+  clientSecretRef?: LogicSecretRef | null;
+  usernameRef?: LogicSecretRef | null;
+  passwordRef?: LogicSecretRef | null;
+  refreshTokenRef?: LogicSecretRef | null;
+  /**
+   * @default "basic"
+   */
+  clientAuth?: "basic" | "post" | null;
+  /**
+   * @default 60
+   */
+  refreshBeforeSec?: number | null;
 }
 
 export interface LogicApiAuthSignature {
@@ -2869,13 +2959,26 @@ export interface LogicApiAuthSignature {
   algorithm: "hmacSha256" | "md5";
   secretRef: LogicSecretRef;
   /**
-   * 待签名串模板，如 {method}\n{path}\n{timestamp}
+   * 待签名串模板，支持 {method} {path} {query} {body} {timestamp} {tenant} 占位，如 {method}\n{path}\n{timestamp}
    */
   template?: string | null;
   /**
    * @default "X-Signature"
    */
   headerName?: string | null;
+  /**
+   * 时间戳请求头；留空表示不注入。
+   * @default "X-Timestamp"
+   */
+  timestampHeader?: string | null;
+  /**
+   * @default "seconds"
+   */
+  timestampUnit?: "seconds" | "millis" | null;
+  /**
+   * @default "hex"
+   */
+  encoding?: "hex" | "base64" | null;
 }
 
 /**

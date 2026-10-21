@@ -1,6 +1,6 @@
 # tools/gen-java.mjs 的产物清单。每行一个文件路径（相对 java/）。
 # 下一轮生成时，凡是不在本清单里的 .java/.json/.md/.xml/.txt 都会被删掉 —— 不要往 java/ 放手工文件。
-# 文件数：272（含本清单）
+# 文件数：279（含本清单）
 src/main/java/dev/lcp/schema/v01/enums/CommonScope.java
 src/main/java/dev/lcp/schema/v01/dto/CommonChecksum.java
 src/main/java/dev/lcp/schema/v01/dto/CommonText.java
@@ -51,6 +51,7 @@ src/main/java/dev/lcp/schema/v01/dto/UINode.java
 src/main/java/dev/lcp/schema/v01/dto/UiLoopSpec.java
 src/main/java/dev/lcp/schema/v01/dto/UiNodeBinding.java
 src/main/java/dev/lcp/schema/v01/dto/UiHandlerRef.java
+src/main/java/dev/lcp/schema/v01/dto/UiNodeHandlerRef.java
 src/main/java/dev/lcp/schema/v01/dto/UiNodeStyle.java
 src/main/java/dev/lcp/schema/v01/dto/UiResponsive.java
 src/main/java/dev/lcp/schema/v01/dto/UiBreakpointConfig.java
@@ -87,6 +88,9 @@ src/main/java/dev/lcp/schema/v01/dto/LogicCallActionStep.java
 src/main/java/dev/lcp/schema/v01/dto/LogicCodeStep.java
 src/main/java/dev/lcp/schema/v01/dto/LogicCodeStepInputsItem.java
 src/main/java/dev/lcp/schema/v01/dto/LogicCodeStepOutputsItem.java
+src/main/java/dev/lcp/schema/v01/dto/LogicCodeHook.java
+src/main/java/dev/lcp/schema/v01/dto/LogicCodeHookInputsItem.java
+src/main/java/dev/lcp/schema/v01/dto/LogicCodeHookOutputsItem.java
 src/main/java/dev/lcp/schema/v01/dto/LogicSandboxPolicy.java
 src/main/java/dev/lcp/schema/v01/dto/LogicUploadStep.java
 src/main/java/dev/lcp/schema/v01/dto/LogicDownloadStep.java
@@ -217,7 +221,10 @@ src/main/java/dev/lcp/schema/v01/enums/LogicApiRetryBackoff.java
 src/main/java/dev/lcp/schema/v01/enums/LogicApiRateLimitScope.java
 src/main/java/dev/lcp/schema/v01/enums/LogicApiAuthApiKeyIn.java
 src/main/java/dev/lcp/schema/v01/enums/LogicApiAuthOauth2Grant.java
+src/main/java/dev/lcp/schema/v01/enums/LogicApiAuthOauth2ClientAuth.java
 src/main/java/dev/lcp/schema/v01/enums/LogicApiAuthSignatureAlgorithm.java
+src/main/java/dev/lcp/schema/v01/enums/LogicApiAuthSignatureTimestampUnit.java
+src/main/java/dev/lcp/schema/v01/enums/LogicApiAuthSignatureEncoding.java
 src/main/java/dev/lcp/schema/v01/enums/LogicApiRequestBodyContentType.java
 src/main/java/dev/lcp/schema/v01/enums/LogicApiParamType.java
 src/main/java/dev/lcp/schema/v01/enums/LogicFlowDeploymentTenantStrategy.java
