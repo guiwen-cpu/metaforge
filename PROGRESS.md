@@ -13,7 +13,7 @@
 | 演示应用 | `eb84d4bd-461f-4945-9f76-7d69ce732d8b`（请假审批 / `leave_approval_demo`） |
 | 租户 / 用户 | `tenant_demo_school` / `alice` |
 | 容器 | `metaforge-web` / `metaforge-bff` / `metaforge-postgres` / `metaforge-redis` |
-| 当前草稿 | `r14`：3 个页面、1 个自定义组件 `biz-card`、逻辑编排完整；已从 v9 恢复中文内容并迁移 `onParamChange` |
+| 当前草稿 | `r16`：3 个页面、1 个自定义组件 `biz-card`、逻辑编排完整；已从 v9 恢复中文内容并迁移 `onParamChange`；`r15` 为页面钩子保存回读的临时草稿 |
 | 发布版本 | `v12`：中文内容正常、动作权限 35 条、页面参数生命周期已迁移；`v10/v11` 为阶段 8 钩子冒烟临时版本，`v2/v4/v6` 为冒烟临时版本，`v3/v5/v7` 为回滚快照 |
 | 演示数据 | 请假实例若干（已通过 / 已驳回 / 待审批）；冒烟实例 `ef3ea1e4-cbbe-11f1-ab05-eac30cd331c5` 含 3 条动作日志；`/leave/requests` 底部挂有 `biz-card` 联调节点；运行时闭环单 `01M5D95H48A2VFJHTFQ5BSZK4Q` 已验证提交与撤回（`cancelled`）；`01M5DP7862K31BADGVQKVGSVNE` / `01M5DP77QA2CJPYN3R66MVNHP9` 用于 `leave_batch_recall` 并行撤回验证（`cancelled`） |
 | 审批入口 | `/apps/<appId>/approvals`；详情 `/approvals/:taskId`，实例 `/instances/:instanceId` |
@@ -390,7 +390,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - [x] 连接器注册表：REST / GraphQL / SOAP / PostgreSQL database / internal；OAuth2、签名鉴权、变更审计与 DNS pinning 已接入。
 - [x] 租户级密钥与凭证管理：AES-256-GCM 加密存储、只写不读、轮换与租户隔离。
 - [x] 自定义 TS 代码钩子运行时：页面 `onLoad / onMount / onParamChange / onUnmount / onError / onBeforeLeave`、代码步骤、输出回写、事件、超时与沙箱策略已接入发布态渲染器。
-- [ ] 自定义 TS 代码钩子设计器：页面生命周期编辑与浏览器试运行、逻辑设计器代码步骤试运行。
+- [x] 自定义 TS 代码钩子设计器（页面）：页面生命周期事件切换、动作引用 / 内联步骤 / TS 代码钩子三选一、输入输出与沙箱策略编辑、浏览器试运行。
+- [ ] 自定义 TS 代码钩子设计器（逻辑）：逻辑设计器代码步骤浏览器试运行。
 - [ ] AI 辅助：自然语言生成表单/页面/流程（语义字段已预留）。
 
 ### 阶段 9 · 市场
@@ -408,6 +409,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - **代码注入**：沙箱脚本先经 TypeScript `transpileModule` 编译，再以 `script.textContent` 注入，不使用 `eval`；注入前加 `0;` 阻断 `"use strict"` 指令序言，避免 `eval` 形参在严格模式下触发语法错误。
 - **生命周期事件**：页面参数变化统一使用 `onParamChange`；`onBeforeLeave` 同时覆盖路由离开与运行时菜单内部跳转，钩子返回不再是拦截条件，只用于副作用与错误上报。
 - **代码钩子只挂页面生命周期**：`page.handlers.*.code` 使用 `CodeHook`，节点 / 弹窗事件仅允许动作引用或内联步骤；钩子与 `CodeStep` 共用 TS 语法检查、输入输出声明、超时与沙箱策略，但只能在浏览器 iframe 内执行。
+- **设计器试运行不触碰真实数据**：页面钩子面板用页面 `state` 与占位用户/租户构造预览上下文，只验证语法、事件与输出；保存仍走草稿乐观锁，试运行结果不写回 Bundle。
 - **扩展键**：平台私有字段统一 `x-` 前缀（`x-previewHtml`、`x-previewScript`），随 Bundle 版本化。
 - **草稿并发**：控制平面用 `revision` 乐观锁，冲突时提示加载最新草稿。
 - **语义预留**：实体、页面、组件、流程均带 `semantic.intent`，为 AI 生成做准备。

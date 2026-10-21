@@ -8,6 +8,7 @@ import { formatDateTime, prettyJson } from "@/lib/format";
 import { ulid } from "@/lib/ulid";
 import UiNodeRenderer from "@/components/preview/UiNodeRenderer.vue";
 import NodeOutline from "@/components/designer/NodeOutline.vue";
+import PageHandlersPanel from "@/components/designer/PageHandlersPanel.vue";
 import {
   COMPONENTS,
   PAGE_KINDS,
@@ -125,6 +126,19 @@ const customComponentNames = computed<string[]>(() =>
 const allComponents = computed<ComponentDef[]>(() => {
   const seen = new Set(COMPONENTS.map((item) => item.name));
   return [...COMPONENTS, ...customComponents.value.filter((item) => !seen.has(item.name))];
+});
+
+const actionOptions = computed<Array<{ key: string; name?: string }>>(() => {
+  const schemas = bundle.value?.artifacts?.logicSchemas;
+  if (!Array.isArray(schemas)) return [];
+  return schemas.flatMap((schema) => {
+    const actions = (schema as Record<string, unknown> | null)?.actions;
+    if (!Array.isArray(actions)) return [];
+    return actions
+      .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+      .map((item) => ({ key: String(item.key ?? ""), name: item.name ? String(item.name) : undefined }))
+      .filter((item) => item.key);
+  });
 });
 
 const entityOptions = computed(() =>
@@ -1468,6 +1482,7 @@ onMounted(load);
                   @update:model-value="setPageDescription"
                 />
               </div>
+              <PageHandlersPanel :page="activePage" :actions="actionOptions" />
               <div>
                 <label class="mb-1 block text-[11px] text-slate-500">语义意图（AI 生成上下文）</label>
                 <el-input
