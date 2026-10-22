@@ -18,8 +18,8 @@ name: ci
 
 on:
   pull_request: # 所有目标分支的 PR
-  push:
-    branches: [dev, main] # 直推开发分支或主干分支时也跑
+  # push:
+  #   branches: [dev, main] # 直推开发分支或主干分支时也跑
 
 # 同一 PR / 分支只保留最新一次校验，旧运行自动取消
 concurrency:

@@ -84,6 +84,8 @@ jobs:
           context: .
           file: deploy/web/Dockerfile
           push: true
+          provenance: false
+          sbom: false
           build-args: |
             VITE_API_BASE=
             VITE_STS_URL=/api/v1/platform/oss/sts
