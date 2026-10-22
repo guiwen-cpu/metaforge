@@ -117,7 +117,7 @@ jobs:
           key: ${{ secrets.PROD_SSH_KEY }}
           script: |
             set -eu
-            cd /opt/metaforge
+            cd /srv/metaforge
             # 目标机是 Git 检出时先检出本次构建的 commit；否则沿用机器上已有文件。
             # 只按 SHA 取对象，不再同步标签；checkout 后是 detached HEAD，正好锁定本次发布版本。
             if [ -d .git ]; then
