@@ -80,6 +80,19 @@ jobs:
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
+      # 发布机到 Docker Hub 经常超时，且现有加速器不保证有 postgres/redis。
+      # 先把运行时依赖镜像同步进 ACR，staging/prod 覆盖层只从 ACR 拉取。
+      - name: Mirror runtime images to ACR
+        run: |
+          for image in postgres:16-alpine redis:7-alpine; do
+            repository="${image%%:*}"
+            tag="${image##*:}"
+            target="${ACR_REGISTRY}/${ACR_NAMESPACE}/${repository}:${tag}"
+            docker pull "$image"
+            docker tag "$image" "$target"
+            docker push "$target"
+          done
+
       # 前端镜像内置设计器与 /demo/；API 走同域反向代理，故 VITE_API_BASE 为空
       - name: Build and push web
         uses: docker/build-push-action@v6

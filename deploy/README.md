@@ -25,8 +25,8 @@ web（nginx-unprivileged）
 | 环境 | 用途 | Compose 组合 | env 文件 | 项目名 | 默认端口 | 镜像来源 |
 |---|---|---|---|---|---|---|
 | local | 本机开发 | `compose.yaml` | `.env` | `metaforge` | 8080（HTTP） | 本地构建 |
-| staging | 预发 / 验收 | `compose.yaml` + `compose.staging.yaml` | `.env.staging` | `metaforge-staging` | 8081（HTTPS） | 阿里云 ACR `:staging`、`:sha-*` |
-| prod | 生产 | `compose.yaml` + `compose.prod.yaml` | `.env.prod` | `metaforge-prod` | 8080（HTTPS） | 阿里云 ACR `:prod`、`:sha-*` |
+| staging | 预发 / 验收 | `compose.yaml` + `compose.staging.yaml` | `.env.staging` | `metaforge-staging` | 8081（HTTPS） | ACR 应用 `:staging`/`:sha-*`；依赖 `:16-alpine`/`:7-alpine` |
+| prod | 生产 | `compose.yaml` + `compose.prod.yaml` | `.env.prod` | `metaforge-prod` | 8080（HTTPS） | ACR 应用 `:prod`/`:sha-*`；依赖 `:16-alpine`/`:7-alpine` |
 
 - 项目名不同 → 容器名、网络、数据卷全部隔离（`metaforge-staging_pg_data` 与
   `metaforge-prod_pg_data` 互不影响），因此两套环境可以部署在同一台机器；
@@ -35,14 +35,16 @@ web（nginx-unprivileged）
 - prod 覆盖层额外限制 CPU/内存；staging 不限制，便于压测与调试。
 - local 直接监听容器 8080（HTTP）；staging / prod 的 `WEB_PORT` 映射到容器 8443，
   由 `deploy/nginx/nginx.tls.conf` 提供 HTTPS，证书放在仓库根目录的 `certs/`（不入 Git）。
+- staging / prod 的 `postgres`、`redis`、`migrate` 也使用 ACR 镜像；CI 会把官方
+  `postgres:16-alpine` / `redis:7-alpine` 同步进去，发布机不需要访问 Docker Hub。
 
 ## 3. 目录
 
 | 路径 | 用途 |
 |---|---|
 | `deploy/compose.yaml` | 基础编排（构建 + 全栈服务） |
-| `deploy/compose.staging.yaml` | staging 覆盖层：ACR 镜像 |
-| `deploy/compose.prod.yaml` | prod 覆盖层：ACR 镜像 + 资源上限 |
+| `deploy/compose.staging.yaml` | staging 覆盖层：ACR 应用与运行时依赖镜像 |
+| `deploy/compose.prod.yaml` | prod 覆盖层：ACR 应用与运行时依赖镜像 + 资源上限 |
 | `deploy/compose.bff-dev.yaml` | 本地开发可选覆盖层：BFF 映射宿主机 `BFF_DEV_PORT`（默认 8081） |
 | `deploy/.env.example` | 本地开发模板 |
 | `deploy/.env.staging.example` | staging 模板 |
@@ -151,7 +153,9 @@ TAG 优先级：命令行参数 > 环境变量 `TAG` > `.env.<env>`。
 部署脚本会在服务器上按 `github.sha` 执行 `git fetch origin <sha>` 与 `git checkout --force <sha>`（若 `/srv/metaforge` 是 git 仓库），
 因此目标机不会因为分支又前进了而部署到错误版本。若服务器不是 git 仓库，请自行同步 `deploy/` 目录。目标机必须能登录 ACR：
 提前执行 `docker login`，或在 `.env.<env>` 中填写 `ACR_USERNAME` / `ACR_PASSWORD`。
-首次使用前需在 ACR 控制台创建命名空间（默认 `metaforge`），并按需预建 `web` / `bff` 仓库。
+首次使用前需在 ACR 控制台创建命名空间（默认 `metaforge`），并按需预建 `web` / `bff` / `postgres` / `redis` 仓库。
+发布机只需能访问 ACR；`images` job 会把官方 PostgreSQL / Redis 镜像一并同步到 ACR，
+`compose pull` 不会再去 Docker Hub 拉取运行时依赖。
 目标机还需在 `/srv/metaforge/certs/` 放好证书；`release.sh` 会先用发布镜像验证
 nginx（uid 101）能否读取证书，失败时在 `pull` 之后立即退出，不会把坏配置带上线。
 

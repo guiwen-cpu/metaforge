@@ -2,6 +2,13 @@
 # ACR_REGISTRY / ACR_NAMESPACE 可用同环境变量覆盖；默认值与 release.sh、workflow 保持一致。
 # 与 staging 的差异：更严格的资源上限与 pull 策略。
 services:
+  # 运行时不直接访问 Docker Hub：CI 会先把官方 postgres/redis 镜像同步到 ACR。
+  postgres:
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-metaforge}/postgres:16-alpine
+  redis:
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-metaforge}/redis:7-alpine
+  migrate:
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-metaforge}/postgres:16-alpine
   bff:
     image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-metaforge}/bff:${TAG:?TAG 未设置}
     pull_policy: always
