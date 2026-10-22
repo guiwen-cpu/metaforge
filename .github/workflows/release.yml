@@ -4,20 +4,20 @@
 # 触发：
 #   - push main：主干合并即发布生产
 #
-# 链路：validate → images（GHCR）→ deploy（自动）
+# 链路：validate → images（阿里云 ACR）→ deploy（自动）
 #   validate 与 ci.yml 同源，但工作流之间没有依赖关系，
 #   因此这里重复执行，保证“推镜像前一定校验过”。
 #
-# 产物：
-#   ghcr.io/<repo>/web:prod + :sha-<commit>
-#   ghcr.io/<repo>/bff:prod + :sha-<commit>
+# 产物（阿里云 ACR）：
+#   <ACR_REGISTRY>/<ACR_NAMESPACE>/web:prod + :sha-<commit>
+#   <ACR_REGISTRY>/<ACR_NAMESPACE>/bff:prod + :sha-<commit>
 #   :prod 是可变指针；部署固定使用 :sha-<commit>，便于追溯与回滚。
 #
 # 部署：
 #   - push main 后自动执行，无需额外开关
 #   - 在 environment: production 下执行（可配置人工审批与保护规则）
 #   - SSH 到目标机 /opt/metaforge，切到 main 后调用 deploy/release.sh prod
-#   - 部署使用本次构建的 sha 标签；目标机需已有 deploy/.env.prod
+#   - 部署使用本次构建的 sha 标签；目标机需已有 deploy/.env.prod，并已 docker login ACR
 #
 # 预发对应流程见 staging.yml；日常门禁见 ci.yml；总览见 README.md。
 # =============================================================================
@@ -27,16 +27,21 @@ on:
   push:
     branches: [main] # 主干合并即发布生产
 
+# 镜像库地址与命名空间：可用仓库 Variables 覆盖。
+# compose.<env>.yaml 用同名变量拼镜像名，三处默认值需保持一致。
+env:
+  ACR_REGISTRY: ${{ vars.ACR_REGISTRY || 'registry.cn-hangzhou.aliyuncs.com' }}
+  ACR_NAMESPACE: ${{ vars.ACR_NAMESPACE || 'metaforge' }}
+
 # 生产发布串行化：同一环境同时只跑一条流水线。
 # 不取消进行中的运行，避免中断镜像推送或 SSH 部署。
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
-# 推送 GHCR 需要 packages: write；checkout 只需要 contents: read
+# ACR 登录用独立密钥，不再需要 GitHub Packages 的写权限
 permissions:
   contents: read
-  packages: write
 
 jobs:
   # 与 ci.yml 的检查同源：协议校验 + BFF 打包。
@@ -62,12 +67,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      # 用仓库自带 GITHUB_TOKEN 登录 GHCR，无需额外密钥
+      # 用阿里云 ACR 凭据登录；建议使用仅有制品仓库读写权限的 RAM 用户
       - uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ env.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
 
       # 前端镜像内置设计器与 /demo/；API 走同域反向代理，故 VITE_API_BASE 为空
       - name: Build and push web
@@ -80,8 +85,8 @@ jobs:
             VITE_API_BASE=
             VITE_STS_URL=/api/v1/platform/oss/sts
           tags: |
-            ghcr.io/${{ github.repository }}/web:prod
-            ghcr.io/${{ github.repository }}/web:sha-${{ github.sha }}
+            ${{ env.ACR_REGISTRY }}/${{ env.ACR_NAMESPACE }}/web:prod
+            ${{ env.ACR_REGISTRY }}/${{ env.ACR_NAMESPACE }}/web:sha-${{ github.sha }}
           # 与 staging 分开缓存，生产构建不会被预发产物影响
           cache-from: type=gha,scope=prod-web
           cache-to: type=gha,mode=max,scope=prod-web
@@ -93,8 +98,8 @@ jobs:
           file: deploy/bff/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/bff:prod
-            ghcr.io/${{ github.repository }}/bff:sha-${{ github.sha }}
+            ${{ env.ACR_REGISTRY }}/${{ env.ACR_NAMESPACE }}/bff:prod
+            ${{ env.ACR_REGISTRY }}/${{ env.ACR_NAMESPACE }}/bff:sha-${{ github.sha }}
           cache-from: type=gha,scope=prod-bff
           cache-to: type=gha,mode=max,scope=prod-bff
 
@@ -119,5 +124,8 @@ jobs:
               git checkout --force main
               git pull --ff-only
             fi
+            # 目标机的 compose 覆盖层用这两个变量拼镜像名；未设置时脚本有同样的默认值
+            export ACR_REGISTRY='${{ env.ACR_REGISTRY }}'
+            export ACR_NAMESPACE='${{ env.ACR_NAMESPACE }}'
             # 固定用本次构建的 sha 标签，并执行 pull → migrate → up
             TAG=sha-${{ github.sha }} sh deploy/release.sh prod

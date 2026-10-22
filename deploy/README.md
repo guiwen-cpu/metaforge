@@ -25,8 +25,8 @@ web（nginx-unprivileged）
 | 环境 | 用途 | Compose 组合 | env 文件 | 项目名 | 默认端口 | 镜像来源 |
 |---|---|---|---|---|---|---|
 | local | 本机开发 | `compose.yaml` | `.env` | `metaforge` | 8080 | 本地构建 |
-| staging | 预发 / 验收 | `compose.yaml` + `compose.staging.yaml` | `.env.staging` | `metaforge-staging` | 8081 | GHCR `:staging`、`:sha-*` |
-| prod | 生产 | `compose.yaml` + `compose.prod.yaml` | `.env.prod` | `metaforge-prod` | 8080 | GHCR `:prod`、`:sha-*` |
+| staging | 预发 / 验收 | `compose.yaml` + `compose.staging.yaml` | `.env.staging` | `metaforge-staging` | 8081 | 阿里云 ACR `:staging`、`:sha-*` |
+| prod | 生产 | `compose.yaml` + `compose.prod.yaml` | `.env.prod` | `metaforge-prod` | 8080 | 阿里云 ACR `:prod`、`:sha-*` |
 
 - 项目名不同 → 容器名、网络、数据卷全部隔离（`metaforge-staging_pg_data` 与
   `metaforge-prod_pg_data` 互不影响），因此两套环境可以部署在同一台机器；
@@ -39,8 +39,8 @@ web（nginx-unprivileged）
 | 路径 | 用途 |
 |---|---|
 | `deploy/compose.yaml` | 基础编排（构建 + 全栈服务） |
-| `deploy/compose.staging.yaml` | staging 覆盖层：GHCR 镜像 |
-| `deploy/compose.prod.yaml` | prod 覆盖层：GHCR 镜像 + 资源上限 |
+| `deploy/compose.staging.yaml` | staging 覆盖层：ACR 镜像 |
+| `deploy/compose.prod.yaml` | prod 覆盖层：ACR 镜像 + 资源上限 |
 | `deploy/compose.bff-dev.yaml` | 本地开发可选覆盖层：BFF 映射宿主机 `BFF_DEV_PORT`（默认 8081） |
 | `deploy/.env.example` | 本地开发模板 |
 | `deploy/.env.staging.example` | staging 模板 |
@@ -90,6 +90,9 @@ cp deploy/.env.staging.example deploy/.env.staging
 cp deploy/.env.prod.example  deploy/.env.prod
 chmod 600 deploy/.env.staging deploy/.env.prod
 vi deploy/.env.staging deploy/.env.prod   # 改密码与 TAG
+
+# 私有仓库：先在目标机登录阿里云 ACR（也可以把凭据写进上面的 env 文件）
+docker login registry.cn-hangzhou.aliyuncs.com
 ```
 
 同一台机器跑两套时，确认 `WEB_PORT` 不冲突（staging 8081 / prod 8080）。
@@ -108,13 +111,15 @@ sh deploy/release.sh prod sha-1a2b3c4   # 生产推荐使用不可变 sha 标签
 `release.sh` 做的事：`pull` → `--profile tools run --rm migrate` → `up -d` → 打印状态。
 TAG 优先级：命令行参数 > 环境变量 `TAG` > `.env.<env>`。
 生产发布同样使用不可变 sha 标签；CI 会显式传入 TAG，手动发布时请避免 `latest`。
+镜像地址优先级：环境变量 `ACR_REGISTRY` / `ACR_NAMESPACE` > `.env.<env>` > 默认值
+`registry.cn-hangzhou.aliyuncs.com/metaforge`。
 
 ### 5.3 CI/CD 流程
 
 | 触发 | 工作流 | 产物 | 部署方式 |
 |---|---|---|---|
-| push `dev` / 手动 | `.github/workflows/staging.yml` | `:staging`、`:sha-<sha>` | 自动部署预发 |
-| push `main` | `.github/workflows/release.yml` | `:prod`、`:sha-<sha>` | 自动部署生产 |
+| push `dev` / 手动 | `.github/workflows/staging.yml` | ACR `:staging`、`:sha-<sha>` | 自动部署预发 |
+| push `main` | `.github/workflows/release.yml` | ACR `:prod`、`:sha-<sha>` | 自动部署生产 |
 | PR / push `dev`、`main` | `.github/workflows/ci.yml` | 校验 + 构建 + compose config | — |
 
 推荐流程：`dev` 推送自动上 staging → 验收后合并 `main` 自动上 prod。
@@ -125,16 +130,22 @@ TAG 优先级：命令行参数 > 环境变量 `TAG` > `.env.<env>`。
 |---|---|---|
 | `STAGING_HOST` / `STAGING_USER` / `STAGING_SSH_KEY` | secret | staging 服务器 SSH |
 | `PROD_HOST` / `PROD_USER` / `PROD_SSH_KEY` | secret | prod 服务器 SSH |
+| `ACR_USERNAME` / `ACR_PASSWORD` | secret | 推送镜像到阿里云 ACR（建议用仅有制品仓库权限的 RAM 用户） |
+| `ACR_REGISTRY` / `ACR_NAMESPACE` | variable | 可选；默认 `registry.cn-hangzhou.aliyuncs.com` / `metaforge` |
 | `staging` / `production` environment | Environment | 可配置审批人与环境保护规则 |
 
 部署脚本会在服务器上 `git fetch --tags --force` 后切到 `dev` / `main` 并 `git pull --ff-only`（若 `/opt/metaforge` 是 git 仓库），
-再执行 `release.sh`。若服务器不是 git 仓库，请自行同步 `deploy/` 目录。
+再执行 `release.sh`。若服务器不是 git 仓库，请自行同步 `deploy/` 目录。目标机必须能登录 ACR：
+提前执行 `docker login`，或在 `.env.<env>` 中填写 `ACR_USERNAME` / `ACR_PASSWORD`。
+首次使用前需在 ACR 控制台创建命名空间（默认 `metaforge`），并按需预建 `web` / `bff` 仓库。
 
 ### 5.4 回滚
 
 ```bash
 cd /opt/metaforge
 sh deploy/release.sh prod sha-1a2b3c4   # 回到旧的不可变镜像
+# 自建/企业版 ACR 地址不同时：
+ACR_REGISTRY=metaforge-registry.cn-hangzhou.cr.aliyuncs.com sh deploy/release.sh prod sha-1a2b3c4
 ```
 
 数据库变更遵循 expand-contract（先加列、后删列），保证旧镜像仍可运行。
@@ -150,6 +161,9 @@ sh deploy/release.sh prod sha-1a2b3c4   # 回到旧的不可变镜像
 | `META_FORGE_APP_PASSWORD` | 是 | `metaforge_app` 密码，BFF 使用 |
 | `REDIS_PASSWORD` | 是 | Redis `requirepass` |
 | `WEB_PORT` | 否 | 宿主机端口，local/staging/prod 模板分别为 8080/8081/8080 |
+| `ACR_REGISTRY` | 否 | 镜像库地址，默认 `registry.cn-hangzhou.aliyuncs.com` |
+| `ACR_NAMESPACE` | 否 | ACR 命名空间，默认 `metaforge` |
+| `ACR_USERNAME` / `ACR_PASSWORD` | 否 | 目标机拉取私有镜像的凭据；留空则假定已 `docker login` |
 | `TAG` | 生产必填 | 镜像标签；CI 传 `sha-<commit>`，staging 模板默认 `staging`，prod 模板为 `sha-placeholder`，手动发布需替换 |
 
 生产建议把密码放进云密钥管理，由发布流水线写入 `/opt/metaforge/deploy/.env.prod`（权限 `600`）。
@@ -199,6 +213,7 @@ select count(*) from edu_employee; commit;    -- 0
 - [ ] 只暴露 80/443（或 `WEB_PORT`），22 端口限制来源 IP
 - [ ] 数据库/Redis 无公网地址；生产优先用 RDS / 托管 Redis
 - [ ] `.env*` 权限 600，secret 不进 Git、不进镜像层
+- [ ] 目标机已登录 ACR，RAM 用户只有制品仓库读写权限
 - [ ] 网关鉴权 + 注入 `X-Tenant-Id` / `X-User-Id`，BFF 不直接暴露
 - [ ] TLS 证书、HSTS、`X-Content-Type-Options`、`Referrer-Policy`
 - [ ] `pg_dump -Fc` 每日备份到 OSS，保留 30 天并做恢复演练

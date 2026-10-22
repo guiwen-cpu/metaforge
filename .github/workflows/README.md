@@ -7,8 +7,8 @@
 | 工作流 | 触发 | 主要职责 | 产物 / 动作 |
 |---|---|---|---|
 | `ci.yml` | 所有 PR；push `dev` / `main` | 协议校验、出码器自检、示例前端构建、BFF 打包、compose / shell 契约校验 | 无产物，不部署 |
-| `staging.yml` | push `dev`；手动 `workflow_dispatch` | 预发校验 → 构建镜像 → 自动部署 | GHCR `:staging` / `:sha-<commit>` |
-| `release.yml` | push `main` | 生产校验 → 构建镜像 → 自动部署 | GHCR `:prod` / `:sha-<commit>` |
+| `staging.yml` | push `dev`；手动 `workflow_dispatch` | 预发校验 → 构建镜像 → 自动部署 | 阿里云 ACR `:staging` / `:sha-<commit>` |
+| `release.yml` | push `main` | 生产校验 → 构建镜像 → 自动部署 | 阿里云 ACR `:prod` / `:sha-<commit>` |
 
 ## 流程图
 
@@ -22,7 +22,7 @@ push dev ───────────────► staging.yml
                           validate
                              │ needs
                              ▼
-                          images ──► GHCR web/bff :staging, :sha-<commit>
+                          images ──► ACR web/bff :staging, :sha-<commit>
                              │ needs
                              ▼
                           deploy ──► SSH /opt/metaforge
@@ -32,7 +32,7 @@ push main ──────────────► release.yml
                           validate
                              │ needs
                              ▼
-                          images ──► GHCR web/bff :prod, :sha-<commit>
+                          images ──► ACR web/bff :prod, :sha-<commit>
                              │ needs
                              ▼
                           deploy ──► SSH /opt/metaforge
@@ -42,10 +42,11 @@ push main ──────────────► release.yml
 ## 关键关系
 
 - **工作流之间没有 `needs`。** GitHub Actions 不能用一个工作流 `needs` 另一个工作流，所以 `staging.yml` / `release.yml` 各自保留 `validate` job，不依赖 `ci.yml` 的运行结果。`ci.yml` 失败不会自动阻止发布流水线启动，这是重复校验的原因。
-- **`ci.yml` 只做门禁。** 不登录 GHCR、不构建镜像、不接触主机；适合在 PR 上快速反馈。
+- **`ci.yml` 只做门禁。** 不登录镜像库、不构建镜像、不接触主机；适合在 PR 上快速反馈。
 - **`staging.yml` 跟随 `dev`。** `:staging` 是可变指针，部署时使用 `:sha-<commit>` 固定到本次构建；目标机对齐 `dev`。
 - **`release.yml` 跟随 `main`。** 推送主干即发布生产，不再依赖 `v*` 标签；`:prod` 是可变指针，部署同样使用 `:sha-<commit>`，目标机对齐 `main`。
-- **部署动作统一收敛在 `deploy/release.sh`。** 两个部署 job 只负责 SSH 登录、对齐分支和传入 `TAG`；真正的 `pull → migrate → up` 由脚本完成，避免两套部署逻辑漂移。
+- **镜像统一放阿里云 ACR。** 地址与命名空间由 `ACR_REGISTRY` / `ACR_NAMESPACE` 控制，workflow、Compose 覆盖层与 `release.sh` 使用同一组默认值（`registry.cn-hangzhou.aliyuncs.com/metaforge`）。
+- **部署动作统一收敛在 `deploy/release.sh`。** 两个部署 job 只负责 SSH 登录、对齐分支和传入 `ACR_*` / `TAG`；真正的 `pull → migrate → up` 由脚本完成，避免两套部署逻辑漂移。
 - **环境隔离靠 Compose 项目名与覆盖层。** 脚本使用 `-p metaforge-<env>` 和 `compose.<env>.yaml`；staging / prod 的数据卷、容器、网络互不影响。
 
 ## 并发控制
@@ -70,7 +71,7 @@ push main ──────────────► release.yml
 | `deploy/bff/Dockerfile` | `staging.yml`、`release.yml` | JRE 21 运行镜像 |
 | `deploy/compose*.yaml`、`.env*.example` | `ci.yml`（校验）、部署主机（运行） | 环境组合与变量契约 |
 | `deploy/release.sh` | `staging.yml`、`release.yml` | 目标机发布入口：`pull → migrate → up` |
-| `deploy/.env.staging`、`deploy/.env.prod` | 部署主机 | 真实密码与可选默认 `TAG`；不入 Git |
+| `deploy/.env.staging`、`deploy/.env.prod` | 部署主机 | 真实密码、ACR 凭据与可选默认 `TAG`；不入 Git |
 
 ## 仓库配置
 
@@ -78,10 +79,14 @@ push main ──────────────► release.yml
 |---|---|---|
 | `STAGING_HOST` / `STAGING_USER` / `STAGING_SSH_KEY` | Secrets | 预发主机登录 |
 | `PROD_HOST` / `PROD_USER` / `PROD_SSH_KEY` | Secrets | 生产主机登录 |
-| `GITHUB_TOKEN` | 自动注入 | 登录 GHCR 并推送镜像 |
+| `ACR_USERNAME` / `ACR_PASSWORD` | Secrets | 登录阿里云 ACR 并推送镜像；建议使用仅有制品仓库权限的 RAM 用户 |
+| `ACR_REGISTRY` | Variable | ACR 地址，默认 `registry.cn-hangzhou.aliyuncs.com` |
+| `ACR_NAMESPACE` | Variable | ACR 命名空间，默认 `metaforge` |
 | `staging` / `production` | Environments | 存放环境级密钥，可配置人工审批与保护规则 |
 
-> 推送即部署，不再使用 `DEPLOY_*_ENABLED` 开关。请先确保目标机已有 `deploy/.env.staging` / `deploy/.env.prod`，并配置好对应 Secrets；需要人工卡点时，在 Environment 中配置保护规则。
+> 推送即部署，不再使用 `DEPLOY_*_ENABLED` 开关。请先确保目标机已有 `deploy/.env.staging` / `deploy/.env.prod`，配置好主机 SSH Secrets 与 ACR 凭据，并在目标机执行过 `docker login`（或把凭据写进 env 文件）；需要人工卡点时，在 Environment 中配置保护规则。
+>
+> 首次使用前需在阿里云 ACR 控制台创建命名空间（默认 `metaforge`）；若关闭了自动建仓库，请先创建 `web` / `bff` 两个仓库。
 
 ## 典型发布顺序
 
@@ -89,7 +94,7 @@ push main ──────────────► release.yml
 2. 合并/推送到 `dev`：`staging.yml` 构建 `:staging` / `:sha-*` 并自动部署预发。
 3. 在预发验收。
 4. 合并到 `main`：`release.yml` 构建 `:prod` / `:sha-*` 并自动部署生产。
-5. 回滚：重新运行旧提交对应的 `release.yml`，或在目标机执行 `TAG=sha-<旧提交> sh deploy/release.sh prod`。
+5. 回滚：重新运行旧提交对应的 `release.yml`，或在目标机执行 `TAG=sha-<旧提交> sh deploy/release.sh prod`（自定义镜像库时再带上 `ACR_REGISTRY` / `ACR_NAMESPACE`）。
 
 ## 维护提示
 

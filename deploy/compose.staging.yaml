@@ -1,12 +1,13 @@
-# staging 覆盖层：镜像来自 GHCR，tag 由 CI 推送（staging / sha-<sha>）。
+# staging 覆盖层：镜像来自阿里云 ACR，tag 由 CI 推送（staging / sha-<sha>）。
+# ACR_REGISTRY / ACR_NAMESPACE 可用同环境变量覆盖；默认值与 release.sh、workflow 保持一致。
 # 与 prod 的差异：资源上限更宽松、数据卷与网络由独立项目名隔离。
 services:
   bff:
-    image: ghcr.io/guiwen-cpu/metaforge/bff:${TAG:?TAG 未设置}
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-metaforge}/bff:${TAG:?TAG 未设置}
     pull_policy: always
     environment:
       LCP_AUTH_DEV_HEADERS: "false"
       LCP_IDENTITY_ALLOW_ALL: "false"
   web:
-    image: ghcr.io/guiwen-cpu/metaforge/web:${TAG:?TAG 未设置}
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-metaforge}/web:${TAG:?TAG 未设置}
     pull_policy: always

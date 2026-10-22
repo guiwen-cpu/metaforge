@@ -1,8 +1,9 @@
-# prod 覆盖层：镜像来自 GHCR；CI 使用 sha-xxxxxxx，TAG 禁止 latest。
+# prod 覆盖层：镜像来自阿里云 ACR；CI 使用 sha-xxxxxxx，TAG 禁止 latest。
+# ACR_REGISTRY / ACR_NAMESPACE 可用同环境变量覆盖；默认值与 release.sh、workflow 保持一致。
 # 与 staging 的差异：更严格的资源上限与 pull 策略。
 services:
   bff:
-    image: ghcr.io/guiwen-cpu/metaforge/bff:${TAG:?TAG 未设置}
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-metaforge}/bff:${TAG:?TAG 未设置}
     pull_policy: always
     environment:
       LCP_AUTH_DEV_HEADERS: "false"
@@ -13,7 +14,7 @@ services:
           cpus: "2.0"
           memory: 1536M
   web:
-    image: ghcr.io/guiwen-cpu/metaforge/web:${TAG:?TAG 未设置}
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-metaforge}/web:${TAG:?TAG 未设置}
     pull_policy: always
     deploy:
       resources:

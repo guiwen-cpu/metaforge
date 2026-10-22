@@ -166,7 +166,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - `deploy/compose.yaml`（dev）、`compose.staging.yaml`、`compose.prod.yaml`。
 - `deploy/.env`、`.env.staging.example`、`.env.prod.example`、`release.sh`、`smoke.sh`、`smoke-platform.sh`。
 - `deploy/release.sh` 已补注释：环境隔离、TAG 优先级与 `pull → migrate → up` 顺序；生产改为推送 `main` 即发布，TAG 使用不可变 `sha-<commit>`。
-- GitHub Actions：`ci.yml`（PR 与 `dev` / `main` 校验）、`staging.yml`（push `dev` → GHCR `:staging` / `:sha-*` → 自动部署预发）、`release.yml`（push `main` → GHCR `:prod` / `:sha-*` → 自动部署生产）；三者关系与密钥见 `.github/workflows/README.md`。 并发控制：CI 同分支取消旧运行，staging / prod 分别串行且不取消进行中的部署。
+- 镜像库改为阿里云 ACR：`ACR_REGISTRY` / `ACR_NAMESPACE` 默认 `registry.cn-hangzhou.aliyuncs.com/metaforge`，Compose、workflow 与 `release.sh` 共用同一组默认值；私有镜像由目标机的 `docker login` 或 env 文件中的 `ACR_USERNAME` / `ACR_PASSWORD` 提供凭据。
+- GitHub Actions：`ci.yml`（PR 与 `dev` / `main` 校验）、`staging.yml`（push `dev` → ACR `:staging` / `:sha-*` → 自动部署预发）、`release.yml`（push `main` → ACR `:prod` / `:sha-*` → 自动部署生产）；三者关系与密钥见 `.github/workflows/README.md`。 并发控制：CI 同分支取消旧运行，staging / prod 分别串行且不取消进行中的部署。
 - Nginx 同域托管设计器与 `/demo/` 示例应用。
 
 ### 9. 运行时与审批中心
