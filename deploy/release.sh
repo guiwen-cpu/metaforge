@@ -2,10 +2,17 @@
 # 发布到指定环境：staging | prod
 # 用法：sh deploy/release.sh <staging|prod> [TAG]
 #   TAG 优先级：命令行参数 > 环境变量 > deploy/.env.<env>
+#
+# 流程：校验参数与环境文件 → 解析 TAG → 拉取镜像 → 执行迁移 → 启动服务
+# 调用方：.github/workflows/staging.yml（TAG=sha-<commit>）
+#         .github/workflows/release.yml（TAG=vX.Y.Z）
+# 脚本以 deploy/ 为工作目录，需与 compose*.yaml、.env.<env> 放在同一目录。
 set -eu
 
+# 从任意目录调用都切到 deploy/，保证后面的相对路径稳定
 cd "$(dirname "$0")"
 
+# 环境名必填；TAG 可选，缺省时再回退到环境变量或 env 文件
 ENV_NAME="${1:-}"
 TAG_ARG="${2:-}"
 
@@ -15,20 +22,24 @@ usage() {
 
 case "$ENV_NAME" in
   staging|prod) ;;
-  *) usage; exit 2 ;;
+  *) usage; exit 2 ;; # 参数错误用 2，与运行失败区分
 esac
 
+# 每个环境使用独立 env 文件：密码、端口与默认 TAG 互不影响，且不入 Git
 ENV_FILE=".env.$ENV_NAME"
 if [ ! -f "$ENV_FILE" ]; then
   printf '缺少 %s：先执行 cp %s.example %s 并填写密码\n' "$ENV_FILE" "$ENV_FILE" "$ENV_FILE" >&2
   exit 1
 fi
 
+# env 文件中的 TAG 只作兜底；显式参数优先，便于 CI 固定到某次构建
 file_tag=$(sed -n 's/^TAG=//p' "$ENV_FILE" | tail -n 1)
 TAG="${TAG_ARG:-${TAG:-$file_tag}}"
 [ -n "$TAG" ] || { printf 'TAG 未设置\n' >&2; exit 1; }
+# 导出后 compose 文件里的 ${TAG} 才能解析
 export TAG
 
+# 生产只接受版本标签，防止误把 staging / sha 镜像发到 prod
 if [ "$ENV_NAME" = "prod" ]; then
   case "$TAG" in
     v*) ;;
@@ -36,15 +47,24 @@ if [ "$ENV_NAME" = "prod" ]; then
   esac
 fi
 
+# Compose 项目名带环境后缀：容器、网络、数据卷按环境隔离，
+# 对应 deploy/README.md 中的 metaforge-staging / metaforge-prod。
 PROJECT="metaforge-$ENV_NAME"
 
+# 统一拼装 compose 命令：基础编排 + 环境覆盖层。
+# 各步骤只传子命令，避免漏掉 -p 或 --env-file 而操作到别的环境。
 compose() {
   docker compose -p "$PROJECT" --env-file "$ENV_FILE" \
     -f compose.yaml -f "compose.$ENV_NAME.yaml" "$@"
 }
 
+# 先输出最终参数，CI 日志里可直接确认环境与镜像版本
 printf '发布 %s（TAG=%s，project=%s）\n' "$ENV_NAME" "$TAG" "$PROJECT"
+# 只拉取当前 TAG 对应镜像，不在发布机上重新构建
 compose pull
+# 迁移必须先于新服务启动；tools profile 只在本次 run 中启用
 compose --profile tools run --rm migrate
+# --remove-orphans 清理覆盖层变更后遗留的旧服务，避免端口/网络残留
 compose up -d --remove-orphans
+# 输出最终状态，便于确认发布结果
 compose ps
