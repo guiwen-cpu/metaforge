@@ -182,6 +182,109 @@ ACR_REGISTRY=metaforge-registry.cn-hangzhou.cr.aliyuncs.com sh deploy/release.sh
 
 数据库变更遵循 expand-contract（先加列、后删列），保证旧镜像仍可运行。
 
+### 5.5 容器重启、重建与重新构建
+
+三种操作不要混用：
+
+| 操作 | 典型命令 | 会做什么 | 适用场景 |
+|---|---|---|---|
+| 重启 | `restart <service>` | 只重启进程，沿用现有容器配置 | 改挂载进容器的配置文件 |
+| 重建 | `up -d --force-recreate <service>` | 按当前 Compose 和环境变量重新创建容器 | 改 `.env`、端口、挂载、镜像 tag |
+| 重新构建 | `up -d --build --force-recreate <service>` | 先重新构建应用镜像，再重建容器 | 改 `web` / `bff` 源码或 Dockerfile |
+
+`restart` 不会重新读取 `.env`，也不会应用 Compose 变更；端口、环境变量、镜像变化必须用 `--force-recreate`。
+
+以下命令以本地 `deploy/.env` 为例。staging / prod 把前缀替换为：
+
+```bash
+# staging
+--env-file deploy/.env.staging -f deploy/compose.yaml -f deploy/compose.staging.yaml
+# prod
+--env-file deploy/.env.prod -f deploy/compose.yaml -f deploy/compose.prod.yaml
+```
+
+#### nginx（独立入口）
+
+```bash
+# 改 deploy/nginx/nginx.conf 后：先校验语法，再重启
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec nginx nginx -t
+docker compose --env-file deploy/.env -f deploy/compose.yaml restart nginx
+
+# 改端口、证书目录、上游镜像后：按新配置重建容器
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --force-recreate nginx
+```
+
+`nginx` 使用上游镜像，没有本地 build，不需要 `--build`。
+
+#### web（设计器 + /demo/ 静态资源）
+
+```bash
+# 仅重启静态服务器
+docker compose --env-file deploy/.env -f deploy/compose.yaml restart web
+
+# 前端代码变更后：重新执行 Vite 构建并替换容器
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build --force-recreate web
+```
+
+#### bff（Spring Boot API）
+
+```bash
+# 仅重启
+docker compose --env-file deploy/.env -f deploy/compose.yaml restart bff
+
+# Java / 资源变更后：重新打包镜像并替换容器
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build --force-recreate bff
+```
+
+`bff` 重建期间 `/api` 会短暂不可用。
+
+#### postgres / redis（有状态服务）
+
+```bash
+# 只重启进程，数据卷不变
+docker compose --env-file deploy/.env -f deploy/compose.yaml restart postgres
+docker compose --env-file deploy/.env -f deploy/compose.yaml restart redis
+
+# 修改镜像、环境变量后重建容器（数据仍在命名卷中）
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --force-recreate postgres
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --force-recreate redis
+```
+
+不要用 `docker compose down -v` 做日常重启，`-v` 会删除 `pg_data` / `redis_data` 数据卷。
+
+#### migrate（一次性迁移任务）
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml --profile tools run --rm migrate
+```
+
+`migrate` 是一次性任务，没有“重启”概念；每次用 `run --rm` 执行。
+
+#### 整栈
+
+```bash
+# 按当前配置重建全部容器（保留数据卷）
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --force-recreate
+
+# 本地改了 web / bff 代码后的全量重建
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build --force-recreate
+
+# 停止并删除容器/网络，保留数据卷
+docker compose --env-file deploy/.env -f deploy/compose.yaml down
+```
+
+#### staging / prod 注意
+
+这两个环境的应用镜像来自 ACR，不在部署机本地构建：
+
+```bash
+# staging：拉取指定 TAG 后重建
+docker compose --env-file deploy/.env.staging -f deploy/compose.yaml -f deploy/compose.staging.yaml pull web bff
+docker compose --env-file deploy/.env.staging -f deploy/compose.yaml -f deploy/compose.staging.yaml up -d --force-recreate web bff
+```
+
+prod 同理，把 `staging` 换成 `prod`、`.env.staging` 换成 `.env.prod`、`compose.staging.yaml` 换成 `compose.prod.yaml`。完整发布仍走 `sh deploy/release.sh staging|prod`（含迁移与健康门禁）。
+
 ## 6. 环境变量
 
 `deploy/.env`、`deploy/.env.staging`、`deploy/.env.prod` 均被 `.gitignore` 排除。
