@@ -16,7 +16,7 @@
 # 部署：
 #   - push main 后自动执行，无需额外开关
 #   - 在 environment: production 下执行（可配置人工审批与保护规则）
-#   - SSH 到目标机 /opt/metaforge，切到 main 后调用 deploy/release.sh prod
+#   - SSH 到目标机 /opt/metaforge，检出本次 commit 后调用 deploy/release.sh prod
 #   - 部署使用本次构建的 sha 标签；目标机需已有 deploy/.env.prod，并已 docker login ACR
 #
 # 预发对应流程见 staging.yml；日常门禁见 ci.yml；总览见 README.md。
@@ -118,11 +118,11 @@ jobs:
           script: |
             set -eu
             cd /opt/metaforge
-            # 目标机是 Git 检出时对齐 main；否则沿用机器上已有文件
+            # 目标机是 Git 检出时先检出本次构建的 commit；否则沿用机器上已有文件。
+            # 只按 SHA 取对象，不再同步标签；checkout 后是 detached HEAD，正好锁定本次发布版本。
             if [ -d .git ]; then
-              git fetch --tags --force
-              git checkout --force main
-              git pull --ff-only
+              git fetch --prune origin "${{ github.sha }}"
+              git checkout --force "${{ github.sha }}"
             fi
             # 目标机的 compose 覆盖层用这两个变量拼镜像名；未设置时脚本有同样的默认值
             export ACR_REGISTRY='${{ env.ACR_REGISTRY }}'

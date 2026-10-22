@@ -43,10 +43,10 @@ push main ──────────────► release.yml
 
 - **工作流之间没有 `needs`。** GitHub Actions 不能用一个工作流 `needs` 另一个工作流，所以 `staging.yml` / `release.yml` 各自保留 `validate` job，不依赖 `ci.yml` 的运行结果。`ci.yml` 失败不会自动阻止发布流水线启动，这是重复校验的原因。
 - **`ci.yml` 只做门禁。** 不登录镜像库、不构建镜像、不接触主机；适合在 PR 上快速反馈。
-- **`staging.yml` 跟随 `dev`。** `:staging` 是可变指针，部署时使用 `:sha-<commit>` 固定到本次构建；目标机对齐 `dev`。
-- **`release.yml` 跟随 `main`。** 推送主干即发布生产，不再依赖 `v*` 标签；`:prod` 是可变指针，部署同样使用 `:sha-<commit>`，目标机对齐 `main`。
+- **`staging.yml` 跟随 `dev`。** `:staging` 是可变指针，部署时使用 `:sha-<commit>` 固定到本次构建；目标机检出同一个 commit。
+- **`release.yml` 跟随 `main`。** 推送主干即发布生产，不再依赖 `v*` 标签；`:prod` 是可变指针，部署同样使用 `:sha-<commit>`，目标机检出同一个 commit。
 - **镜像统一放阿里云 ACR。** 地址与命名空间由 `ACR_REGISTRY` / `ACR_NAMESPACE` 控制，workflow、Compose 覆盖层与 `release.sh` 使用同一组默认值（`registry.cn-hangzhou.aliyuncs.com/metaforge`）。
-- **部署动作统一收敛在 `deploy/release.sh`。** 两个部署 job 只负责 SSH 登录、对齐分支和传入 `ACR_*` / `TAG`；真正的 `pull → migrate → up` 由脚本完成，避免两套部署逻辑漂移。
+- **部署动作统一收敛在 `deploy/release.sh`。** 两个部署 job 只负责 SSH 登录、按 `github.sha` 检出代码和传入 `ACR_*` / `TAG`；真正的 `pull → migrate → up` 由脚本完成，避免两套部署逻辑漂移。
 - **环境隔离靠 Compose 项目名与覆盖层。** 脚本使用 `-p metaforge-<env>` 和 `compose.<env>.yaml`；staging / prod 的数据卷、容器、网络互不影响。
 
 ## 并发控制

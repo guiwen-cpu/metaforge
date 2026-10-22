@@ -134,8 +134,8 @@ TAG 优先级：命令行参数 > 环境变量 `TAG` > `.env.<env>`。
 | `ACR_REGISTRY` / `ACR_NAMESPACE` | variable | 可选；默认 `registry.cn-hangzhou.aliyuncs.com` / `metaforge` |
 | `staging` / `production` environment | Environment | 可配置审批人与环境保护规则 |
 
-部署脚本会在服务器上 `git fetch --tags --force` 后切到 `dev` / `main` 并 `git pull --ff-only`（若 `/opt/metaforge` 是 git 仓库），
-再执行 `release.sh`。若服务器不是 git 仓库，请自行同步 `deploy/` 目录。目标机必须能登录 ACR：
+部署脚本会在服务器上按 `github.sha` 执行 `git fetch origin <sha>` 与 `git checkout --force <sha>`（若 `/opt/metaforge` 是 git 仓库），
+因此目标机不会因为分支又前进了而部署到错误版本。若服务器不是 git 仓库，请自行同步 `deploy/` 目录。目标机必须能登录 ACR：
 提前执行 `docker login`，或在 `.env.<env>` 中填写 `ACR_USERNAME` / `ACR_PASSWORD`。
 首次使用前需在 ACR 控制台创建命名空间（默认 `metaforge`），并按需预建 `web` / `bff` 仓库。
 
