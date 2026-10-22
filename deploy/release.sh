@@ -79,6 +79,8 @@ compose() {
 # 先输出最终参数，CI 日志里可直接确认环境与镜像版本
 printf '发布 %s（镜像=%s/%s，TAG=%s，project=%s）\n' \
   "$ENV_NAME" "$ACR_REGISTRY" "$ACR_NAMESPACE" "$TAG" "$PROJECT"
+# 打印实际镜像清单：staging/prod 的 postgres/redis 也应来自 ACR，不能落回 Docker Hub
+compose config --images
 # 只拉取当前 TAG 对应镜像，不在发布机上重新构建
 compose pull
 # 预发/生产挂载 nginx.tls.conf，nginx-unprivileged 以 uid 101 读取证书。
