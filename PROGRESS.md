@@ -172,6 +172,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - ACR 个人版兼容：所有 `docker/build-push-action` 步骤关闭 `provenance` / `sbom`，避免推送 OCI 空清单时报 `unknown manifest class for application/vnd.oci.empty.v1+json`。
 - Docker Hub 兜底：发布 workflow 会把 `postgres:16-alpine`、`redis:7-alpine` 同步到 ACR；staging / prod 覆盖层将 `postgres`、`redis`、`migrate` 全部指向 ACR，避免目标机因 Docker Hub 超时或加速器缺镜像而部署失败。
 - 2026-10-22 staging 实测：Run `39762675655` 的 validate / images / deploy 全部成功；web / bff / postgres / redis 四个容器均 healthy，`https://www.devshare.bond:8081/healthz` 与 `/demo/` 返回 200，未登录 API 返回 401。目标机 `/srv/metaforge` 已检出 `4af6067`，staging/prod 的 `.env` 已改为个人版 ACR 并设为 600 权限；prod 使用 `WEB_PORT=8082`，证书私钥已收敛为 `640 root:101`。
+- 2026-10-22 prod 受控实测：未推 `main`，在目标机手动执行 `TAG=sha-aacbe50cafd50cb9fa563f2ff7a1a6033cb05886 sh deploy/release.sh prod`；迁移成功，web / bff / postgres / redis 均 healthy，`https://www.devshare.bond:8082/healthz` 与 `/demo/` 返回 200，未登录 API 返回 401。ACR 内 web / bff 均为单个 `application/vnd.oci.image.manifest.v1+json`，不再包含 attestation 空描述符。
 - 生产端口已避开旧服务：同一台机器上 8080/8443 被 `devshare-staging-nginx` 占用，`prod` 模板与目标机 `.env.prod` 统一改用 `8082`（映射容器 8443 HTTPS）；后续若接入外层网关，可再收敛到 443。
 - Nginx 同域托管设计器与 `/demo/` 示例应用；local 使用 `nginx.conf`（HTTP 8080），staging / prod 挂载 `nginx.tls.conf`（8080 仅健康检查、8443 HTTPS），宿主机端口由 `WEB_PORT` 映射。
 - Compose 修正：卷挂载改为合法块序列；预发/生产通过 `WEB_CONTAINER_PORT=8443` 映射 HTTPS，证书放仓库根目录 `certs/`（已 gitignore），`release.sh` 在发布前用同镜像校验 nginx（uid 101）可读证书，避免容器启动后才失败。
