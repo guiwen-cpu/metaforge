@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
 > 最后更新：2026-10-22
-> 分支：`dev` ｜ 最近功能提交：`5792a49`（`refactor(deploy): 统一独立 nginx 入口`）
+> 分支：`dev` ｜ 最近功能提交：`5dfdf46`（`fix(deploy): 端口变量缺失时快速失败`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -177,6 +177,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - Nginx 拆为独立入口容器：`web` 只提供设计器与 `/demo/` 静态资源；`nginx` 使用上游 `nginxinc/nginx-unprivileged:1.27-alpine`，负责 8080 健康检查、8443 HTTPS、`/api` 反代与静态转发。配置固定挂载 `deploy/nginx/nginx.conf`，证书挂载 `certs/`，不再维护 `nginx.tls.conf`。
 - Compose / CI：`nginx` 不再单独构建应用镜像，CI 把 `nginx-unprivileged:1.27-alpine` 与 `postgres` / `redis` 一并同步到 ACR；`release.sh` 在发布前校验 uid 101 可读证书，发布后等待五容器 healthy 并从宿主机请求 HTTPS `/healthz`。
 - 2026-10-22 静态验证：local / staging / prod 三套 `docker compose config -q` 通过；入口与 `web` 的 `nginx.conf` 均通过真实镜像 `nginx -t`；`git diff --check` 无空白错误。
+- 2026-10-22 staging 入口修复：目标机 `.env.staging` 由 `WEB_PORT` 迁移为 `NGINX_HTTP_PORT=8084` / `NGINX_HTTPS_PORT=8081`，`.env.prod` 迁移为 `8083` / `8082`；Run `39776221305` 成功，五容器 healthy，`/healthz` 与 `/demo/` 返回 200，未登录 API 返回 401。
 
 ### 9. 运行时与审批中心
 - BFF `runtime` 模块：Flowable schema 初始化、发布时自动部署 BPMN、实例启动、待办/已办/我发起、任务详情/签收/完成/转办、历史时间线、业务表状态回写。
