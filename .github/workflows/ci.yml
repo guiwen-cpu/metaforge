@@ -6,8 +6,8 @@
 #   - push：dev / main 分支
 #
 # 与其他工作流的关系：
-#   - staging.yml（push main）：复用同款 validate 步骤，再构建 GHCR 镜像并可选部署
-#   - release.yml（push v* tag）：复用同款 validate 步骤，再构建版本镜像并可选部署
+#   - staging.yml（push dev）：复用同款 validate 步骤，再构建 GHCR 镜像并部署预发
+#   - release.yml（push main）：复用同款 validate 步骤，再构建生产镜像并部署生产
 #   - 三个工作流彼此独立触发；本文件失败不会“阻止”后两者启动，
 #     所以后两者各自保留 validate job，避免把坏产物推上去。
 #   - 详细关系见同目录 README.md

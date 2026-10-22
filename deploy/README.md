@@ -26,7 +26,7 @@ web（nginx-unprivileged）
 |---|---|---|---|---|---|---|
 | local | 本机开发 | `compose.yaml` | `.env` | `metaforge` | 8080 | 本地构建 |
 | staging | 预发 / 验收 | `compose.yaml` + `compose.staging.yaml` | `.env.staging` | `metaforge-staging` | 8081 | GHCR `:staging`、`:sha-*` |
-| prod | 生产 | `compose.yaml` + `compose.prod.yaml` | `.env.prod` | `metaforge-prod` | 8080 | GHCR `:v1.2.3`、`:sha-*` |
+| prod | 生产 | `compose.yaml` + `compose.prod.yaml` | `.env.prod` | `metaforge-prod` | 8080 | GHCR `:prod`、`:sha-*` |
 
 - 项目名不同 → 容器名、网络、数据卷全部隔离（`metaforge-staging_pg_data` 与
   `metaforge-prod_pg_data` 互不影响），因此两套环境可以部署在同一台机器；
@@ -102,41 +102,39 @@ cd /opt/metaforge
 
 sh deploy/release.sh staging            # TAG 取 .env.staging，默认 staging
 sh deploy/release.sh staging sha-1a2b3c4   # 指定不可变版本
-sh deploy/release.sh prod v1.2.3        # prod 必须 v 开头
+sh deploy/release.sh prod sha-1a2b3c4   # 生产推荐使用不可变 sha 标签
 ```
 
 `release.sh` 做的事：`pull` → `--profile tools run --rm migrate` → `up -d` → 打印状态。
 TAG 优先级：命令行参数 > 环境变量 `TAG` > `.env.<env>`。
-prod 会拒绝非 `v*` 的 TAG，避免误发布 `staging` 或 `latest`。
+生产发布同样使用不可变 sha 标签；CI 会显式传入 TAG，手动发布时请避免 `latest`。
 
 ### 5.3 CI/CD 流程
 
-| 触发 | 工作流 | 产物 | 部署开关 |
+| 触发 | 工作流 | 产物 | 部署方式 |
 |---|---|---|---|
-| push `main` / 手动 | `.github/workflows/staging.yml` | `:staging`、`:sha-<sha>` | `DEPLOY_STAGING_ENABLED` |
-| push tag `v*` | `.github/workflows/release.yml` | `:v1.2.3`、`:sha-<sha>` | `DEPLOY_PROD_ENABLED` |
+| push `dev` / 手动 | `.github/workflows/staging.yml` | `:staging`、`:sha-<sha>` | 自动部署预发 |
+| push `main` | `.github/workflows/release.yml` | `:prod`、`:sha-<sha>` | 自动部署生产 |
 | PR / push `dev`、`main` | `.github/workflows/ci.yml` | 校验 + 构建 + compose config | — |
 
-推荐流程：`dev` 开发 → 合并 `main` 自动上 staging → 验收后打 `v*` tag 上 prod。
+推荐流程：`dev` 推送自动上 staging → 验收后合并 `main` 自动上 prod。
 
-需要配置的 GitHub 变量与密钥：
+需要配置的 GitHub 密钥：
 
 | 名称 | 类型 | 用途 |
 |---|---|---|
-| `DEPLOY_STAGING_ENABLED` | variable | `true` 才执行 staging 部署 |
 | `STAGING_HOST` / `STAGING_USER` / `STAGING_SSH_KEY` | secret | staging 服务器 SSH |
-| `DEPLOY_PROD_ENABLED` | variable | `true` 才执行 prod 部署 |
 | `PROD_HOST` / `PROD_USER` / `PROD_SSH_KEY` | secret | prod 服务器 SSH |
 | `staging` / `production` environment | Environment | 可配置审批人与环境保护规则 |
 
-部署脚本会在服务器上 `git fetch --tags && git checkout` 对应版本（若 `/opt/metaforge` 是 git 仓库），
+部署脚本会在服务器上 `git fetch --tags --force` 后切到 `dev` / `main` 并 `git pull --ff-only`（若 `/opt/metaforge` 是 git 仓库），
 再执行 `release.sh`。若服务器不是 git 仓库，请自行同步 `deploy/` 目录。
 
 ### 5.4 回滚
 
 ```bash
 cd /opt/metaforge
-sh deploy/release.sh prod v1.2.2   # 回到上一个版本
+sh deploy/release.sh prod sha-1a2b3c4   # 回到旧的不可变镜像
 ```
 
 数据库变更遵循 expand-contract（先加列、后删列），保证旧镜像仍可运行。
@@ -152,7 +150,7 @@ sh deploy/release.sh prod v1.2.2   # 回到上一个版本
 | `META_FORGE_APP_PASSWORD` | 是 | `metaforge_app` 密码，BFF 使用 |
 | `REDIS_PASSWORD` | 是 | Redis `requirepass` |
 | `WEB_PORT` | 否 | 宿主机端口，local/staging/prod 模板分别为 8080/8081/8080 |
-| `TAG` | 生产必填 | 镜像标签；staging 默认 `staging`，prod 必须 `v*` |
+| `TAG` | 生产必填 | 镜像标签；CI 传 `sha-<commit>`，staging 模板默认 `staging`，prod 模板为 `sha-placeholder`，手动发布需替换 |
 
 生产建议把密码放进云密钥管理，由发布流水线写入 `/opt/metaforge/deploy/.env.prod`（权限 `600`）。
 

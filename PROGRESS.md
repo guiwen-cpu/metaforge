@@ -165,8 +165,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 ### 8. 部署
 - `deploy/compose.yaml`（dev）、`compose.staging.yaml`、`compose.prod.yaml`。
 - `deploy/.env`、`.env.staging.example`、`.env.prod.example`、`release.sh`、`smoke.sh`、`smoke-platform.sh`。
-- `deploy/release.sh` 已补注释：环境隔离、TAG 优先级与 prod 校验、`pull → migrate → up` 顺序。
-- GitHub Actions：`ci.yml`（PR 与 `dev` / `main` 校验）、`staging.yml`（`main` → GHCR `:staging` / `:sha-*` → 可选预发部署）、`release.yml`（`v*` 标签 → 版本镜像 → 可选生产部署）；三者关系、开关与密钥见 `.github/workflows/README.md`。 并发控制：CI 同分支取消旧运行，staging / prod 分别串行且不取消进行中的部署。
+- `deploy/release.sh` 已补注释：环境隔离、TAG 优先级与 `pull → migrate → up` 顺序；生产改为推送 `main` 即发布，TAG 使用不可变 `sha-<commit>`。
+- GitHub Actions：`ci.yml`（PR 与 `dev` / `main` 校验）、`staging.yml`（push `dev` → GHCR `:staging` / `:sha-*` → 自动部署预发）、`release.yml`（push `main` → GHCR `:prod` / `:sha-*` → 自动部署生产）；三者关系与密钥见 `.github/workflows/README.md`。 并发控制：CI 同分支取消旧运行，staging / prod 分别串行且不取消进行中的部署。
 - Nginx 同域托管设计器与 `/demo/` 示例应用。
 
 ### 9. 运行时与审批中心

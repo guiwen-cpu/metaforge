@@ -4,8 +4,8 @@
 #   TAG 优先级：命令行参数 > 环境变量 > deploy/.env.<env>
 #
 # 流程：校验参数与环境文件 → 解析 TAG → 拉取镜像 → 执行迁移 → 启动服务
-# 调用方：.github/workflows/staging.yml（TAG=sha-<commit>）
-#         .github/workflows/release.yml（TAG=vX.Y.Z）
+# 调用方：.github/workflows/staging.yml（push dev，TAG=sha-<commit>）
+#         .github/workflows/release.yml（push main，TAG=sha-<commit>）
 # 脚本以 deploy/ 为工作目录，需与 compose*.yaml、.env.<env> 放在同一目录。
 set -eu
 
@@ -38,14 +38,6 @@ TAG="${TAG_ARG:-${TAG:-$file_tag}}"
 [ -n "$TAG" ] || { printf 'TAG 未设置\n' >&2; exit 1; }
 # 导出后 compose 文件里的 ${TAG} 才能解析
 export TAG
-
-# 生产只接受版本标签，防止误把 staging / sha 镜像发到 prod
-if [ "$ENV_NAME" = "prod" ]; then
-  case "$TAG" in
-    v*) ;;
-    *) printf 'prod 的 TAG 必须以 v 开头（当前：%s）\n' "$TAG" >&2; exit 1 ;;
-  esac
-fi
 
 # Compose 项目名带环境后缀：容器、网络、数据卷按环境隔离，
 # 对应 deploy/README.md 中的 metaforge-staging / metaforge-prod。

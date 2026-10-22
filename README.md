@@ -94,7 +94,7 @@ BASE_URL=http://localhost:8080 sh deploy/smoke.sh
 | staging | `.env.staging` | `compose.staging.yaml` | `metaforge-staging` |
 | prod | `.env.prod` | `compose.prod.yaml` | `metaforge-prod` |
 
-staging 由 `main` 推送触发，prod 由 `v*` tag 触发；发布、回滚与检查清单见 `deploy/README.md`。
+staging 由 `dev` 推送触发，prod 由 `main` 推送触发；发布、回滚与检查清单见 `deploy/README.md`。
 
 ## 本地运行示例前端（Mock BFF）
 

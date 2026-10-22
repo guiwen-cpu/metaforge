@@ -1,4 +1,4 @@
-# prod 覆盖层：镜像来自 GHCR，TAG 必须不可变（v1.2.3 / sha-xxxxxxx）。
+# prod 覆盖层：镜像来自 GHCR；CI 使用 sha-xxxxxxx，TAG 禁止 latest。
 # 与 staging 的差异：更严格的资源上限与 pull 策略。
 services:
   bff:
