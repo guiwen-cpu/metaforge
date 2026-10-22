@@ -17,8 +17,10 @@
 # 部署：
 #   - push dev 后自动执行，无需额外开关
 #   - 在 environment: staging 下执行（可在仓库设置里加审批与保护规则）
-#   - SSH 到目标机 /opt/metaforge，检出本次 commit 后调用 deploy/release.sh staging
+#   - SSH 到目标机 /srv/metaforge，检出本次 commit 后调用 deploy/release.sh staging
 #   - 目标机需已有 deploy/.env.staging，并已 docker login ACR（或把 ACR 凭据写进该文件）
+#   - 预发用 HTTPS：证书放 /srv/metaforge/certs/（见 deploy/nginx/nginx.tls.conf），
+#     nginx 容器以 uid 101 读取，私钥需对该 uid 可读（如 chgrp 101 + chmod 640）
 #   - release.sh 按 TAG 执行 pull → migrate → up
 #
 # 生产对应流程见 release.yml；日常门禁见 ci.yml；总览见 README.md。

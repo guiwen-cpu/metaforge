@@ -21,3 +21,5 @@ tmp-*
 deploy/.env
 deploy/.env.staging
 deploy/.env.prod
+# TLS 私钥与证书只放目标机，禁止入库
+/certs/

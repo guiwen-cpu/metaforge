@@ -53,6 +53,11 @@ ACR_NAMESPACE="${ACR_NAMESPACE:-$(env_value ACR_NAMESPACE)}"
 ACR_NAMESPACE="${ACR_NAMESPACE:-metaforge}"
 export ACR_REGISTRY ACR_NAMESPACE
 
+# staging / prod 均走 HTTPS；容器监听 8443，与 nginx.tls.conf 保持一致
+WEB_CONTAINER_PORT="${WEB_CONTAINER_PORT:-$(env_value WEB_CONTAINER_PORT)}"
+WEB_CONTAINER_PORT="${WEB_CONTAINER_PORT:-8443}"
+export WEB_CONTAINER_PORT
+
 # 私有镜像需要先登录 ACR。凭据缺失时假定目标机已经执行过 docker login。
 acr_user="${ACR_USERNAME:-$(env_value ACR_USERNAME)}"
 acr_pass="${ACR_PASSWORD:-$(env_value ACR_PASSWORD)}"
@@ -76,6 +81,13 @@ printf '发布 %s（镜像=%s/%s，TAG=%s，project=%s）\n' \
   "$ENV_NAME" "$ACR_REGISTRY" "$ACR_NAMESPACE" "$TAG" "$PROJECT"
 # 只拉取当前 TAG 对应镜像，不在发布机上重新构建
 compose pull
+# 预发/生产挂载 nginx.tls.conf，nginx-unprivileged 以 uid 101 读取证书。
+# 这里用同一镜像做一次真实可读性检查，避免 compose up 成功返回但 web 容器反复重启。
+if ! compose run --rm -T --no-deps --entrypoint sh web -c \
+  'test -r /etc/nginx/certs/www.devshare.bond.pem && test -r /etc/nginx/certs/www.devshare.bond.key'; then
+  printf '证书不可用：确认 ../certs/www.devshare.bond.pem 与 .key 存在，且容器内 nginx（uid 101）可读\n' >&2
+  exit 1
+fi
 # 迁移必须先于新服务启动；tools profile 只在本次 run 中启用
 compose --profile tools run --rm migrate
 # --remove-orphans 清理覆盖层变更后遗留的旧服务，避免端口/网络残留

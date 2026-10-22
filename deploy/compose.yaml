@@ -153,7 +153,8 @@ services:
       dockerfile: deploy/web/Dockerfile
     image: metaforge-web:${TAG:-dev}
     ports:
-      - "${WEB_PORT:-8080}:8080"
+      # local 用 8080（HTTP）；staging/prod 由 release.sh 导出 WEB_CONTAINER_PORT=8443（HTTPS）
+      - "${WEB_PORT:-8080}:${WEB_CONTAINER_PORT:-8080}"
     depends_on:
       bff:
         condition: service_healthy
@@ -167,7 +168,6 @@ services:
       timeout: 3s
       retries: 6
     restart: unless-stopped
-    volumes: - ../certs:/etc/nginx/certs:ro
 
 networks:
   edge: {}

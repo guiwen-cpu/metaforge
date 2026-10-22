@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
-> 最后更新：2026-10-21
-> 分支：`dev` ｜ 最新功能提交：`6551ebd`（`feat(studio): 接入 AI 生成表单/页面/流程`）
+> 最后更新：2026-10-22
+> 分支：`dev` ｜ 最新功能提交：`20beabf`（`fix(ci): 关闭 ACR 不兼容的 provenance/SBOM 清单`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -167,8 +167,11 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - `deploy/.env`、`.env.staging.example`、`.env.prod.example`、`release.sh`、`smoke.sh`、`smoke-platform.sh`。
 - `deploy/release.sh` 已补注释：环境隔离、TAG 优先级与 `pull → migrate → up` 顺序；生产改为推送 `main` 即发布，TAG 使用不可变 `sha-<commit>`。
 - 镜像库改为阿里云 ACR：`ACR_REGISTRY` / `ACR_NAMESPACE` 默认 `registry.cn-hangzhou.aliyuncs.com/metaforge`，Compose、workflow 与 `release.sh` 共用同一组默认值；私有镜像由目标机的 `docker login` 或 env 文件中的 `ACR_USERNAME` / `ACR_PASSWORD` 提供凭据。
-- GitHub Actions：`ci.yml`（PR 与 `dev` / `main` 校验）、`staging.yml`（push `dev` → ACR `:staging` / `:sha-*` → 自动部署预发）、`release.yml`（push `main` → ACR `:prod` / `:sha-*` → 自动部署生产）；三者关系与密钥见 `.github/workflows/README.md`。 并发控制：CI 同分支取消旧运行，staging / prod 分别串行且不取消进行中的部署。
-- Nginx 同域托管设计器与 `/demo/` 示例应用。
+- GitHub Actions：`ci.yml`（仅 PR 校验；`push` 触发已关闭）、`staging.yml`（push `dev` → ACR `:staging` / `:sha-*` → 自动部署预发）、`release.yml`（push `main` → ACR `:prod` / `:sha-*` → 自动部署生产）；三者关系与密钥见 `.github/workflows/README.md`。并发控制：CI 同分支取消旧运行，staging / prod 分别串行且不取消进行中的部署。推送 `dev` / `main` 只启动一个部署工作流，不再同时触发 CI。
+- 部署机按 `github.sha` 执行 `git fetch origin <sha>` + `git checkout --force <sha>`；不再依赖 `--tags`，部署与回滚都以不可变提交为准。
+- ACR 个人版兼容：所有 `docker/build-push-action` 步骤关闭 `provenance` / `sbom`，避免推送 OCI 空清单时报 `unknown manifest class for application/vnd.oci.empty.v1+json`。
+- Nginx 同域托管设计器与 `/demo/` 示例应用；local 使用 `nginx.conf`（HTTP 8080），staging / prod 挂载 `nginx.tls.conf`（8080 仅健康检查、8443 HTTPS），宿主机端口由 `WEB_PORT` 映射。
+- Compose 修正：卷挂载改为合法块序列；预发/生产通过 `WEB_CONTAINER_PORT=8443` 映射 HTTPS，证书放仓库根目录 `certs/`（已 gitignore），`release.sh` 在发布前用同镜像校验 nginx（uid 101）可读证书，避免容器启动后才失败。
 
 ### 9. 运行时与审批中心
 - BFF `runtime` 模块：Flowable schema 初始化、发布时自动部署 BPMN、实例启动、待办/已办/我发起、任务详情/签收/完成/转办、历史时间线、业务表状态回写。
