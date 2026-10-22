@@ -27,6 +27,12 @@ on:
   push:
     tags: ["v*"] # 版本标签是生产发布的唯一入口
 
+# 生产发布串行化：同一环境同时只跑一条流水线。
+# 不取消进行中的运行，避免中断镜像推送或 SSH 部署。
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 # 推送 GHCR 需要 packages: write；checkout 只需要 contents: read
 permissions:
   contents: read

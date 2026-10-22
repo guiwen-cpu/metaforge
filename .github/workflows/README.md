@@ -48,6 +48,16 @@ push tag v* ────────────► release.yml
 - **部署动作统一收敛在 `deploy/release.sh`。** 两个部署 job 只负责 SSH 登录、对齐代码版本和传入 `TAG`；真正的 `pull → migrate → up` 由脚本完成，避免两套部署逻辑漂移。
 - **环境隔离靠 Compose 项目名与覆盖层。** 脚本使用 `-p metaforge-<env>` 和 `compose.<env>.yaml`；staging / prod 的数据卷、容器、网络互不影响。
 
+## 并发控制
+
+| 工作流 | concurrency group | cancel-in-progress | 效果 |
+|---|---|---|---|
+| `ci.yml` | `ci-${{ github.ref }}` | `true` | 同一 PR / 分支只保留最新校验，旧运行取消 |
+| `staging.yml` | `deploy-staging` | `false` | 预发发布串行，不打断进行中的部署 |
+| `release.yml` | `deploy-production` | `false` | 生产发布串行，不打断进行中的部署 |
+
+- `cancel-in-progress: false` 表示当前运行不会被取消；GitHub 只保留一个待运行项，因此连续推送时中间版本可能被最新一次替换。生产标签建议逐个推送、等前一个完成后再推下一个。
+
 ## 共享依赖
 
 | 路径 | 被谁使用 | 作用 |
@@ -86,4 +96,4 @@ push tag v* ────────────► release.yml
 
 - 新增校验项时，优先同时更新 `ci.yml` 与两个发布工作流的 `validate`，避免门禁与发布口径不一致。
 - 修改 `deploy/release.sh`、Compose 覆盖层或环境变量后，`ci.yml` 的 `compose` job 会先发现契约问题。
-- 当前未配置 `concurrency`；连续向 `main` 推送可能产生并行部署。若部署互相覆盖成为问题，可为两个部署工作流增加按环境分组的并发控制。
+- `concurrency` 已按环境分组：预发与生产各自串行，CI 同分支只保留最新一次；新增部署环境时记得使用独立的 group。

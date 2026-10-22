@@ -29,6 +29,12 @@ on:
     branches: [main] # 只有主干合并才发布预发
   workflow_dispatch: # 支持手动重跑
 
+# 预发发布串行化：同一环境同时只跑一条流水线。
+# 不取消进行中的运行，避免中断镜像推送或 SSH 部署。
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
 # 推送 GHCR 需要 packages: write；checkout 只需要 contents: read
 permissions:
   contents: read
