@@ -1,11 +1,29 @@
+# =============================================================================
+# CI：日常质量门禁（只校验，不产镜像、不部署）
+#
+# 触发：
+#   - pull_request：所有 PR
+#   - push：dev / main 分支
+#
+# 与其他工作流的关系：
+#   - staging.yml（push main）：复用同款 validate 步骤，再构建 GHCR 镜像并可选部署
+#   - release.yml（push v* tag）：复用同款 validate 步骤，再构建版本镜像并可选部署
+#   - 三个工作流彼此独立触发；本文件失败不会“阻止”后两者启动，
+#     所以后两者各自保留 validate job，避免把坏产物推上去。
+#   - 详细关系见同目录 README.md
+#
+# 本文件四个 job 互不依赖（没有 needs），并行执行；任一失败则整体失败。
+# =============================================================================
 name: ci
 
 on:
-  pull_request:
+  pull_request: # 所有目标分支的 PR
   push:
-    branches: [dev, main]
+    branches: [dev, main] # 直推开发分支或主干分支时也跑
 
 jobs:
+  # 协议层：schema / registry 与出码器自检。
+  # 这是“Schema 先行”红线的第一道闸门：先改协议，再改双端类型与校验。
   protocol:
     runs-on: ubuntu-latest
     steps:
@@ -13,11 +31,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      # 校验 schema/*.schema.json、registry 与示例 bundle 的一致性
       - run: node tools/validate.mjs
+      # 三个出码器的内建自测，防止模板改动把生成结果弄坏
       - run: node tools/gen-entity.mjs --self-test
       - run: node tools/gen-api.mjs --self-test
       - run: node tools/gen-page.mjs --self-test
 
+  # 出码示例前端：确认生成的 Vue 应用仍能安装依赖并构建。
+  # 注意：这里只构建 codegen/leave_approval/web；
+  # 平台设计器 platform/ 与 /demo/ 静态站点在镜像构建（staging / release）时编译。
   web:
     runs-on: ubuntu-latest
     steps:
@@ -32,6 +55,8 @@ jobs:
       - run: npm run build
         working-directory: codegen/leave_approval/web
 
+  # BFF：按生产打包方式编译，确保 codegen 生成的 API 源码也能一起编过。
+  # 当前仓库暂无单测，因此跳过测试；补测试后应改为不跳过。
   bff:
     runs-on: ubuntu-latest
     steps:
@@ -43,15 +68,19 @@ jobs:
           cache: maven
       - run: mvn -B -f bff/pom.xml -DskipTests package
 
+  # 部署契约：compose 覆盖层与 shell 脚本。
+  # 用三套 env 模板分别渲染 local / staging / prod，防止变量名漂移。
   compose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # docker compose config -q 只校验合并结果，不启动容器
       - name: Validate staging overlay
         run: docker compose --env-file deploy/.env.staging.example -f deploy/compose.yaml -f deploy/compose.staging.yaml config -q
       - name: Validate prod overlay
         run: docker compose --env-file deploy/.env.prod.example -f deploy/compose.yaml -f deploy/compose.prod.yaml config -q
       - name: Validate local env
         run: docker compose --env-file deploy/.env.example -f deploy/compose.yaml config -q
+      # 用 dash 的 -n 做纯语法检查，不实际执行；覆盖发布、冒烟与迁移脚本
       - name: Shell syntax
         run: for f in deploy/*.sh deploy/migrate/*.sh; do sh -n "$f"; done

@@ -1,15 +1,41 @@
+# =============================================================================
+# Staging：main 分支预发布流水线
+#
+# 触发：
+#   - push main：合并即发布预发
+#   - workflow_dispatch：手动重跑（默认取当前 main 最新提交）
+#
+# 链路：validate → images（GHCR）→ deploy（可选，受仓库变量控制）
+#   validate 与 ci.yml 的协议 / BFF 检查同源，但工作流之间没有依赖关系，
+#   因此这里重复执行，保证“推镜像前一定校验过”。
+#
+# 产物：
+#   ghcr.io/<repo>/web:staging + :sha-<commit>
+#   ghcr.io/<repo>/bff:staging + :sha-<commit>
+#   :staging 是可变指针；实际部署固定用 :sha-<commit>，便于追溯与回滚。
+#
+# 部署：
+#   - 仅当 vars.DEPLOY_STAGING_ENABLED == 'true'
+#   - 在 environment: staging 下执行（可在仓库设置里加审批与保护规则）
+#   - SSH 到目标机 /opt/metaforge，切到 main 后调用 deploy/release.sh staging
+#   - 目标机需已有 deploy/.env.staging；release.sh 按 TAG 执行 pull → migrate → up
+#
+# 生产对应流程见 release.yml；日常门禁见 ci.yml；总览见 README.md。
+# =============================================================================
 name: staging
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    branches: [main] # 只有主干合并才发布预发
+  workflow_dispatch: # 支持手动重跑
 
+# 推送 GHCR 需要 packages: write；checkout 只需要 contents: read
 permissions:
   contents: read
   packages: write
 
 jobs:
+  # 与 ci.yml 的检查同源：损坏的协议或编译不过的 BFF 不进入镜像阶段。
   validate:
     runs-on: ubuntu-latest
     steps:
@@ -25,18 +51,21 @@ jobs:
           cache: maven
       - run: mvn -B -f bff/pom.xml -DskipTests package
 
+  # 构建并推送预发镜像；needs 保证 validate 通过后才执行。
   images:
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      # 用仓库自带 GITHUB_TOKEN 登录 GHCR，无需额外密钥
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 前端镜像内置设计器与 /demo/；API 走同域反向代理，故 VITE_API_BASE 为空
       - name: Build and push web
         uses: docker/build-push-action@v6
         with:
@@ -49,6 +78,7 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}/web:staging
             ghcr.io/${{ github.repository }}/web:sha-${{ github.sha }}
+          # GHA 缓存按 scope 隔离，避免与 release 工作流的构建缓存互相污染
           cache-from: type=gha,scope=staging-web
           cache-to: type=gha,mode=max,scope=staging-web
 
@@ -64,11 +94,12 @@ jobs:
           cache-from: type=gha,scope=staging-bff
           cache-to: type=gha,mode=max,scope=staging-bff
 
+  # 可选部署：镜像推完后，才在目标机执行发布脚本。
   deploy:
     needs: images
     if: vars.DEPLOY_STAGING_ENABLED == 'true'
     runs-on: ubuntu-latest
-    environment: staging
+    environment: staging # 绑定环境密钥；可配置人工审批
     steps:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -79,9 +110,11 @@ jobs:
           script: |
             set -eu
             cd /opt/metaforge
+            # 目标机是 Git 检出时先对齐 main；否则沿用机器上已有文件
             if [ -d .git ]; then
               git fetch --tags --force
               git checkout --force main
               git pull --ff-only
             fi
+            # 固定用本次构建的 sha 标签，而不是可变的 :staging
             TAG=sha-${{ github.sha }} sh deploy/release.sh staging

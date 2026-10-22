@@ -1,14 +1,39 @@
+# =============================================================================
+# Release：v* 标签生产发布流水线
+#
+# 触发：
+#   - push tag：v*（例如 v1.2.3），只认版本标签，不跟随普通分支提交
+#
+# 链路：validate → images（GHCR）→ deploy（可选，受仓库变量控制）
+#   validate 与 ci.yml 同源，但工作流之间没有依赖关系，
+#   因此这里重复执行，保证“推镜像前一定校验过”。
+#
+# 产物：
+#   ghcr.io/<repo>/web:v1.2.3 + :sha-<commit>
+#   ghcr.io/<repo>/bff:v1.2.3 + :sha-<commit>
+#   版本标签便于回滚；sha 标签用于精确定位构建来源。
+#
+# 部署：
+#   - 仅当 vars.DEPLOY_PROD_ENABLED == 'true'
+#   - 在 environment: production 下执行（可配置人工审批与保护规则）
+#   - SSH 到目标机 /opt/metaforge，检出同名标签后调用 deploy/release.sh prod
+#   - release.sh 会拒绝非 v* 的 TAG；目标机需已有 deploy/.env.prod
+#
+# 预发对应流程见 staging.yml；日常门禁见 ci.yml；总览见 README.md。
+# =============================================================================
 name: release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*"] # 版本标签是生产发布的唯一入口
 
+# 推送 GHCR 需要 packages: write；checkout 只需要 contents: read
 permissions:
   contents: read
   packages: write
 
 jobs:
+  # 与 ci.yml 的检查同源：协议校验 + BFF 打包。
   validate:
     runs-on: ubuntu-latest
     steps:
@@ -24,18 +49,21 @@ jobs:
           cache: maven
       - run: mvn -B -f bff/pom.xml -DskipTests package
 
+  # 构建并推送带版本号的生产镜像；needs 保证 validate 通过后才执行。
   images:
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      # 用仓库自带 GITHUB_TOKEN 登录 GHCR，无需额外密钥
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 前端镜像内置设计器与 /demo/；API 走同域反向代理，故 VITE_API_BASE 为空
       - name: Build and push web
         uses: docker/build-push-action@v6
         with:
@@ -48,6 +76,7 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}/web:${{ github.ref_name }}
             ghcr.io/${{ github.repository }}/web:sha-${{ github.sha }}
+          # 与 staging 分开缓存，生产构建不会被预发产物影响
           cache-from: type=gha,scope=prod-web
           cache-to: type=gha,mode=max,scope=prod-web
 
@@ -63,11 +92,12 @@ jobs:
           cache-from: type=gha,scope=prod-bff
           cache-to: type=gha,mode=max,scope=prod-bff
 
+  # 可选部署：镜像推完后，才在目标机执行生产发布脚本。
   deploy:
     needs: images
     if: vars.DEPLOY_PROD_ENABLED == 'true'
     runs-on: ubuntu-latest
-    environment: production
+    environment: production # 绑定生产环境密钥；建议配置人工审批
     steps:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -78,8 +108,10 @@ jobs:
           script: |
             set -eu
             cd /opt/metaforge
+            # 目标机是 Git 检出时切到本次发布的标签；否则沿用机器上已有文件
             if [ -d .git ]; then
               git fetch --tags --force
               git checkout --force ${{ github.ref_name }}
             fi
+            # release.sh 会再次校验 TAG 必须以 v 开头，并执行 pull → migrate → up
             TAG=${{ github.ref_name }} sh deploy/release.sh prod
