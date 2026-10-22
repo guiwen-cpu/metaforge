@@ -3,7 +3,8 @@
 #
 # 触发：
 #   - pull_request：所有 PR
-#   - push：dev / main 分支
+#   - push 已关闭：dev / main 的构建与发布分别交给 staging.yml / release.yml，
+#     避免一次 push 同时启动 CI 与部署流水线。
 #
 # 与其他工作流的关系：
 #   - staging.yml（push dev）：复用同款 validate 步骤，再构建 ACR 镜像并部署预发

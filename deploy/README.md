@@ -26,11 +26,11 @@ web（nginx-unprivileged）
 |---|---|---|---|---|---|---|
 | local | 本机开发 | `compose.yaml` | `.env` | `metaforge` | 8080（HTTP） | 本地构建 |
 | staging | 预发 / 验收 | `compose.yaml` + `compose.staging.yaml` | `.env.staging` | `metaforge-staging` | 8081（HTTPS） | ACR 应用 `:staging`/`:sha-*`；依赖 `:16-alpine`/`:7-alpine` |
-| prod | 生产 | `compose.yaml` + `compose.prod.yaml` | `.env.prod` | `metaforge-prod` | 8080（HTTPS） | ACR 应用 `:prod`/`:sha-*`；依赖 `:16-alpine`/`:7-alpine` |
+| prod | 生产 | `compose.yaml` + `compose.prod.yaml` | `.env.prod` | `metaforge-prod` | 8082（HTTPS） | ACR 应用 `:prod`/`:sha-*`；依赖 `:16-alpine`/`:7-alpine` |
 
 - 项目名不同 → 容器名、网络、数据卷全部隔离（`metaforge-staging_pg_data` 与
   `metaforge-prod_pg_data` 互不影响），因此两套环境可以部署在同一台机器；
-  端口需错开（示例 staging 用 8081）。
+  端口需错开（示例 staging 8081 / prod 8082）。
 - 分机器部署时，两边都可以用 8080。
 - prod 覆盖层额外限制 CPU/内存；staging 不限制，便于压测与调试。
 - local 直接监听容器 8080（HTTP）；staging / prod 的 `WEB_PORT` 映射到容器 8443，
@@ -109,7 +109,7 @@ sudo chgrp 101 /srv/metaforge/certs/*.key
 sudo chmod 640 /srv/metaforge/certs/*.key
 ```
 
-同一台机器跑两套时，确认 `WEB_PORT` 不冲突（staging 8081 / prod 8080）。
+同一台机器跑两套时，确认 `WEB_PORT` 不冲突（staging 8081 / prod 8082）。
 分机器部署则都可用 8080。
 
 ### 5.2 手动发布
@@ -180,7 +180,7 @@ ACR_REGISTRY=metaforge-registry.cn-hangzhou.cr.aliyuncs.com sh deploy/release.sh
 | `POSTGRES_PASSWORD` | 是 | `metaforge_owner` 密码，仅迁移/运维使用 |
 | `META_FORGE_APP_PASSWORD` | 是 | `metaforge_app` 密码，BFF 使用 |
 | `REDIS_PASSWORD` | 是 | Redis `requirepass` |
-| `WEB_PORT` | 否 | 宿主机端口，local/staging/prod 模板分别为 8080/8081/8080；staging/prod 映射到容器 8443（HTTPS） |
+| `WEB_PORT` | 否 | 宿主机端口，local/staging/prod 模板分别为 8080/8081/8082；staging/prod 映射到容器 8443（HTTPS） |
 | `WEB_CONTAINER_PORT` | 否 | 容器内 `web` 端口；staging/prod 为 8443（HTTPS），local 默认 8080；`release.sh` 会强制导出 8443 |
 | `ACR_REGISTRY` | 否 | 镜像库地址，默认 `registry.cn-hangzhou.aliyuncs.com` |
 | `ACR_NAMESPACE` | 否 | ACR 命名空间，默认 `metaforge` |
@@ -232,7 +232,7 @@ select count(*) from edu_employee; commit;    -- 0
 
 - [ ] staging 与 prod 使用不同的数据库、Redis、`.env` 与 SSH 密钥
 - [ ] 只暴露 443（或 `WEB_PORT` 映射的 HTTPS 端口），22 端口限制来源 IP
-- [ ] 证书覆盖 `server_name`（`meta.devshare.bond` / `www.devshare.bond`），且私钥对 nginx 的 uid 101 可读
+- [ ] 证书覆盖 `server_name`（`devshare.bond` / `www.devshare.bond`），且私钥对 nginx 的 uid 101 可读
 - [ ] 数据库/Redis 无公网地址；生产优先用 RDS / 托管 Redis
 - [ ] `.env*` 权限 600，secret 不进 Git、不进镜像层
 - [ ] 目标机已登录 ACR，RAM 用户只有制品仓库读写权限
