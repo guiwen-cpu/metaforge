@@ -199,6 +199,8 @@ ACR_REGISTRY=metaforge-registry.cn-hangzhou.cr.aliyuncs.com sh deploy/release.sh
 | `ACR_USERNAME` / `ACR_PASSWORD` | 否 | 目标机拉取私有镜像的凭据；留空则假定已 `docker login` |
 | `TAG` | 生产必填 | 镜像标签；CI 传 `sha-<commit>`，staging 模板默认 `staging`，prod 模板为 `sha-placeholder`，手动发布需替换 |
 
+- 旧版 `WEB_PORT` / `WEB_CONTAINER_PORT` 已废弃；升级时改为 `NGINX_HTTP_PORT` / `NGINX_HTTPS_PORT`，否则 `release.sh` 会直接报错，避免静默回退到 80/443 与宿主机既有站点冲突。
+
 生产建议把密码放进云密钥管理，由发布流水线写入 `/srv/metaforge/deploy/.env.prod`（权限 `600`）。
 
 ## 7. 数据迁移与租户隔离

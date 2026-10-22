@@ -53,9 +53,21 @@ ACR_NAMESPACE="${ACR_NAMESPACE:-$(env_value ACR_NAMESPACE)}"
 ACR_NAMESPACE="${ACR_NAMESPACE:-metaforge}"
 export ACR_REGISTRY ACR_NAMESPACE
 
-# 入口端口：宿主机 HTTP / HTTPS；compose 会从 env 文件读取，这里仅用于发布后自检
+# 入口端口：宿主机 HTTP / HTTPS；compose 会从 env 文件读取，这里显式导出用于自检。
+# 旧版只配置 WEB_PORT（映射到 8443），新编排拆成 HTTP 健康端口与 HTTPS 业务端口；
+# 缺少新变量时直接失败，避免默认回退到 80/443 与宿主机既有站点冲突。
+http_port="${NGINX_HTTP_PORT:-$(env_value NGINX_HTTP_PORT)}"
 https_port="${NGINX_HTTPS_PORT:-$(env_value NGINX_HTTPS_PORT)}"
-https_port="${https_port:-443}"
+legacy_port="$(env_value WEB_PORT)"
+if [ -z "$http_port" ] || [ -z "$https_port" ]; then
+  if [ -n "$legacy_port" ]; then
+    printf '检测到旧变量 WEB_PORT=%s，但缺少 NGINX_HTTP_PORT / NGINX_HTTPS_PORT；请先迁移 env 文件\n' "$legacy_port" >&2
+  else
+    printf '缺少 NGINX_HTTP_PORT / NGINX_HTTPS_PORT；请在 env 文件中设置入口宿主机端口\n' >&2
+  fi
+  exit 1
+fi
+export NGINX_HTTP_PORT="$http_port" NGINX_HTTPS_PORT="$https_port"
 
 # 私有镜像需要先登录 ACR。凭据缺失时假定目标机已经执行过 docker login。
 acr_user="${ACR_USERNAME:-$(env_value ACR_USERNAME)}"
