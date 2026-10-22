@@ -16,7 +16,6 @@ ENV VITE_API_BASE=$VITE_API_BASE VITE_STS_URL=$VITE_STS_URL
 RUN npm run build -- --base=/demo/
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
-COPY deploy/nginx/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=studio /app/dist /usr/share/nginx/html
 COPY --from=demo /app/dist /usr/share/nginx/html/demo
 EXPOSE 8080

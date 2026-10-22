@@ -152,10 +152,29 @@ services:
       context: ..
       dockerfile: deploy/web/Dockerfile
     image: metaforge-web:${TAG:-dev}
+    networks: [edge]
+    volumes:
+      - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz | grep -q ok"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+
+  # 唯一对外入口：TLS、/api 反代与静态转发都在这里完成；web 只提供静态文件。
+  # nginx-unprivileged 以 uid 101 运行，容器内监听 8080/8443；宿主机端口可覆盖为 80/443。
+  nginx:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
     ports:
-      # local 用 8080（HTTP）；staging/prod 由 release.sh 导出 WEB_CONTAINER_PORT=8443（HTTPS）
-      - "${WEB_PORT:-8080}:${WEB_CONTAINER_PORT:-8080}"
+      - '${NGINX_HTTP_PORT:-80}:8080'
+      - '${NGINX_HTTPS_PORT:-443}:8443'
     depends_on:
+      web:
+        condition: service_healthy
       bff:
         condition: service_healthy
     networks: [edge]
@@ -168,6 +187,9 @@ services:
       timeout: 3s
       retries: 6
     restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../certs:/etc/nginx/certs:ro
 
 networks:
   edge: {}

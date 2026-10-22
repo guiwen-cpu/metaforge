@@ -7,8 +7,8 @@
 | 工作流 | 触发 | 主要职责 | 产物 / 动作 |
 |---|---|---|---|
 | `ci.yml` | 所有 PR | 协议校验、出码器自检、示例前端构建、BFF 打包、compose / shell 契约校验 | 无产物，不部署 |
-| `staging.yml` | push `dev`；手动 `workflow_dispatch` | 预发校验 → 构建镜像 → 自动部署 | 阿里云 ACR `:staging` / `:sha-<commit>` |
-| `release.yml` | push `main` | 生产校验 → 构建镜像 → 自动部署 | 阿里云 ACR `:prod` / `:sha-<commit>` |
+| `staging.yml` | push `dev`；手动 `workflow_dispatch` | 预发校验 → 构建镜像 → 自动部署 | 阿里云 ACR `web` / `bff` 的 `:staging` / `:sha-<commit>`；`nginx` / `postgres` / `redis` 版本镜像 |
+| `release.yml` | push `main` | 生产校验 → 构建镜像 → 自动部署 | 阿里云 ACR `web` / `bff` 的 `:prod` / `:sha-<commit>`；`nginx` / `postgres` / `redis` 版本镜像 |
 
 ## 流程图
 
@@ -22,7 +22,7 @@ push dev ───────────────► staging.yml
                           validate
                              │ needs
                              ▼
-                          images ──► ACR web/bff :staging/:sha；postgres/redis 版本标签
+                          images ──► ACR web/bff :staging/:sha；nginx/postgres/redis 版本标签
                              │ needs
                              ▼
                           deploy ──► SSH /srv/metaforge
@@ -32,7 +32,7 @@ push main ──────────────► release.yml
                           validate
                              │ needs
                              ▼
-                          images ──► ACR web/bff :prod/:sha；postgres/redis 版本标签
+                          images ──► ACR web/bff :prod/:sha；nginx/postgres/redis 版本标签
                              │ needs
                              ▼
                           deploy ──► SSH /srv/metaforge
@@ -45,12 +45,12 @@ push main ──────────────► release.yml
 - **`ci.yml` 只做门禁。** 只在 PR 上触发（`push` 触发已注释），不登录镜像库、不构建镜像、不接触主机；因此推送 `dev` / `main` 只会启动一个部署工作流，不会同时跑 CI。
 - **`staging.yml` 跟随 `dev`。** `:staging` 是可变指针，部署时使用 `:sha-<commit>` 固定到本次构建；目标机检出同一个 commit。
 - **`release.yml` 跟随 `main`。** 推送主干即发布生产，不再依赖 `v*` 标签；`:prod` 是可变指针，部署同样使用 `:sha-<commit>`，目标机检出同一个 commit。
-- **镜像统一放阿里云 ACR。** 地址与命名空间由 `ACR_REGISTRY` / `ACR_NAMESPACE` 控制，workflow、Compose 覆盖层与 `release.sh` 使用同一组默认值（`registry.cn-hangzhou.aliyuncs.com/metaforge`）。
+- **镜像统一放阿里云 ACR。** 地址与命名空间由 `ACR_REGISTRY` / `ACR_NAMESPACE` 控制，workflow、Compose 覆盖层与 `release.sh` 使用同一组默认值（`registry.cn-hangzhou.aliyuncs.com/metaforge`）；应用镜像为 `web`（静态站点）与 `bff`；`nginx`、`postgres`、`redis` 作为运行时依赖从上游同步。
 - **个人版 ACR 需显式配置 Variables。** 形如 `crpi-xxxx.cn-guangzhou.personal.cr.aliyuncs.com/metaforge-arc` 的地址要拆成 `ACR_REGISTRY`（域名）与 `ACR_NAMESPACE`（`metaforge-arc`），否则会回退到默认地址。
-- **部署机不依赖 Docker Hub。** `images` job 会把 `postgres:16-alpine`、`redis:7-alpine` 同步进 ACR；staging / prod 覆盖层把 `postgres`、`redis`、`migrate` 的 image 也指向 ACR，目标机 `compose pull` 只访问 ACR。
-- **部署动作统一收敛在 `deploy/release.sh`。** 两个部署 job 只负责 SSH 登录、按 `github.sha` 检出代码和传入 `ACR_*` / `TAG`；真正的 `pull → 证书可读性检查 → migrate → up` 由脚本完成，避免两套部署逻辑漂移。
+- **部署机不依赖 Docker Hub。** `images` job 会把 `nginxinc/nginx-unprivileged:1.27-alpine`、`postgres:16-alpine`、`redis:7-alpine` 同步进 ACR；staging / prod 覆盖层把 `postgres`、`redis`、`migrate` 的 image 也指向 ACR，目标机 `compose pull` 只访问 ACR。
+- **部署动作统一收敛在 `deploy/release.sh`。** 两个部署 job 只负责 SSH 登录、按 `github.sha` 检出代码和传入 `ACR_*` / `TAG`；真正的 `pull → 证书可读性检查 → migrate → up → 五容器健康门禁` 由脚本完成，避免两套部署逻辑漂移。
 - **环境隔离靠 Compose 项目名与覆盖层。** 脚本使用 `-p metaforge-<env>` 和 `compose.<env>.yaml`；staging / prod 的数据卷、容器、网络互不影响。
-- **staging / prod 走 HTTPS。** 覆盖层把 `WEB_PORT` 映射到容器 8443 并挂载 `deploy/nginx/nginx.tls.conf`；证书位于目标机 `/srv/metaforge/certs/`，私钥需让 nginx 的 uid 101 可读（推荐 `chgrp 101` + `chmod 640`）。本地 `compose.yaml` 仍是 HTTP 8080，不依赖证书。
+- **入口统一走 HTTPS。** `nginx` 是唯一映射宿主机端口的服务：`NGINX_HTTP_PORT` 映射到容器 8080（仅 `/healthz`），`NGINX_HTTPS_PORT` 映射到容器 8443（业务）。配置固定挂载 `deploy/nginx/nginx.conf`，证书位于目标机 `/srv/metaforge/certs/`，私钥需让 nginx 的 uid 101 可读（推荐 `chgrp 101` + `chmod 640`）。local 使用同一份配置，也需要 `certs/`。
 
 ## 并发控制
 
@@ -70,10 +70,12 @@ push main ──────────────► release.yml
 | `tools/validate.mjs` | `ci.yml`、`staging.yml`、`release.yml` | Schema / registry / 示例 bundle 一致性校验 |
 | `bff/pom.xml` | `ci.yml`、`staging.yml`、`release.yml` | BFF 打包；当前均跳过单测 |
 | `codegen/leave_approval/web` | `ci.yml` | 出码示例前端构建 |
-| `deploy/web/Dockerfile` | `staging.yml`、`release.yml` | 设计器 + `/demo/` 的 Nginx 镜像 |
+| `deploy/web/Dockerfile` | `staging.yml`、`release.yml` | 设计器 + `/demo/` 的静态站点镜像 |
+| `deploy/nginx/nginx.conf` | `ci.yml`（校验）、部署主机（运行） | 入口配置：8080 健康检查、8443 HTTPS 与反代 |
+| `deploy/web/nginx.conf` | `ci.yml`（校验）、Compose（挂载） | 静态站点、SPA fallback 与 `/healthz` |
 | `deploy/bff/Dockerfile` | `staging.yml`、`release.yml` | JRE 21 运行镜像 |
 | `deploy/compose*.yaml`、`.env*.example` | `ci.yml`（校验）、部署主机（运行） | 环境组合与变量契约；staging / prod 的 postgres、redis、migrate 也走 ACR |
-| `deploy/release.sh` | `staging.yml`、`release.yml` | 目标机发布入口：`pull → migrate → up` |
+| `deploy/release.sh` | `staging.yml`、`release.yml` | 目标机发布入口：`pull → migrate → up → 五容器健康门禁` |
 | `deploy/.env.staging`、`deploy/.env.prod` | 部署主机 | 真实密码、ACR 凭据与可选默认 `TAG`；不入 Git |
 
 ## 仓库配置
@@ -89,7 +91,7 @@ push main ──────────────► release.yml
 
 > 推送即部署，不再使用 `DEPLOY_*_ENABLED` 开关。请先确保目标机已有 `deploy/.env.staging` / `deploy/.env.prod`，配置好主机 SSH Secrets 与 ACR 凭据，并在目标机执行过 `docker login`（或把凭据写进 env 文件）；需要人工卡点时，在 Environment 中配置保护规则。
 >
-> 首次使用前需在阿里云 ACR 控制台创建命名空间（默认 `metaforge`）；若关闭了自动建仓库，请先创建 `web` / `bff` / `postgres` / `redis` 四个仓库。
+> 首次使用前需在阿里云 ACR 控制台创建命名空间（默认 `metaforge`）；若关闭了自动建仓库，请先创建 `web` / `nginx` / `bff` / `postgres` / `redis` 五个仓库。
 
 ## 典型发布顺序
 

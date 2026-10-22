@@ -8,11 +8,11 @@
 
 | 项 | 值 |
 |---|---|
-| 设计器地址 | `http://localhost:8080` |
+| 设计器地址 | `https://localhost:8443`（自签证书需信任） |
 | CDP 调试 | `http://127.0.0.1:9222` |
 | 演示应用 | `eb84d4bd-461f-4945-9f76-7d69ce732d8b`（请假审批 / `leave_approval_demo`） |
 | 租户 / 用户 | `tenant_demo_school` / `alice` |
-| 容器 | `metaforge-web` / `metaforge-bff` / `metaforge-postgres` / `metaforge-redis` |
+| 容器 | `metaforge-nginx` / `metaforge-web` / `metaforge-bff` / `metaforge-postgres` / `metaforge-redis` |
 | 当前草稿 | `r16`：3 个页面、1 个自定义组件 `biz-card`、逻辑编排完整；已从 v9 恢复中文内容并迁移 `onParamChange`；`r15` 为页面钩子保存回读的临时草稿 |
 | 发布版本 | `v12`：中文内容正常、动作权限 35 条、页面参数生命周期已迁移；`v10/v11` 为阶段 8 钩子冒烟临时版本，`v2/v4/v6` 为冒烟临时版本，`v3/v5/v7` 为回滚快照 |
 | 演示数据 | 请假实例若干（已通过 / 已驳回 / 待审批）；冒烟实例 `ef3ea1e4-cbbe-11f1-ab05-eac30cd331c5` 含 3 条动作日志；`/leave/requests` 底部挂有 `biz-card` 联调节点；运行时闭环单 `01M5D95H48A2VFJHTFQ5BSZK4Q` 已验证提交与撤回（`cancelled`）；`01M5DP7862K31BADGVQKVGSVNE` / `01M5DP77QA2CJPYN3R66MVNHP9` 用于 `leave_batch_recall` 并行撤回验证（`cancelled`） |
@@ -24,7 +24,7 @@
 | 外部通知 | `lcp_notification_delivery` outbox：`webhook` / `email` 复用连接器 `connectionRef`，15 秒轮询、指数退避（上限 1 小时，5 次后 `dead`） |
 | SLA 提醒 | `lcp_sla_reminder` 按 `(tenant, task, stage)` 幂等；warning / escalate 定时扫描并按通知模板发送 |
 | 通知规则 | 发布件 `logicSchemas[].rules[].kind=notification`：`when` 过滤、目标用户表达式、渠道与模板；规则失败只记日志 |
-| 登录入口 | `http://localhost:8080/login`；账号 `alice/alice123`、`bob/bob123`、`principal/principal123`、`hr/hr123` |
+| 登录入口 | `https://localhost:8443/login`；账号 `alice/alice123`、`bob/bob123`、`principal/principal123`、`hr/hr123` |
 | 身份 API | `POST /api/v1/auth/login`、`GET /api/v1/auth/me`、`GET /api/v1/platform/identity/overview?appId=<id>` |
 | 认证安全 API | `GET /api/v1/auth/password-policy`、`POST /api/v1/auth/password`、`GET /api/v1/platform/identity/auth-audits`（管理员，支持 `eventType` / `username` / `success` / `limit`） |
 | 统一身份 API | `GET /api/v1/auth/sso/config`、`GET /api/v1/auth/sso/start?redirect=/...`、`GET /api/v1/auth/sso/callback`、`POST /api/v1/auth/sso/exchange` |
@@ -165,17 +165,18 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 ### 8. 部署
 - `deploy/compose.yaml`（dev）、`compose.staging.yaml`、`compose.prod.yaml`。
 - `deploy/.env`、`.env.staging.example`、`.env.prod.example`、`release.sh`、`smoke.sh`、`smoke-platform.sh`。
-- `deploy/release.sh` 已补注释：环境隔离、TAG 优先级与 `pull → migrate → up` 顺序；生产改为推送 `main` 即发布，TAG 使用不可变 `sha-<commit>`。
+- `deploy/release.sh` 已补注释：环境隔离、TAG 优先级与 `pull → migrate → up → 健康门禁` 顺序；发布后等待 postgres / redis / bff / web / nginx 五个服务 healthy 并探活 HTTPS `/healthz`，失败会让 workflow 失败；生产改为推送 `main` 即发布，TAG 使用不可变 `sha-<commit>`。
 - 镜像库改为阿里云 ACR：`ACR_REGISTRY` / `ACR_NAMESPACE` 默认 `registry.cn-hangzhou.aliyuncs.com/metaforge`，Compose、workflow 与 `release.sh` 共用同一组默认值；私有镜像由目标机的 `docker login` 或 env 文件中的 `ACR_USERNAME` / `ACR_PASSWORD` 提供凭据。
 - GitHub Actions：`ci.yml`（仅 PR 校验；`push` 触发已关闭）、`staging.yml`（push `dev` → ACR `:staging` / `:sha-*` → 自动部署预发）、`release.yml`（push `main` → ACR `:prod` / `:sha-*` → 自动部署生产）；三者关系与密钥见 `.github/workflows/README.md`。并发控制：CI 同分支取消旧运行，staging / prod 分别串行且不取消进行中的部署。推送 `dev` / `main` 只启动一个部署工作流，不再同时触发 CI。
 - 部署机按 `github.sha` 执行 `git fetch origin <sha>` + `git checkout --force <sha>`；不再依赖 `--tags`，部署与回滚都以不可变提交为准。
 - ACR 个人版兼容：所有 `docker/build-push-action` 步骤关闭 `provenance` / `sbom`，避免推送 OCI 空清单时报 `unknown manifest class for application/vnd.oci.empty.v1+json`。
 - Docker Hub 兜底：发布 workflow 会把 `postgres:16-alpine`、`redis:7-alpine` 同步到 ACR；staging / prod 覆盖层将 `postgres`、`redis`、`migrate` 全部指向 ACR，避免目标机因 Docker Hub 超时或加速器缺镜像而部署失败。
-- 2026-10-22 staging 实测：Run `39762675655` 的 validate / images / deploy 全部成功；web / bff / postgres / redis 四个容器均 healthy，`https://www.devshare.bond:8081/healthz` 与 `/demo/` 返回 200，未登录 API 返回 401。目标机 `/srv/metaforge` 已检出 `4af6067`，staging/prod 的 `.env` 已改为个人版 ACR 并设为 600 权限；prod 使用 `WEB_PORT=8082`，证书私钥已收敛为 `640 root:101`。
-- 2026-10-22 prod 受控实测：未推 `main`，在目标机手动执行 `TAG=sha-aacbe50cafd50cb9fa563f2ff7a1a6033cb05886 sh deploy/release.sh prod`；迁移成功，web / bff / postgres / redis 均 healthy，`https://www.devshare.bond:8082/healthz` 与 `/demo/` 返回 200，未登录 API 返回 401。ACR 内 web / bff 均为单个 `application/vnd.oci.image.manifest.v1+json`，不再包含 attestation 空描述符。
-- 生产端口已避开旧服务：同一台机器上 8080/8443 被 `devshare-staging-nginx` 占用，`prod` 模板与目标机 `.env.prod` 统一改用 `8082`（映射容器 8443 HTTPS）；后续若接入外层网关，可再收敛到 443。
-- Nginx 同域托管设计器与 `/demo/` 示例应用；local 使用 `nginx.conf`（HTTP 8080），staging / prod 挂载 `nginx.tls.conf`（8080 仅健康检查、8443 HTTPS），宿主机端口由 `WEB_PORT` 映射。
-- Compose 修正：卷挂载改为合法块序列；预发/生产通过 `WEB_CONTAINER_PORT=8443` 映射 HTTPS，证书放仓库根目录 `certs/`（已 gitignore），`release.sh` 在发布前用同镜像校验 nginx（uid 101）可读证书，避免容器启动后才失败。
+- 2026-10-22 staging 历史实测：Run `39762675655` 的 validate / images / deploy 全部成功；当时入口映射为 8081→8443，web / bff / postgres / redis 四个容器均 healthy，`/healthz` 与 `/demo/` 返回 200，未登录 API 返回 401。目标机 `/srv/metaforge` 已检出 `4af6067`，staging/prod 的 `.env` 已改为个人版 ACR 并设为 600 权限；证书私钥已收敛为 `640 root:101`。
+- 2026-10-22 prod 历史实测：未推 `main`，在目标机手动执行 `TAG=sha-aacbe50cafd50cb9fa563f2ff7a1a6033cb05886 sh deploy/release.sh prod`；迁移成功，五个容器均 healthy，`/healthz` 与 `/demo/` 返回 200，未登录 API 返回 401。ACR 内 web / bff 均为单个 `application/vnd.oci.image.manifest.v1+json`，不再包含 attestation 空描述符。
+- 入口端口：`nginx` 是唯一映射宿主机端口的服务；`NGINX_HTTP_PORT` / `NGINX_HTTPS_PORT` 分别映射容器 8080 / 8443。staging / prod 模板使用 8084/7443 与 8083/6443 避免同机冲突；接入外层网关后可改为 80/443。
+- Nginx 拆为独立入口容器：`web` 只提供设计器与 `/demo/` 静态资源；`nginx` 使用上游 `nginxinc/nginx-unprivileged:1.27-alpine`，负责 8080 健康检查、8443 HTTPS、`/api` 反代与静态转发。配置固定挂载 `deploy/nginx/nginx.conf`，证书挂载 `certs/`，不再维护 `nginx.tls.conf`。
+- Compose / CI：`nginx` 不再单独构建应用镜像，CI 把 `nginx-unprivileged:1.27-alpine` 与 `postgres` / `redis` 一并同步到 ACR；`release.sh` 在发布前校验 uid 101 可读证书，发布后等待五容器 healthy 并从宿主机请求 HTTPS `/healthz`。
+- 2026-10-22 静态验证：local / staging / prod 三套 `docker compose config -q` 通过；入口与 `web` 的 `nginx.conf` 均通过真实镜像 `nginx -t`；`git diff --check` 无空白错误。
 
 ### 9. 运行时与审批中心
 - BFF `runtime` 模块：Flowable schema 初始化、发布时自动部署 BPMN、实例启动、待办/已办/我发起、任务详情/签收/完成/转办、历史时间线、业务表状态回写。

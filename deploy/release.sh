@@ -3,7 +3,7 @@
 # 用法：sh deploy/release.sh <staging|prod> [TAG]
 #   TAG 优先级：命令行参数 > 环境变量 > deploy/.env.<env>
 #
-# 流程：校验参数与环境文件 → 解析 TAG → 拉取镜像 → 执行迁移 → 启动服务
+# 流程：校验参数与环境文件 → 解析 TAG → 拉取镜像 → 执行迁移 → 启动服务 → 健康门禁
 # 调用方：.github/workflows/staging.yml（push dev，TAG=sha-<commit>）
 #         .github/workflows/release.yml（push main，TAG=sha-<commit>）
 # 镜像：阿里云 ACR，地址与命名空间可用 ACR_REGISTRY / ACR_NAMESPACE 覆盖；
@@ -53,10 +53,9 @@ ACR_NAMESPACE="${ACR_NAMESPACE:-$(env_value ACR_NAMESPACE)}"
 ACR_NAMESPACE="${ACR_NAMESPACE:-metaforge}"
 export ACR_REGISTRY ACR_NAMESPACE
 
-# staging / prod 均走 HTTPS；容器监听 8443，与 nginx.tls.conf 保持一致
-WEB_CONTAINER_PORT="${WEB_CONTAINER_PORT:-$(env_value WEB_CONTAINER_PORT)}"
-WEB_CONTAINER_PORT="${WEB_CONTAINER_PORT:-8443}"
-export WEB_CONTAINER_PORT
+# 入口端口：宿主机 HTTP / HTTPS；compose 会从 env 文件读取，这里仅用于发布后自检
+https_port="${NGINX_HTTPS_PORT:-$(env_value NGINX_HTTPS_PORT)}"
+https_port="${https_port:-443}"
 
 # 私有镜像需要先登录 ACR。凭据缺失时假定目标机已经执行过 docker login。
 acr_user="${ACR_USERNAME:-$(env_value ACR_USERNAME)}"
@@ -76,6 +75,33 @@ compose() {
     -f compose.yaml -f "compose.$ENV_NAME.yaml" "$@"
 }
 
+# 健康检查函数：depends_on 只保证启动顺序，不代表进程可用。
+wait_healthy() {
+  service=$1
+  attempt=0
+  while [ $attempt -lt 60 ]; do
+    container=$(compose ps -q $service 2>/dev/null || true)
+    case $container in
+      '')
+        ;;
+      *)
+        status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' $container 2>/dev/null || printf 'unknown')
+        case $status in
+          healthy) return 0 ;;
+          unhealthy|exited|dead)
+            printf '%s 状态为 %s，停止发布\n' $service $status >&2
+            return 1
+            ;;
+        esac
+        ;;
+    esac
+    attempt=$((attempt + 1))
+    sleep 5
+  done
+  printf '%s 在 5 分钟内未变为 healthy，停止发布\n' $service >&2
+  return 1
+}
+
 # 先输出最终参数，CI 日志里可直接确认环境与镜像版本
 printf '发布 %s（镜像=%s/%s，TAG=%s，project=%s）\n' \
   "$ENV_NAME" "$ACR_REGISTRY" "$ACR_NAMESPACE" "$TAG" "$PROJECT"
@@ -83,9 +109,9 @@ printf '发布 %s（镜像=%s/%s，TAG=%s，project=%s）\n' \
 compose config --images
 # 只拉取当前 TAG 对应镜像，不在发布机上重新构建
 compose pull
-# 预发/生产挂载 nginx.tls.conf，nginx-unprivileged 以 uid 101 读取证书。
-# 这里用同一镜像做一次真实可读性检查，避免 compose up 成功返回但 web 容器反复重启。
-if ! compose run --rm -T --no-deps --entrypoint sh web -c \
+# 入口配置与证书都在运行时挂载；nginx-unprivileged 以 uid 101 读取，先做一次真实可读性检查，
+# 避免 compose up 成功返回但 nginx 容器反复重启。
+if ! compose run --rm -T --no-deps --entrypoint sh nginx -c \
   'test -r /etc/nginx/certs/www.devshare.bond.pem && test -r /etc/nginx/certs/www.devshare.bond.key'; then
   printf '证书不可用：确认 ../certs/www.devshare.bond.pem 与 .key 存在，且容器内 nginx（uid 101）可读\n' >&2
   exit 1
@@ -94,5 +120,20 @@ fi
 compose --profile tools run --rm migrate
 # --remove-orphans 清理覆盖层变更后遗留的旧服务，避免端口/网络残留
 compose up -d --remove-orphans
+# 五个长期服务都必须健康；否则部署任务直接失败，避免“启动了但不可用”被误判成功
+for service in postgres redis bff web nginx; do
+  wait_healthy $service
+done
+
+# 容器健康不等于入口可用：再从宿主机走一次真实 HTTPS，验证 nginx 与证书链路
+if command -v curl >/dev/null 2>&1; then
+  if ! curl -fsSk --resolve www.devshare.bond:${https_port}:127.0.0.1 \
+    "https://www.devshare.bond:${https_port}/healthz" >/dev/null; then
+    printf 'HTTPS 健康检查失败：127.0.0.1:%s/healthz\n' "$https_port" >&2
+    exit 1
+  fi
+  printf 'HTTPS 健康检查通过：127.0.0.1:%s/healthz\n' "$https_port"
+fi
+
 # 输出最终状态，便于确认发布结果
 compose ps

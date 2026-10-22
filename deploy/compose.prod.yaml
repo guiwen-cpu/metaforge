@@ -23,12 +23,12 @@ services:
   web:
     image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-metaforge}/web:${TAG:?TAG 未设置}
     pull_policy: always
-    # 生产对外走 HTTPS；容器端口由 release.sh 的 WEB_CONTAINER_PORT=8443 指定
-    volumes:
-      - ./nginx/nginx.tls.conf:/etc/nginx/conf.d/default.conf:ro
-      - ../certs:/etc/nginx/certs:ro
     deploy:
       resources:
         limits:
           cpus: "1.0"
           memory: 256M
+  nginx:
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-metaforge}/nginx:1.27-alpine
+    pull_policy: always
+    # 入口镜像由 CI 从上游同步到 ACR；配置与证书在运行时挂载

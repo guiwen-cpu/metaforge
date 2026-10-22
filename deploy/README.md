@@ -7,36 +7,40 @@
 
 ```text
 浏览器
-  │ :${WEB_PORT}
+  │ :${NGINX_HTTPS_PORT}
   ▼
-web（nginx-unprivileged）
-  ├─ /       → 控制平面工作台（Vite 构建产物，history fallback）
-  ├─ /demo/  → 出码示例应用（构建时 base=/demo/）
-                ├─ PostgreSQL 16（元数据 + 业务数据）
-                └─ Redis 7（缓存 / 会话 / 分布式锁）
+nginx（独立入口：TLS + /api 反代 + /healthz）
+  ├─ /api/ ─────► bff（Spring Boot）
+  └─ 其他路径 ──► web（静态站点）
+                    ├─ /       → 控制平面工作台（Vite 构建产物，history fallback）
+                    └─ /demo/  → 出码示例应用（构建时 base=/demo/）
+                                  │
+                                  └─ bff ─┬─ PostgreSQL 16（元数据 + 业务数据）
+                                          └─ Redis 7（缓存 / 会话 / 分布式锁）
 ```
 
-- `web` 是唯一发布宿主机端口的服务；`bff`、`postgres`、`redis` 只在 `data` 内网。
-- 所有容器非 root、只读根文件系统（`web`/`bff`）、`no-new-privileges`、健康检查、日志可轮转。
+- `nginx` 是唯一发布宿主机端口的服务；`web`、`bff`、`postgres`、`redis` 只在容器网络内。
+- `web` 只提供静态资源；TLS、`/api` 反代和入口健康检查都由独立的 `nginx` 容器负责。
+- 所有容器非 root、只读根文件系统（`web`/`nginx`/`bff`）、`no-new-privileges`、健康检查、日志可轮转。
 - BFF 是普通 Spring Boot 进程，生成的 `codegen/<app>/api` 源码通过 `build-helper` 一起编译。
 
 ## 2. 环境划分
 
 | 环境 | 用途 | Compose 组合 | env 文件 | 项目名 | 默认端口 | 镜像来源 |
 |---|---|---|---|---|---|---|
-| local | 本机开发 | `compose.yaml` | `.env` | `metaforge` | 8080（HTTP） | 本地构建 |
-| staging | 预发 / 验收 | `compose.yaml` + `compose.staging.yaml` | `.env.staging` | `metaforge-staging` | 8081（HTTPS） | ACR 应用 `:staging`/`:sha-*`；依赖 `:16-alpine`/`:7-alpine` |
-| prod | 生产 | `compose.yaml` + `compose.prod.yaml` | `.env.prod` | `metaforge-prod` | 8082（HTTPS） | ACR 应用 `:prod`/`:sha-*`；依赖 `:16-alpine`/`:7-alpine` |
+| local | 本机开发 | `compose.yaml` | `.env` | `metaforge` | 8080 / 8443 | 本地构建 |
+| staging | 预发 / 验收 | `compose.yaml` + `compose.staging.yaml` | `.env.staging` | `metaforge-staging` | 8084 / 7443 | ACR `web`/`bff` `:staging`/`:sha-*`；`nginx`/`postgres`/`redis` 版本镜像 |
+| prod | 生产 | `compose.yaml` + `compose.prod.yaml` | `.env.prod` | `metaforge-prod` | 8083 / 6443 | ACR `web`/`bff` `:prod`/`:sha-*`；`nginx`/`postgres`/`redis` 版本镜像 |
 
 - 项目名不同 → 容器名、网络、数据卷全部隔离（`metaforge-staging_pg_data` 与
   `metaforge-prod_pg_data` 互不影响），因此两套环境可以部署在同一台机器；
-  端口需错开（示例 staging 8081 / prod 8082）。
-- 分机器部署时，两边都可以用 8080。
+  端口需错开（示例 staging 8084/7443，prod 8083/6443）。
+- 分机器部署时，两边都可以用 80/443。
 - prod 覆盖层额外限制 CPU/内存；staging 不限制，便于压测与调试。
-- local 直接监听容器 8080（HTTP）；staging / prod 的 `WEB_PORT` 映射到容器 8443，
-  由 `deploy/nginx/nginx.tls.conf` 提供 HTTPS，证书放在仓库根目录的 `certs/`（不入 Git）。
-- staging / prod 的 `postgres`、`redis`、`migrate` 也使用 ACR 镜像；CI 会把官方
-  `postgres:16-alpine` / `redis:7-alpine` 同步进去，发布机不需要访问 Docker Hub。
+- `nginx` 是唯一映射宿主机端口的服务：`NGINX_HTTP_PORT` → 容器 8080（仅健康检查），
+  `NGINX_HTTPS_PORT` → 容器 8443（业务）。配置固定为 `deploy/nginx/nginx.conf`，证书放在仓库根目录的 `certs/`（不入 Git）。
+- staging / prod 的 `nginx`、`postgres`、`redis`、`migrate` 也使用 ACR 镜像；CI 会把上游
+  `nginx-unprivileged:1.27-alpine` / `postgres:16-alpine` / `redis:7-alpine` 同步进去，发布机不需要访问 Docker Hub。
 
 ## 3. 目录
 
@@ -49,37 +53,43 @@ web（nginx-unprivileged）
 | `deploy/.env.example` | 本地开发模板 |
 | `deploy/.env.staging.example` | staging 模板 |
 | `deploy/.env.prod.example` | prod 模板 |
-| `deploy/web/Dockerfile` | Node 构建 + nginx 非特权镜像 |
+| `deploy/web/Dockerfile` | Node 构建 + 静态站点运行镜像 |
+| `deploy/web/nginx.conf` | `web` 的静态资源、SPA fallback 与 `/healthz`（Compose 只读挂载） |
 | `deploy/bff/Dockerfile` | Alpine Maven 构建 + JRE 21 运行 |
-| `deploy/nginx/nginx.conf` | 静态资源、`/api` 反代、`/healthz` |
-| `deploy/nginx/nginx.tls.conf` | staging / prod 的 HTTPS 站点（8080 仅健康检查，8443 承载业务） |
+| `deploy/nginx/nginx.conf` | 唯一入口：8080 健康检查、8443 HTTPS、`/api` 反代到 bff、其余转发到 web |
 | `deploy/migrate/` | `00_role.sql`、`10_platform.sql`、`99_grants.sql`、`run.sh`（advisory lock + `ON_ERROR_STOP`） |
-| `deploy/release.sh` | 按环境发布：pull → migrate → up |
+| `deploy/release.sh` | 按环境发布：pull → migrate → up → 五容器健康门禁 |
 | `deploy/smoke.sh` | 出码 CRUD 冒烟（CRUD + 租户隔离） |
 | `deploy/smoke-platform.sh` | 控制平面冒烟（草稿 / 发布 / 去重 / diff / 回滚 / 恢复草稿 / 乐观锁 / 租户隔离） |
 
 ## 4. 本地一键启动
 
-要求：Docker Desktop（含 Compose v2）。Windows 用 PowerShell：
+要求：Docker Desktop（含 Compose v2）。入口统一走 HTTPS，需先把证书放到 `certs/`
+（文件名固定为 `www.devshare.bond.pem` / `.key`）；本地可用自签证书：
 
 ```powershell
 Copy-Item deploy/.env.example deploy/.env
 # 修改 deploy/.env 中的三个密码
+
+# 本地自签证书（仅调试；正式环境用真实证书）
+New-Item -ItemType Directory -Force certs | Out-Null
+openssl req -x509 -nodes -newkey rsa:2048 -days 365 -subj "/CN=localhost" `
+  -keyout certs/www.devshare.bond.key -out certs/www.devshare.bond.pem
 
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d postgres redis
 docker compose --env-file deploy/.env -f deploy/compose.yaml --profile tools run --rm migrate
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 ```
 
-打开 <http://localhost:8080> 进入控制平面工作台；出码示例应用在 <http://localhost:8080/demo/>（人员 / 请假单 / 附件）。
+打开 <https://localhost:8443>（自签证书需手动信任）；`/demo/` 为出码示例应用。
+只调试设计器时可直接 `cd platform; npm run dev`，不依赖 Nginx 与证书。
 
 Linux/macOS 上冒烟：
 
 ```bash
-BASE_URL=http://localhost:8080 sh deploy/smoke.sh
+BASE_URL=https://localhost:8443 CURL_CA_BUNDLE=certs/www.devshare.bond.pem sh deploy/smoke.sh
 ```
 
-脚本覆盖：`/healthz`、缺失租户头 400、创建、更新、跨租户不可见、删除 204。
 
 ## 5. staging / prod 部署
 
@@ -100,7 +110,7 @@ vi deploy/.env.staging deploy/.env.prod   # 改密码与 TAG
 # 个人版示例：crpi-xxxx.cn-guangzhou.personal.cr.aliyuncs.com
 docker login crpi-xxxx.cn-guangzhou.personal.cr.aliyuncs.com   # 换成实际 ACR_REGISTRY
 
-# TLS 证书（staging / prod 必需；文件名需与 deploy/nginx/nginx.tls.conf 一致）
+# TLS 证书（staging / prod 必需；文件名需与 deploy/nginx/nginx.conf 一致）
 sudo mkdir -p /srv/metaforge/certs
 sudo cp /path/to/www.devshare.bond.pem /srv/metaforge/certs/
 sudo cp /path/to/www.devshare.bond.key /srv/metaforge/certs/
@@ -109,7 +119,7 @@ sudo chgrp 101 /srv/metaforge/certs/*.key
 sudo chmod 640 /srv/metaforge/certs/*.key
 ```
 
-同一台机器跑两套时，确认 `WEB_PORT` 不冲突（staging 8081 / prod 8082）。
+同一台机器跑两套时，确认 `NGINX_HTTP_PORT` / `NGINX_HTTPS_PORT` 不冲突（staging 8084/7443，prod 8083/6443）。
 分机器部署则都可用 8080。
 
 ### 5.2 手动发布
@@ -122,7 +132,9 @@ sh deploy/release.sh staging sha-1a2b3c4   # 指定不可变版本
 sh deploy/release.sh prod sha-1a2b3c4   # 生产推荐使用不可变 sha 标签
 ```
 
-`release.sh` 做的事：`pull` → 证书可读性检查 → `--profile tools run --rm migrate` → `up -d` → 打印状态。
+`release.sh` 做的事：`pull` → 证书可读性检查 → `--profile tools run --rm migrate` → `up -d` →
+等待 postgres / redis / bff / web / nginx 全部 healthy → 从宿主机请求 HTTPS `/healthz` → 打印状态。
+任一步失败都会让发布命令返回非零，GitHub Actions 不会把“容器启动了但不可用”判为成功。
 TAG 优先级：命令行参数 > 环境变量 `TAG` > `.env.<env>`。
 生产发布同样使用不可变 sha 标签；CI 会显式传入 TAG，手动发布时请避免 `latest`。
 镜像地址优先级：环境变量 `ACR_REGISTRY` / `ACR_NAMESPACE` > `.env.<env>` > 默认值
@@ -153,8 +165,8 @@ TAG 优先级：命令行参数 > 环境变量 `TAG` > `.env.<env>`。
 部署脚本会在服务器上按 `github.sha` 执行 `git fetch origin <sha>` 与 `git checkout --force <sha>`（若 `/srv/metaforge` 是 git 仓库），
 因此目标机不会因为分支又前进了而部署到错误版本。若服务器不是 git 仓库，请自行同步 `deploy/` 目录。目标机必须能登录 ACR：
 提前执行 `docker login`，或在 `.env.<env>` 中填写 `ACR_USERNAME` / `ACR_PASSWORD`。
-首次使用前需在 ACR 控制台创建命名空间（默认 `metaforge`），并按需预建 `web` / `bff` / `postgres` / `redis` 仓库。
-发布机只需能访问 ACR；`images` job 会把官方 PostgreSQL / Redis 镜像一并同步到 ACR，
+首次使用前需在 ACR 控制台创建命名空间（默认 `metaforge`），并按需预建 `web` / `nginx` / `bff` / `postgres` / `redis` 仓库。
+发布机只需能访问 ACR；`images` job 会把上游 Nginx / PostgreSQL / Redis 镜像一并同步到 ACR，
 `compose pull` 不会再去 Docker Hub 拉取运行时依赖。
 目标机还需在 `/srv/metaforge/certs/` 放好证书；`release.sh` 会先用发布镜像验证
 nginx（uid 101）能否读取证书，失败时在 `pull` 之后立即退出，不会把坏配置带上线。
@@ -180,8 +192,8 @@ ACR_REGISTRY=metaforge-registry.cn-hangzhou.cr.aliyuncs.com sh deploy/release.sh
 | `POSTGRES_PASSWORD` | 是 | `metaforge_owner` 密码，仅迁移/运维使用 |
 | `META_FORGE_APP_PASSWORD` | 是 | `metaforge_app` 密码，BFF 使用 |
 | `REDIS_PASSWORD` | 是 | Redis `requirepass` |
-| `WEB_PORT` | 否 | 宿主机端口，local/staging/prod 模板分别为 8080/8081/8082；staging/prod 映射到容器 8443（HTTPS） |
-| `WEB_CONTAINER_PORT` | 否 | 容器内 `web` 端口；staging/prod 为 8443（HTTPS），local 默认 8080；`release.sh` 会强制导出 8443 |
+| `NGINX_HTTP_PORT` | 否 | 入口 HTTP 宿主机端口，local/staging/prod 模板分别为 8080/8084/8083；映射到容器 8080（仅 `/healthz`） |
+| `NGINX_HTTPS_PORT` | 否 | 入口 HTTPS 宿主机端口，模板分别为 8443/7443/6443；映射到容器 8443（业务），`release.sh` 用它做 HTTPS 自检 |
 | `ACR_REGISTRY` | 否 | 镜像库地址，默认 `registry.cn-hangzhou.aliyuncs.com` |
 | `ACR_NAMESPACE` | 否 | ACR 命名空间，默认 `metaforge` |
 | `ACR_USERNAME` / `ACR_PASSWORD` | 否 | 目标机拉取私有镜像的凭据；留空则假定已 `docker login` |
@@ -231,7 +243,7 @@ select count(*) from edu_employee; commit;    -- 0
 ## 9. 上线检查清单
 
 - [ ] staging 与 prod 使用不同的数据库、Redis、`.env` 与 SSH 密钥
-- [ ] 只暴露 443（或 `WEB_PORT` 映射的 HTTPS 端口），22 端口限制来源 IP
+- [ ] 只暴露 `NGINX_HTTPS_PORT`（默认 443），22 端口限制来源 IP
 - [ ] 证书覆盖 `server_name`（`devshare.bond` / `www.devshare.bond`），且私钥对 nginx 的 uid 101 可读
 - [ ] 数据库/Redis 无公网地址；生产优先用 RDS / 托管 Redis
 - [ ] `.env*` 权限 600，secret 不进 Git、不进镜像层

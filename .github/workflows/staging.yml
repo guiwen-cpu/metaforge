@@ -11,17 +11,18 @@
 #
 # 产物（阿里云 ACR）：
 #   <ACR_REGISTRY>/<ACR_NAMESPACE>/web:staging + :sha-<commit>
+#   <ACR_REGISTRY>/<ACR_NAMESPACE>/nginx:1.27-alpine（入口镜像，从上游同步）
 #   <ACR_REGISTRY>/<ACR_NAMESPACE>/bff:staging + :sha-<commit>
-#   :staging 是可变指针；实际部署固定用 :sha-<commit>，便于追溯与回滚。
+#   web/bff 的 :staging 是可变指针；实际部署固定用 :sha-<commit>，便于追溯与回滚。
 #
 # 部署：
 #   - push dev 后自动执行，无需额外开关
 #   - 在 environment: staging 下执行（可在仓库设置里加审批与保护规则）
 #   - SSH 到目标机 /srv/metaforge，检出本次 commit 后调用 deploy/release.sh staging
 #   - 目标机需已有 deploy/.env.staging，并已 docker login ACR（或把 ACR 凭据写进该文件）
-#   - 预发用 HTTPS：证书放 /srv/metaforge/certs/（见 deploy/nginx/nginx.tls.conf），
+#   - 预发用 HTTPS：证书放 /srv/metaforge/certs/（见 deploy/nginx/nginx.conf），
 #     nginx 容器以 uid 101 读取，私钥需对该 uid 可读（如 chgrp 101 + chmod 640）
-#   - release.sh 按 TAG 执行 pull → migrate → up
+#   - release.sh 按 TAG 执行 pull → migrate → up → 五容器健康门禁
 #
 # 生产对应流程见 release.yml；日常门禁见 ci.yml；总览见 README.md。
 # =============================================================================
@@ -80,18 +81,19 @@ jobs:
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
-      # 发布机到 Docker Hub 经常超时，且现有加速器不保证有 postgres/redis。
+      # 发布机到 Docker Hub 经常超时，且现有加速器不保证有 postgres/redis/nginx。
       # 先把运行时依赖镜像同步进 ACR，staging/prod 覆盖层只从 ACR 拉取。
       - name: Mirror runtime images to ACR
         run: |
-          for image in postgres:16-alpine redis:7-alpine; do
-            repository="${image%%:*}"
-            tag="${image##*:}"
-            target="${ACR_REGISTRY}/${ACR_NAMESPACE}/${repository}:${tag}"
-            docker pull "$image"
-            docker tag "$image" "$target"
-            docker push "$target"
-          done
+          while read -r source target; do
+            docker pull "$source"
+            docker tag "$source" "${ACR_REGISTRY}/${ACR_NAMESPACE}/${target}"
+            docker push "${ACR_REGISTRY}/${ACR_NAMESPACE}/${target}"
+          done <<EOF
+          postgres:16-alpine postgres:16-alpine
+          redis:7-alpine redis:7-alpine
+          nginxinc/nginx-unprivileged:1.27-alpine nginx:1.27-alpine
+          EOF
 
       # 前端镜像内置设计器与 /demo/；API 走同域反向代理，故 VITE_API_BASE 为空
       - name: Build and push web
