@@ -139,8 +139,8 @@ done
 
 # 容器健康不等于入口可用：再从宿主机走一次真实 HTTPS，验证 nginx 与证书链路
 if command -v curl >/dev/null 2>&1; then
-  if ! curl -fsSk --resolve www.devshare.bond:${https_port}:127.0.0.1 \
-    "https://www.devshare.bond:${https_port}/healthz" >/dev/null; then
+  if ! curl -fsSk --resolve www.devshare.bond:127.0.0.1 \
+    "https://www.devshare.bond/healthz" >/dev/null; then
     printf 'HTTPS 健康检查失败：127.0.0.1:%s/healthz\n' "$https_port" >&2
     exit 1
   fi
