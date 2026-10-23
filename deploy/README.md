@@ -275,15 +275,149 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml down
 
 #### staging / prod 注意
 
-这两个环境的应用镜像来自 ACR，不在部署机本地构建：
+这两个环境必须带 `-p metaforge-staging` / `-p metaforge-prod`，否则 Compose 会落到基础的
+`metaforge` 项目，误操作本地或另一套环境。显式命令见 5.6；应用镜像来自 ACR，部署机不执行 `--build`。
+
+### 5.6 预发（staging）/ 生产（prod）重启与重建
+
+先进入部署目录：
 
 ```bash
-# staging：拉取指定 TAG 后重建
-docker compose --env-file deploy/.env.staging -f deploy/compose.yaml -f deploy/compose.staging.yaml pull web bff
-docker compose --env-file deploy/.env.staging -f deploy/compose.yaml -f deploy/compose.staging.yaml up -d --force-recreate web bff
+cd /srv/metaforge
 ```
 
-prod 同理，把 `staging` 换成 `prod`、`.env.staging` 换成 `.env.prod`、`compose.staging.yaml` 换成 `compose.prod.yaml`。完整发布仍走 `sh deploy/release.sh staging|prod`（含迁移与健康门禁）。
+按场景选择，不要用 `down -v`：
+
+| 场景 | 动作 | 说明 |
+|---|---|---|
+| 只让进程重新启动 | `restart` | 不重读 `.env`，不应用端口 / 挂载 / 镜像变更 |
+| 改了 `.env`、端口、挂载或 TAG | `up -d --force-recreate` | 按当前 Compose 配置重建容器，数据卷保留 |
+| 换了 ACR 镜像标签 | `pull` + `up -d --force-recreate` | 先拉新镜像，再替换应用容器 |
+| 改了源码 / Dockerfile | CI 构建新 TAG 后 `release.sh` | staging / prod 不在部署机本地构建 |
+
+#### staging（预发）
+
+```bash
+# 仅重启应用容器；postgres / redis 保持不动
+docker compose -p metaforge-staging \
+  --env-file deploy/.env.staging \
+  -f deploy/compose.yaml -f deploy/compose.staging.yaml \
+  restart bff web nginx
+
+# 修改 deploy/nginx/nginx.conf 后：先校验语法，再重启入口
+docker compose -p metaforge-staging \
+  --env-file deploy/.env.staging \
+  -f deploy/compose.yaml -f deploy/compose.staging.yaml \
+  exec nginx nginx -t
+docker compose -p metaforge-staging \
+  --env-file deploy/.env.staging \
+  -f deploy/compose.yaml -f deploy/compose.staging.yaml \
+  restart nginx
+
+# 修改 .env.staging / 端口 / 挂载后：重建应用容器（不删数据卷）
+docker compose -p metaforge-staging \
+  --env-file deploy/.env.staging \
+  -f deploy/compose.yaml -f deploy/compose.staging.yaml \
+  up -d --force-recreate bff web nginx
+
+# 切到已推送到 ACR 的新 TAG：拉取并重建
+export TAG=sha-1a2b3c4
+docker compose -p metaforge-staging \
+  --env-file deploy/.env.staging \
+  -f deploy/compose.yaml -f deploy/compose.staging.yaml \
+  pull bff web
+docker compose -p metaforge-staging \
+  --env-file deploy/.env.staging \
+  -f deploy/compose.yaml -f deploy/compose.staging.yaml \
+  up -d --force-recreate bff web
+```
+
+#### prod（生产）
+
+```bash
+# 仅重启应用容器；postgres / redis 保持不动
+docker compose -p metaforge-prod \
+  --env-file deploy/.env.prod \
+  -f deploy/compose.yaml -f deploy/compose.prod.yaml \
+  restart bff web nginx
+
+# 修改 deploy/nginx/nginx.conf 后：先校验语法，再重启入口
+docker compose -p metaforge-prod \
+  --env-file deploy/.env.prod \
+  -f deploy/compose.yaml -f deploy/compose.prod.yaml \
+  exec nginx nginx -t
+docker compose -p metaforge-prod \
+  --env-file deploy/.env.prod \
+  -f deploy/compose.yaml -f deploy/compose.prod.yaml \
+  restart nginx
+
+# 修改 .env.prod / 端口 / 挂载后：重建应用容器（不删数据卷）
+docker compose -p metaforge-prod \
+  --env-file deploy/.env.prod \
+  -f deploy/compose.yaml -f deploy/compose.prod.yaml \
+  up -d --force-recreate bff web nginx
+
+# 切到已推送到 ACR 的新 TAG：拉取并重建
+export TAG=sha-1a2b3c4
+docker compose -p metaforge-prod \
+  --env-file deploy/.env.prod \
+  -f deploy/compose.yaml -f deploy/compose.prod.yaml \
+  pull bff web
+docker compose -p metaforge-prod \
+  --env-file deploy/.env.prod \
+  -f deploy/compose.yaml -f deploy/compose.prod.yaml \
+  up -d --force-recreate bff web
+```
+
+#### 整栈重建与重建镜像
+
+```bash
+# 按当前配置重建全部容器（数据卷保留，期间会短暂中断）
+docker compose -p metaforge-staging \
+  --env-file deploy/.env.staging \
+  -f deploy/compose.yaml -f deploy/compose.staging.yaml \
+  up -d --force-recreate
+
+docker compose -p metaforge-prod \
+  --env-file deploy/.env.prod \
+  -f deploy/compose.yaml -f deploy/compose.prod.yaml \
+  up -d --force-recreate
+
+# 新镜像含数据库迁移时，先迁移再重建；或直接走完整发布
+docker compose -p metaforge-prod \
+  --env-file deploy/.env.prod \
+  -f deploy/compose.yaml -f deploy/compose.prod.yaml \
+  --profile tools run --rm migrate
+sh deploy/release.sh prod sha-1a2b3c4
+
+# staging / prod 的镜像由 CI 构建并推送到 ACR，部署机不要执行 --build。
+# 完整发布依次完成 pull → 迁移 → up → 五容器健康门禁 → HTTPS 探活：
+sh deploy/release.sh staging sha-1a2b3c4
+sh deploy/release.sh prod sha-1a2b3c4
+```
+
+#### 重建后校验
+
+```bash
+# staging 默认 7443；prod 默认 6443，按 .env 中 NGINX_HTTPS_PORT 调整
+docker compose -p metaforge-staging \
+  --env-file deploy/.env.staging \
+  -f deploy/compose.yaml -f deploy/compose.staging.yaml \
+  ps
+curl -fsSk --resolve www.devshare.bond:7443:127.0.0.1 \
+  https://www.devshare.bond:7443/healthz
+
+docker compose -p metaforge-prod \
+  --env-file deploy/.env.prod \
+  -f deploy/compose.yaml -f deploy/compose.prod.yaml \
+  ps
+curl -fsSk --resolve www.devshare.bond:6443:127.0.0.1 \
+  https://www.devshare.bond:6443/healthz
+```
+
+- `restart` 不会重新读取 `.env`；环境变量、端口、挂载和镜像变更必须用 `--force-recreate`。
+- `--force-recreate` 不会删除 `pg_data` / `redis_data` / `attachment_data`，严禁用 `down -v`。
+- 生产切换版本必须使用不可变 `sha-*` 标签，禁止 `latest`；`export TAG=...` 只对当前 shell 生效。
 
 ## 6. 环境变量
 
