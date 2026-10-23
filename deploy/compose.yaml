@@ -177,7 +177,7 @@ services:
         condition: service_healthy
       bff:
         condition: service_healthy
-    networks: [edge]
+    networks: [edge, devshare_net]
     read_only: true
     tmpfs: [/tmp, /var/cache/nginx]
     security_opt: ["no-new-privileges:true"]
@@ -195,6 +195,9 @@ networks:
   edge: {}
   data:
     internal: true
+  devshare_net:
+    external: true
+    name: devshare-prod_devshare
 
 volumes:
   pg_data: {}
