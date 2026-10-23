@@ -169,9 +169,9 @@ services:
   # nginx-unprivileged 以 uid 101 运行，容器内监听 8080/8443；宿主机端口可覆盖为 80/443。
   nginx:
     image: nginxinc/nginx-unprivileged:1.27-alpine
-    ports:
-      - '${NGINX_HTTP_PORT:-80}:8080'
-      - '${NGINX_HTTPS_PORT:-443}:8443'
+    # ports:
+    #   - '${NGINX_HTTP_PORT:-80}:8080'
+    #   - '${NGINX_HTTPS_PORT:-443}:8443'
     depends_on:
       web:
         condition: service_healthy
