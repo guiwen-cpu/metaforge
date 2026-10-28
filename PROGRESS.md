@@ -1,7 +1,7 @@
 # MetaForge · 进度快照
 
-> 最后更新：2026-10-23
-> 分支：`dev` ｜ 最近功能提交：`5dfdf46`（`fix(deploy): 端口变量缺失时快速失败`）
+> 最后更新：2026-10-28
+> 分支：`dev` ｜ 最近功能提交：`cbd6e2d`（`fix(release): 移除容器健康检查中的 HTTPS 请求`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
 ## 环境快照
@@ -13,9 +13,9 @@
 | 演示应用 | `eb84d4bd-461f-4945-9f76-7d69ce732d8b`（请假审批 / `leave_approval_demo`） |
 | 租户 / 用户 | `tenant_demo_school` / `alice` |
 | 容器 | `metaforge-nginx` / `metaforge-web` / `metaforge-bff` / `metaforge-postgres` / `metaforge-redis` |
-| 当前草稿 | `r16`：3 个页面、1 个自定义组件 `biz-card`、逻辑编排完整；已从 v9 恢复中文内容并迁移 `onParamChange`；`r15` 为页面钩子保存回读的临时草稿 |
-| 发布版本 | `v12`：中文内容正常、动作权限 35 条、页面参数生命周期已迁移；`v10/v11` 为阶段 8 钩子冒烟临时版本，`v2/v4/v6` 为冒烟临时版本，`v3/v5/v7` 为回滚快照 |
-| 演示数据 | 请假实例若干（已通过 / 已驳回 / 待审批）；冒烟实例 `ef3ea1e4-cbbe-11f1-ab05-eac30cd331c5` 含 3 条动作日志；`/leave/requests` 底部挂有 `biz-card` 联调节点；运行时闭环单 `01M5D95H48A2VFJHTFQ5BSZK4Q` 已验证提交与撤回（`cancelled`）；`01M5DP7862K31BADGVQKVGSVNE` / `01M5DP77QA2CJPYN3R66MVNHP9` 用于 `leave_batch_recall` 并行撤回验证（`cancelled`） |
+| 当前草稿 | `r16`：3 个页面、0 个自定义组件、逻辑编排完整；已从 v9 恢复中文内容并迁移 `onParamChange`；`r15` 为页面钩子保存回读的临时草稿（2026-10-28 实测 `artifacts.components` 为空） |
+| 发布版本 | `v13`：中文内容正常、动作权限 35 条、页面参数生命周期已迁移；`v10/v11` 为阶段 8 钩子冒烟临时版本，`v2/v4/v6` 为冒烟临时版本，`v3/v5/v7` 为回滚快照 |
+| 演示数据 | 请假实例若干（已通过 / 已驳回 / 待审批）；冒烟实例 `ef3ea1e4-cbbe-11f1-ab05-eac30cd331c5` 含 3 条动作日志；运行时闭环单 `01M5D95H48A2VFJHTFQ5BSZK4Q` 已验证提交与撤回（`cancelled`）；`01M5DP7862K31BADGVQKVGSVNE` / `01M5DP77QA2CJPYN3R66MVNHP9` 用于 `leave_batch_recall` 并行撤回验证（`cancelled`） |
 | 审批入口 | `/apps/<appId>/approvals`；详情 `/approvals/:taskId`，实例 `/instances/:instanceId` |
 | 动作执行 | `POST /api/v1/runtime/apps/{appId}/actions/{actionKey}/execute` |
 | 动作日志 | `GET /api/v1/runtime/apps/{appId}/action-runs`（按 `processInstanceId` / `actionKey` / `status` 过滤）；详情 `GET .../action-runs/{id}` |
@@ -109,6 +109,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 每个模块完成后同步更新本文件：已完成项、环境快照、下一步、里程碑提交表。
 - 影响架构的决策补到「设计决策」；范围变化直接改「剩余路线图」的勾选项。
 - 本文件只记事实与状态，不写过程日志。
+- 前端开发接手先读 `platform/FRONTEND_GUIDE.md`（阅读顺序、路由/页面映射、业务走查、常见坑、第一周任务）。
 
 ## 已完成
 
@@ -520,5 +521,6 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 
 1. `AGENTS.md` —— 工作约定与命令。
 2. 本文件 —— 进度与下一步。
-3. `git log --oneline -8` —— 最近模块。
-4. `docker ps` + `PROGRESS.md` 的环境快照 —— 确认服务在线。
+3. `platform/FRONTEND_GUIDE.md` —— 前端接手：结构、路由、业务与上手任务。
+4. `git log --oneline -8` —— 最近模块。
+5. `docker ps` + `PROGRESS.md` 的环境快照 —— 确认服务在线。
