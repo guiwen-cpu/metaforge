@@ -1,6 +1,6 @@
 # MetaForge · 进度快照
 
-> 最后更新：2026-10-28
+> 最后更新：2026-10-30
 > 分支：`dev` ｜ 最近功能提交：`cbd6e2d`（`fix(release): 移除容器健康检查中的 HTTPS 请求`）
 > 用途：新会话接手时，读完本文件即可恢复上下文。
 
@@ -110,6 +110,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.b
 - 影响架构的决策补到「设计决策」；范围变化直接改「剩余路线图」的勾选项。
 - 本文件只记事实与状态，不写过程日志。
 - 前端开发接手先读 `platform/FRONTEND_GUIDE.md`（阅读顺序、路由/页面映射、业务走查、常见坑、第一周任务）。
+- 简历材料：`简历项目经历-MetaForge.md` 已整理为前端工程师版，按当前源码校准 66 个 TS/Vue 文件 / 约 2.36 万行、四个设计器约 7.2k 行、运行时约 2k 行。
 
 ## 已完成
 
